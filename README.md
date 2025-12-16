@@ -1,8 +1,8 @@
 # pib-ik
 
-Inverse kinematics and trajectory generation for the PIB (Printable, Intelligent Bot) humanoid robot. Convert images to robot arm trajectories for drawing tasks.
+Inverse kinematics and trajectory generation for the pib (Printable, Intelligent Bot) humanoid robot. Convert images to robot arm trajectories for drawing tasks.
 
-![PIB Robot](https://pib.rocks/wp-content/uploads/2023/09/pib_1-1.png)
+![pib robot](https://pib.rocks/)
 
 ## Installation
 
