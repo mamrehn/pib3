@@ -23,6 +23,13 @@ pip install "pib-ik[robot] @ git+https://github.com/mamrehn/pib_ik.git"
 pip install "pib-ik[all] @ git+https://github.com/mamrehn/pib_ik.git"
 ```
 
+If absolutely needing to install this package globally instead of inside a venv do this:
+
+```bash
+# All features
+pip install  --break-system-packages "pib-ik[all] @ git+https://github.com/mamrehn/pib_ik.git"
+```
+
 ### Development Installation
 
 ```bash
