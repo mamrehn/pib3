@@ -1,0 +1,96 @@
+"""Configuration dataclasses for pib_ik package."""
+
+from dataclasses import dataclass, field
+from typing import Optional
+
+
+@dataclass
+class PaperConfig:
+    """Configuration for the drawing surface (paper).
+
+    Attributes:
+        start_x: Paper front edge X position in meters (distance from robot).
+        size: Paper width/height in meters (assumes square paper).
+        height_z: Table/paper height in meters (Z coordinate).
+        center_y: Paper center Y position. If None, auto-calculated based on arm reach.
+        drawing_scale: Scale factor for drawing within paper bounds (0.0-1.0).
+        lift_height: Pen-up distance in meters when moving between strokes.
+    """
+    start_x: float = 0.10
+    size: float = 0.12
+    height_z: float = 0.74
+    center_y: Optional[float] = None
+    drawing_scale: float = 0.8
+    lift_height: float = 0.03
+
+
+@dataclass
+class IKConfig:
+    """Configuration for the inverse kinematics solver.
+
+    Attributes:
+        max_iterations: Maximum iterations for gradient descent.
+        tolerance: Position tolerance in meters.
+        step_size: Gradient descent step size.
+        damping: Damping factor for damped least squares.
+        arm: Which arm to use for drawing ("left" or "right").
+    """
+    max_iterations: int = 150
+    tolerance: float = 0.002
+    step_size: float = 0.4
+    damping: float = 0.01
+    arm: str = "left"
+
+
+@dataclass
+class ImageConfig:
+    """Configuration for image-to-sketch conversion.
+
+    Attributes:
+        threshold: Black/white threshold (0-255).
+        auto_foreground: Automatically detect minority pixels as foreground.
+        simplify_tolerance: Douglas-Peucker simplification tolerance in pixels.
+        min_contour_length: Minimum contour length in pixels.
+        min_contour_points: Minimum vertices after simplification.
+        margin: Margin/padding in normalized coordinates (0.0-1.0).
+        optimize_path_order: Use TSP optimization to minimize pen-up travel.
+    """
+    threshold: int = 128
+    auto_foreground: bool = True
+    simplify_tolerance: float = 2.0
+    min_contour_length: int = 10
+    min_contour_points: int = 3
+    margin: float = 0.05
+    optimize_path_order: bool = True
+
+
+@dataclass
+class TrajectoryConfig:
+    """Full configuration for trajectory generation.
+
+    Combines paper, IK, and image settings with additional parameters.
+
+    Attributes:
+        paper: Paper/drawing surface configuration.
+        ik: Inverse kinematics solver configuration.
+        image: Image processing configuration.
+        point_density: Interpolation density for smooth motion.
+    """
+    paper: PaperConfig = field(default_factory=PaperConfig)
+    ik: IKConfig = field(default_factory=IKConfig)
+    image: ImageConfig = field(default_factory=ImageConfig)
+    point_density: float = 0.01
+
+
+@dataclass
+class RobotConfig:
+    """Configuration for real robot connection via rosbridge.
+
+    Attributes:
+        host: Robot IP address.
+        port: Rosbridge websocket port.
+        timeout: Connection timeout in seconds.
+    """
+    host: str = "172.26.34.149"
+    port: int = 9090
+    timeout: float = 5.0
