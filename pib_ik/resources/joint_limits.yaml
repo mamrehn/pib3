@@ -8,88 +8,87 @@
 joints:
   # Head joints
   turn_head_motor:
-    min: -1.57  # TODO: calibrate
-    max: 1.57   # TODO: calibrate
+    min: -1.5707963267948966  # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
   tilt_forward_motor:
-    min: -0.5   # TODO: calibrate
-    max: 0.5    # TODO: calibrate
+    min: -0.7853981633974483   # TODO: calibrate
+    max: 1.2217304763960306    # TODO: calibrate
 
   # Left arm joints
   shoulder_vertical_left:
-    min: 0.0    # TODO: calibrate
-    max: 3.14   # TODO: calibrate
+    min: -1.5707963267948966    # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
   shoulder_horizontal_left:
-    min: 0.0    # TODO: calibrate
-    max: 3.14   # TODO: calibrate
+    min: -1.5707963267948966    # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
   upper_arm_left_rotation:
-    min: -1.57  # TODO: calibrate
-    max: 1.57   # TODO: calibrate
+    min: -1.5707963267948966  # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
   elbow_left:
-    min: 0.0    # TODO: calibrate
-    max: 2.5    # TODO: calibrate
+    min: -0.7853981633974483    # TODO: calibrate
+    max: 1.5707963267948966    # TODO: calibrate
   lower_arm_left_rotation:
-    min: -1.57  # TODO: calibrate
-    max: 1.57   # TODO: calibrate
+    min: -1.5707963267948966  # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
   wrist_left:
-    min: -1.57  # TODO: calibrate
-    max: 1.57   # TODO: calibrate
-
+    min: -0.5235987755982988  # TODO: calibrate
+    max: 0.5235987755982988   # TODO: calibrate
   # Left hand joints
   thumb_left_opposition:
     min: 0.0
-    max: 1.57   # TODO: calibrate (90 degrees = 9000 centideg)
+    max: 1.5707963267948966   # TODO: calibrate (90 degrees = 9000 centideg)
   thumb_left_stretch:
     min: 0.0
-    max: 1.57   # TODO: calibrate
+    max: 1.5707963267948966  # TODO: calibrate
   index_left_stretch:
     min: 0.0
-    max: 1.57   # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
   middle_left_stretch:
     min: 0.0
-    max: 1.57   # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
   ring_left_stretch:
     min: 0.0
-    max: 1.57   # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
   pinky_left_stretch:
     min: 0.0
-    max: 1.57   # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
 
   # Right arm joints
   shoulder_vertical_right:
-    min: 0.0    # TODO: calibrate
-    max: 3.14   # TODO: calibrate
+    min: -1.5707963267948966    # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
   shoulder_horizontal_right:
-    min: 0.0    # TODO: calibrate
-    max: 3.14   # TODO: calibrate
+    min: -1.5707963267948966  # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
   upper_arm_right_rotation:
-    min: -1.57  # TODO: calibrate
-    max: 1.57   # TODO: calibrate
+    min: -1.5707963267948966  # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
   elbow_right:
-    min: 0.0    # TODO: calibrate
-    max: 2.5    # TODO: calibrate
+    min: -0.7853981633974483    # TODO: calibrate
+    max: 1.5707963267948966    # TODO: calibrate
   lower_arm_right_rotation:
-    min: -1.57  # TODO: calibrate
-    max: 1.57   # TODO: calibrate
+    min: -1.5707963267948966  # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
   wrist_right:
-    min: -1.57  # TODO: calibrate
-    max: 1.57   # TODO: calibrate
+    min: -1.5707963267948966  # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
 
   # Right hand joints
   thumb_right_opposition:
     min: 0.0
-    max: 1.57   # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
   thumb_right_stretch:
     min: 0.0
-    max: 1.57   # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
   index_right_stretch:
     min: 0.0
-    max: 1.57   # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
   middle_right_stretch:
     min: 0.0
-    max: 1.57   # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
   ring_right_stretch:
     min: 0.0
-    max: 1.57   # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
   pinky_right_stretch:
     min: 0.0
-    max: 1.57   # TODO: calibrate
+    max: 1.5707963267948966   # TODO: calibrate
