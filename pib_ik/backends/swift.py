@@ -250,6 +250,8 @@ class SwiftBackend(RobotBackend):
         >>> viz.launch_interactive()  # Opens slider UI at localhost:8001
     """
 
+    SWIFT_OFFSET = -1.0  # radians offset for Swift motors
+
     def __init__(self, realtime: bool = True):
         """
         Initialize Swift visualization backend.
@@ -269,11 +271,11 @@ class SwiftBackend(RobotBackend):
 
     def _to_backend_format(self, radians: np.ndarray) -> np.ndarray:
         """Swift uses URDF radians directly."""
-        return radians
+        return radians + self.SWIFT_OFFSET
 
     def _from_backend_format(self, values: np.ndarray) -> np.ndarray:
         """Swift uses URDF radians directly."""
-        return values
+        return values + self.SWIFT_OFFSET
 
     def _get_urdf_path(self) -> Path:
         """Get path to bundled URDF file."""
@@ -408,7 +410,7 @@ class SwiftBackend(RobotBackend):
                 if name in self._joint_name_to_idx:
                     idx = self._joint_name_to_idx[name]
                     if idx < len(self._robot.q):
-                        result[name] = float(self._robot.q[idx])
+                        result[name] = float(self._robot.q[idx]) + self.SWIFT_OFFSET
 
         return result
 
@@ -423,7 +425,7 @@ class SwiftBackend(RobotBackend):
             if joint_name in self._joint_name_to_idx:
                 idx = self._joint_name_to_idx[joint_name]
                 if idx < len(q):
-                    q[idx] = position
+                    q[idx] = position + self.SWIFT_OFFSET
 
         self._robot.q = q
         self._env.step(0.05)

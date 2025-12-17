@@ -52,7 +52,7 @@ class WebotsBackend(RobotBackend):
             backend.run_trajectory("trajectory.json")
     """
 
-    WEBOTS_OFFSET = 1.0  # radians offset for Webots motors
+    WEBOTS_OFFSET = 0.0  # radians offset for Webots motors
 
     def __init__(self, step_ms: int = 50):
         """
