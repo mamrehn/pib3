@@ -359,9 +359,9 @@ class SwiftBackend(RobotBackend):
         """Check if visualization is active."""
         return self._env is not None and self._robot is not None
 
-    def get_joint(self, motor_name: str) -> Optional[float]:
+    def _get_joint_radians(self, motor_name: str) -> Optional[float]:
         """
-        Get current position of a single joint.
+        Get current position of a single joint in radians.
 
         Args:
             motor_name: Name of motor (e.g., "elbow_left").
@@ -379,12 +379,12 @@ class SwiftBackend(RobotBackend):
 
         return None
 
-    def get_joints(
+    def _get_joints_radians(
         self,
         motor_names: Optional[List[str]] = None,
     ) -> Dict[str, float]:
         """
-        Get current positions of multiple joints.
+        Get current positions of multiple joints in radians.
 
         Args:
             motor_names: List of motor names to query. If None, returns all

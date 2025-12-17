@@ -103,9 +103,9 @@ class WebotsBackend(RobotBackend):
         """Check if robot is initialized."""
         return self._robot is not None
 
-    def get_joint(self, motor_name: str) -> Optional[float]:
+    def _get_joint_radians(self, motor_name: str) -> Optional[float]:
         """
-        Get current position of a single joint.
+        Get current position of a single joint in radians.
 
         Args:
             motor_name: Name of motor (e.g., "elbow_left").
@@ -126,12 +126,12 @@ class WebotsBackend(RobotBackend):
 
         return None
 
-    def get_joints(
+    def _get_joints_radians(
         self,
         motor_names: Optional[List[str]] = None,
     ) -> Dict[str, float]:
         """
-        Get current positions of multiple joints.
+        Get current positions of multiple joints in radians.
 
         Args:
             motor_names: List of motor names to query. If None, returns all
@@ -147,7 +147,7 @@ class WebotsBackend(RobotBackend):
         names_to_query = motor_names if motor_names is not None else list(self._motors.keys())
 
         for name in names_to_query:
-            pos = self.get_joint(name)
+            pos = self._get_joint_radians(name)
             if pos is not None:
                 result[name] = pos
 

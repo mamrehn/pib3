@@ -1,0 +1,95 @@
+# PIB Robot Joint Limits Configuration
+# These values define the mapping from percentage (0-100%) to radians.
+# 0% = min (radians), 100% = max (radians)
+#
+# Values are in radians. Fill in actual limits based on robot hardware calibration.
+# Example: turn_head_motor at 50% = centered/front-facing
+
+joints:
+  # Head joints
+  turn_head_motor:
+    min: -1.57  # TODO: calibrate
+    max: 1.57   # TODO: calibrate
+  tilt_forward_motor:
+    min: -0.5   # TODO: calibrate
+    max: 0.5    # TODO: calibrate
+
+  # Left arm joints
+  shoulder_vertical_left:
+    min: 0.0    # TODO: calibrate
+    max: 3.14   # TODO: calibrate
+  shoulder_horizontal_left:
+    min: 0.0    # TODO: calibrate
+    max: 3.14   # TODO: calibrate
+  upper_arm_left_rotation:
+    min: -1.57  # TODO: calibrate
+    max: 1.57   # TODO: calibrate
+  elbow_left:
+    min: 0.0    # TODO: calibrate
+    max: 2.5    # TODO: calibrate
+  lower_arm_left_rotation:
+    min: -1.57  # TODO: calibrate
+    max: 1.57   # TODO: calibrate
+  wrist_left:
+    min: -1.57  # TODO: calibrate
+    max: 1.57   # TODO: calibrate
+
+  # Left hand joints
+  thumb_left_opposition:
+    min: 0.0
+    max: 1.57   # TODO: calibrate (90 degrees = 9000 centideg)
+  thumb_left_stretch:
+    min: 0.0
+    max: 1.57   # TODO: calibrate
+  index_left_stretch:
+    min: 0.0
+    max: 1.57   # TODO: calibrate
+  middle_left_stretch:
+    min: 0.0
+    max: 1.57   # TODO: calibrate
+  ring_left_stretch:
+    min: 0.0
+    max: 1.57   # TODO: calibrate
+  pinky_left_stretch:
+    min: 0.0
+    max: 1.57   # TODO: calibrate
+
+  # Right arm joints
+  shoulder_vertical_right:
+    min: 0.0    # TODO: calibrate
+    max: 3.14   # TODO: calibrate
+  shoulder_horizontal_right:
+    min: 0.0    # TODO: calibrate
+    max: 3.14   # TODO: calibrate
+  upper_arm_right_rotation:
+    min: -1.57  # TODO: calibrate
+    max: 1.57   # TODO: calibrate
+  elbow_right:
+    min: 0.0    # TODO: calibrate
+    max: 2.5    # TODO: calibrate
+  lower_arm_right_rotation:
+    min: -1.57  # TODO: calibrate
+    max: 1.57   # TODO: calibrate
+  wrist_right:
+    min: -1.57  # TODO: calibrate
+    max: 1.57   # TODO: calibrate
+
+  # Right hand joints
+  thumb_right_opposition:
+    min: 0.0
+    max: 1.57   # TODO: calibrate
+  thumb_right_stretch:
+    min: 0.0
+    max: 1.57   # TODO: calibrate
+  index_right_stretch:
+    min: 0.0
+    max: 1.57   # TODO: calibrate
+  middle_right_stretch:
+    min: 0.0
+    max: 1.57   # TODO: calibrate
+  ring_right_stretch:
+    min: 0.0
+    max: 1.57   # TODO: calibrate
+  pinky_right_stretch:
+    min: 0.0
+    max: 1.57   # TODO: calibrate

@@ -1,264 +1,155 @@
 # pib-ik
 
-Inverse kinematics and trajectory generation for the pib (Printable, Intelligent Bot) humanoid robot. Convert images to robot arm trajectories for drawing tasks.
+Inverse kinematics and trajectory generation for the [PIB](https://pib.rocks/) (Printable, Intelligent Bot) humanoid robot. Convert images to robot arm trajectories for drawing tasks.
 
-![pib robot](https://pib.rocks/)
+![PIB Robot](https://pib.rocks/wp-content/uploads/2023/09/pib_1-1.png)
 
-## Installation
+## Features
+
+- Convert images to robot drawing trajectories
+- Percentage-based joint control (0-100%) that works across all backends
+- Support for real robot, Webots simulation, and Swift 3D visualization
+- Interactive joint calibration tool
+- Save and restore robot poses
+
+## Quick Install
 
 ```bash
-# Basic installation
-pip install git+https://github.com/mamrehn/pib_ik.git
-
-# With image processing support (recommended)
-pip install "pib-ik[image] @ git+https://github.com/mamrehn/pib_ik.git"
-
-# With Swift visualization
-pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib_ik.git"
-
-# With real robot support
-pip install "pib-ik[robot] @ git+https://github.com/mamrehn/pib_ik.git"
-
-# All features
 pip install "pib-ik[all] @ git+https://github.com/mamrehn/pib_ik.git"
 ```
 
-If absolutely needing to install this package globally instead of inside a venv do this:
-
-```bash
-pip install  --break-system-packages "pib-ik[all] @ git+https://github.com/mamrehn/pib_ik.git"
-```
-
-### Development Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/mamrehn/pib_ik.git
-cd pib_ik
-
-# Install in development mode
-pip install -e .
-
-# Or with all optional dependencies
-pip install -e ".[all]"
-```
+For detailed installation instructions including virtual environment setup, see [INSTALLATION.md](INSTALLATION.md).
 
 ## Quick Start
 
+### Generate a Drawing Trajectory
+
 ```python
 import pib_ik
 
-# One-shot: image to trajectory
+# Convert image to robot trajectory
 trajectory = pib_ik.generate_trajectory("drawing.png")
 trajectory.to_json("output.json")
-
-# Or step-by-step for more control:
-sketch = pib_ik.image_to_sketch("drawing.png")
-trajectory = pib_ik.sketch_to_trajectory(sketch)
 ```
+
+### Control the Real Robot
+
+```python
+from pib_ik import Robot
+
+with Robot(host="172.26.34.149") as robot:
+    # Control joints using percentage (0-100%)
+    robot.set_joint("turn_head_motor", 50.0)  # Center head
+    robot.set_joint("elbow_left", 75.0)       # 75% of range
+
+    # Read current position
+    pos = robot.get_joint("elbow_left")
+    print(f"Elbow at {pos:.1f}%")
+
+    # Save and restore poses
+    saved_pose = robot.get_joints()
+    # ... do something ...
+    robot.set_joints(saved_pose)
+
+    # Execute a trajectory
+    robot.run_trajectory("output.json")
+```
+
+### Visualize in Browser (Swift)
+
+```python
+from pib_ik import Swift
+
+with Swift() as viz:
+    # Run a trajectory
+    viz.run_trajectory("output.json")
+
+    # Or launch interactive mode with sliders
+    # viz.launch_interactive()
+```
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [INSTALLATION.md](INSTALLATION.md) | Detailed installation guide for Linux and Windows |
+| [CALIBRATION.md](CALIBRATION.md) | How to calibrate joint limits for your robot |
+
+## Joint Control API
+
+All backends (Robot, Swift, Webots) share the same API:
+
+```python
+# Percentage (default) - 0% = min position, 100% = max position
+robot.set_joint("elbow_left", 50.0)           # Set to 50%
+robot.set_joints({"elbow_left": 50.0, "wrist_left": 25.0})
+
+# Radians (optional)
+robot.set_joint("elbow_left", 1.25, unit="rad")
+
+# Reading positions
+pos = robot.get_joint("elbow_left")           # Returns percentage
+pos_rad = robot.get_joint("elbow_left", unit="rad")
+
+# Save/restore poses
+saved = robot.get_joints()
+robot.set_joints(saved)
+
+# Verification (wait until joint reaches target)
+robot.set_joint("elbow_left", 50.0, verify=True)
+```
+
+**Note**: The percentage system requires calibrated joint limits. See [CALIBRATION.md](CALIBRATION.md).
 
 ## Backends
 
-### Swift Visualization (Browser-based 3D viewer)
-
-```python
-import pib_ik
-
-trajectory = pib_ik.generate_trajectory("drawing.png")
-
-# Run trajectory visualization
-with pib_ik.Swift() as viz:
-    viz.run_trajectory(trajectory)
-
-# Or launch interactive mode with slider controls
-with pib_ik.Swift() as viz:
-    viz.launch_interactive()  # Opens browser with joint sliders
-```
-
-### Real Robot (via rosbridge)
-
-```python
-import pib_ik
-
-trajectory = pib_ik.generate_trajectory("drawing.png")
-
-# Execute on real robot
-with pib_ik.Robot(host="172.26.34.149") as robot:
-    robot.run_trajectory(trajectory)
-
-# Manual joint control
-with pib_ik.Robot(host="172.26.34.149") as robot:
-    # Set a single joint
-    robot.set_joint("elbow_left", 0.5)  # radians
-
-    # Set with verification (waits until joint reaches position)
-    success = robot.set_joint("elbow_left", 0.5, verify=True)
-
-    # Read current joint position
-    angle = robot.get_joint("elbow_left")
-    print(f"Elbow at {angle:.2f} rad")
-
-    # Save current pose
-    saved_pose = robot.get_joints()
-
-    # ... do something ...
-
-    # Restore saved pose
-    robot.set_joints(saved_pose)
-
-    # Set multiple joints with verification
-    robot.set_joints({
-        "shoulder_vertical_left": 0.3,
-        "elbow_left": 0.8,
-    }, verify=True, verify_timeout=2.0)
-```
-
-### Webots Simulation
-
-```python
-import pib_ik
-
-# In a Webots controller script
-with pib_ik.Webots(robot_instance) as webots:
-    trajectory = pib_ik.Trajectory.from_json("trajectory.json")
-    webots.run_trajectory(trajectory)
-```
+| Backend | Description | Installation |
+|---------|-------------|--------------|
+| `Robot` | Real PIB robot via rosbridge | `pip install pib-ik[robot]` |
+| `Swift` | Browser-based 3D visualization | `pip install pib-ik[viz]` |
+| `Webots` | Webots simulator integration | (included in base) |
 
 ## Configuration
 
-All configuration is done via dataclasses:
-
 ```python
-import pib_ik
-from pib_ik import TrajectoryConfig, PaperConfig, IKConfig, ImageConfig
+from pib_ik import TrajectoryConfig, PaperConfig
 
-# Custom paper configuration
 config = TrajectoryConfig(
     paper=PaperConfig(
-        size=0.15,           # 15cm x 15cm drawing area
-        offset_x=0.0,        # Paper center X offset
-        offset_y=0.15,       # Paper center Y offset (left of robot)
+        size=0.15,           # 15cm x 15cm paper
+        offset_y=0.15,       # Position left of robot
         offset_z=0.74,       # Paper height
-        drawing_scale=0.85,  # Use 85% of paper area
-    ),
-    ik=IKConfig(
-        max_iterations=100,
-        tolerance=0.001,
-        damping=0.1,
-    ),
-    image=ImageConfig(
-        simplify_tolerance=2.0,
-        min_contour_length=5,
+        drawing_scale=0.85,  # Use 85% of paper
     ),
 )
 
 trajectory = pib_ik.generate_trajectory("drawing.png", config=config)
 ```
 
-## API Reference
-
-### Core Types
-
-- `Stroke` - A single 2D line (list of (x, y) points normalized to [0, 1])
-- `Sketch` - A collection of strokes representing a drawing
-- `Trajectory` - Robot joint positions over time
-
-### Functions
-
-- `image_to_sketch(image, config)` - Convert image to 2D strokes
-- `sketch_to_trajectory(sketch, config)` - Convert strokes to robot trajectory
-- `generate_trajectory(image, config)` - One-shot image to trajectory
-
-### Backends
-
-- `Swift` / `SwiftBackend` - Browser-based 3D visualization
-- `Robot` / `RealRobotBackend` - Real robot via rosbridge websocket
-- `Webots` / `WebotsBackend` - Webots simulator integration
-
-All backends provide these methods:
-
-| Method | Description |
-|--------|-------------|
-| `get_joint(name)` | Get current position of a joint (radians) |
-| `get_joints(names=None)` | Get positions of multiple joints (dict) |
-| `set_joint(name, pos, verify=False)` | Set a single joint position |
-| `set_joints(positions, verify=False)` | Set multiple joints (dict or saved pose) |
-| `run_trajectory(trajectory)` | Execute a full trajectory |
-
-The `verify` parameter waits until the joint(s) reach the target position within tolerance.
-
 ## Tools
 
-### Proto to URDF Converter
+### Joint Calibration
 
-Convert Webots `.proto` files to URDF format:
+```bash
+# Calibrate left hand joints
+python -m pib_ik.tools.calibrate_joints --host 172.26.34.149 --group left_hand
 
-```python
-from pib_ik.tools import convert_proto_to_urdf
-
-# Convert proto file to URDF
-urdf_content = convert_proto_to_urdf("pibsim_webots/protos/pib.proto")
-with open("pib_model.urdf", "w") as f:
-    f.write(urdf_content)
+# List available joints
+python -m pib_ik.tools.calibrate_joints --list
 ```
 
-## Trajectory JSON Format
-
-Trajectories are stored in a standardized JSON format:
-
-```json
-{
-  "format_version": "1.0",
-  "unit": "radians",
-  "coordinate_frame": "urdf",
-  "joint_names": ["turn_head_motor", "tilt_forward_motor", ...],
-  "waypoints": [
-    [0.1, 0.2, 0.3, ...],
-    [0.15, 0.25, 0.35, ...]
-  ],
-  "metadata": {
-    "created_at": "2024-01-01T12:00:00Z",
-    "offsets": {
-      "webots": 1.0,
-      "description": "Add to convert radians -> Webots motor positions"
-    }
-  }
-}
-```
-
-Each waypoint is an array of joint positions (in radians) matching the order of `joint_names`.
-
-All joint positions are stored in radians. Backend-specific conversions:
-- **Webots**: Adds 1.0 radian offset
-- **Real Robot**: Converts to centidegrees (degrees × 100)
-
-## Unit Conversions
-
-| Context | Unit | Conversion |
-|---------|------|------------|
-| Trajectory JSON | radians | canonical format |
-| Webots motors | radians + 1.0 | `webots_pos = radians + 1.0` |
-| Real robot (ROS) | centidegrees | `centideg = degrees(radians) * 100` |
-
-## Robot Specifications
-
-- **Robot**: PIB humanoid (36 DOF)
-- **Drawing Arm**: Left arm (6 DOF) + index finger
-- **End Effector**: Left index finger tip
-- **Default Workspace**: ~12cm x 12cm at ~74cm height
+See [CALIBRATION.md](CALIBRATION.md) for the complete guide.
 
 ## Requirements
 
-Core dependencies:
-- numpy >= 1.20.0
-- Pillow >= 8.0.0
-- roboticstoolbox-python >= 1.0.0
-- spatialmath-python >= 1.0.0
+- Python 3.8+
+- numpy, Pillow, PyYAML
+- roboticstoolbox-python, spatialmath-python
 
 Optional:
-- scikit-image >= 0.18.0 (image processing)
-- swift-sim >= 1.0.0 (visualization)
-- roslibpy >= 1.0.0 (real robot)
+- scikit-image (image processing)
+- swift-sim (visualization)
+- roslibpy (real robot)
 
 ## License
 
@@ -268,4 +159,3 @@ MIT License
 
 - [PIB Project](https://pib.rocks/) - Open source humanoid robot
 - [Robotics Toolbox for Python](https://github.com/petercorke/robotics-toolbox-python)
-- [Webots](https://cyberbotics.com/) - Robot simulator

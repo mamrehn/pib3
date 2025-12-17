@@ -1,0 +1,390 @@
+# Image to Trajectory
+
+Learn how to convert images to robot drawing trajectories.
+
+## Objectives
+
+By the end of this tutorial, you will:
+
+- Understand the image-to-trajectory pipeline
+- Convert images to sketches (2D strokes)
+- Generate robot trajectories using inverse kinematics
+- Save and load trajectories
+- Handle different image types
+
+## Prerequisites
+
+- pib-ik installed with image support: `pip install "pib-ik[image] @ git+https://github.com/mamrehn/pib_ik.git"`
+- A sample image to convert
+
+---
+
+## The Pipeline
+
+Converting an image to a robot trajectory involves three stages:
+
+```mermaid
+graph LR
+    A[Image] --> B[Sketch]
+    B --> C[Trajectory]
+    C --> D[Execution]
+
+    A1[PNG/JPG] --> A
+    B1[2D Strokes] --> B
+    C1[3D Joint Positions] --> C
+    D1[Robot/Swift/Webots] --> D
+```
+
+1. **Image → Sketch**: Extract contours, simplify, normalize to 2D strokes
+2. **Sketch → Trajectory**: Map 2D points to 3D space, solve inverse kinematics
+3. **Trajectory → Execution**: Send joint positions to robot/simulator
+
+---
+
+## Quick Method
+
+The simplest way to convert an image:
+
+```python
+import pib_ik
+
+# One function does everything
+trajectory = pib_ik.generate_trajectory("my_drawing.png")
+
+# Save for later use
+trajectory.to_json("output.json")
+```
+
+---
+
+## Step-by-Step Method
+
+For more control, use the step-by-step approach:
+
+### Step 1: Load and Process Image
+
+```python
+import pib_ik
+
+# Convert image to sketch (2D strokes)
+sketch = pib_ik.image_to_sketch("my_drawing.png")
+
+# Inspect the result
+print(f"Number of strokes: {len(sketch)}")
+print(f"Total points: {sketch.total_points()}")
+print(f"Total length: {sketch.total_length():.2f}")
+print(f"Bounding box: {sketch.bounds()}")
+```
+
+### Step 2: Inspect Individual Strokes
+
+```python
+# Look at each stroke
+for i, stroke in enumerate(sketch):
+    print(f"Stroke {i}: {len(stroke)} points, "
+          f"length={stroke.length():.3f}, "
+          f"closed={stroke.closed}")
+```
+
+### Step 3: Generate Trajectory
+
+```python
+# Convert to 3D robot trajectory
+trajectory = pib_ik.sketch_to_trajectory(sketch)
+
+print(f"Waypoints: {len(trajectory)}")
+print(f"Success rate: {trajectory.metadata.get('success_rate', 0):.1%}")
+```
+
+### Step 4: Save the Trajectory
+
+```python
+# Save to JSON file
+trajectory.to_json("my_trajectory.json")
+
+# Load it back later
+loaded = pib_ik.Trajectory.from_json("my_trajectory.json")
+```
+
+---
+
+## Understanding Image Processing
+
+### What Makes a Good Input Image?
+
+| Good Images | Poor Images |
+|-------------|-------------|
+| High contrast | Low contrast |
+| Black lines on white | Grayscale gradients |
+| Simple shapes | Complex textures |
+| Clear edges | Blurry edges |
+| PNG with transparency | Compressed JPG artifacts |
+
+### Example: Processing Different Image Types
+
+```python
+import pib_ik
+from pib_ik import ImageConfig
+
+# For a clean black-on-white drawing
+config = ImageConfig(
+    threshold=128,
+    auto_foreground=True,
+)
+sketch = pib_ik.image_to_sketch("clean_drawing.png", config)
+
+# For a pencil sketch (lighter lines)
+config = ImageConfig(
+    threshold=200,  # More sensitive to light lines
+    simplify_tolerance=3.0,  # More smoothing
+)
+sketch = pib_ik.image_to_sketch("pencil_sketch.jpg", config)
+
+# For a detailed image (preserve details)
+config = ImageConfig(
+    simplify_tolerance=1.0,  # Less simplification
+    min_contour_length=5,    # Keep smaller features
+)
+sketch = pib_ik.image_to_sketch("detailed.png", config)
+```
+
+---
+
+## Working with Different Input Formats
+
+### From File Path
+
+```python
+import pib_ik
+
+# String path
+sketch = pib_ik.image_to_sketch("drawing.png")
+
+# Path object
+from pathlib import Path
+sketch = pib_ik.image_to_sketch(Path("images/drawing.png"))
+```
+
+### From NumPy Array
+
+```python
+import numpy as np
+import pib_ik
+
+# Grayscale array (height, width)
+gray_image = np.zeros((100, 100), dtype=np.uint8)
+gray_image[25:75, 25:75] = 255  # White square
+sketch = pib_ik.image_to_sketch(gray_image)
+
+# RGB array (height, width, 3)
+rgb_image = np.zeros((100, 100, 3), dtype=np.uint8)
+rgb_image[25:75, 25:75] = [255, 0, 0]  # Red square
+sketch = pib_ik.image_to_sketch(rgb_image)
+
+# RGBA with transparency
+rgba_image = np.zeros((100, 100, 4), dtype=np.uint8)
+rgba_image[25:75, 25:75] = [0, 0, 0, 255]  # Opaque black square
+sketch = pib_ik.image_to_sketch(rgba_image)
+```
+
+### From PIL Image
+
+```python
+from PIL import Image
+import pib_ik
+
+# Open with PIL
+pil_image = Image.open("drawing.png")
+
+# Optionally process with PIL first
+pil_image = pil_image.resize((200, 200))
+pil_image = pil_image.rotate(45)
+
+# Convert to sketch
+sketch = pib_ik.image_to_sketch(pil_image)
+```
+
+---
+
+## Tracking Progress
+
+For large images or slow systems, track IK solving progress:
+
+```python
+import pib_ik
+
+def progress_callback(current, total, success):
+    """Called for each trajectory point."""
+    percent = (current / total) * 100
+    status = "✓" if success else "✗"
+    print(f"\r[{percent:5.1f}%] Point {current}/{total} {status}", end="")
+
+sketch = pib_ik.image_to_sketch("complex_drawing.png")
+trajectory = pib_ik.sketch_to_trajectory(
+    sketch,
+    progress_callback=progress_callback
+)
+print()  # New line after progress
+```
+
+---
+
+## Visualizing During Generation
+
+Watch the IK solving process in Swift:
+
+```python
+import pib_ik
+
+sketch = pib_ik.image_to_sketch("drawing.png")
+
+# Enable visualization during IK solving
+trajectory = pib_ik.sketch_to_trajectory(
+    sketch,
+    visualize=True  # Opens Swift browser window
+)
+```
+
+!!! note
+    Visualization slows down trajectory generation but helps debug IK issues.
+
+---
+
+## Complete Example
+
+```python
+"""
+Complete image-to-trajectory example.
+"""
+import pib_ik
+from pib_ik import TrajectoryConfig, PaperConfig, ImageConfig, IKConfig
+
+# Configure all parameters
+config = TrajectoryConfig(
+    # Paper/drawing surface
+    paper=PaperConfig(
+        size=0.15,           # 15cm x 15cm
+        height_z=0.74,       # Table height in meters
+        drawing_scale=0.85,  # Use 85% of paper
+        lift_height=0.03,    # 3cm pen lift between strokes
+    ),
+    # Image processing
+    image=ImageConfig(
+        threshold=128,
+        auto_foreground=True,
+        simplify_tolerance=2.0,
+        min_contour_length=10,
+        optimize_path_order=True,  # Minimize pen travel
+    ),
+    # IK solver
+    ik=IKConfig(
+        max_iterations=150,
+        tolerance=0.002,  # 2mm position tolerance
+        arm="left",       # Use left arm
+    ),
+)
+
+# Process image
+print("Loading image...")
+sketch = pib_ik.image_to_sketch("my_drawing.png", config.image)
+print(f"Extracted {len(sketch)} strokes with {sketch.total_points()} points")
+
+# Generate trajectory with progress
+print("\nGenerating trajectory...")
+def on_progress(current, total, success):
+    if current % 50 == 0 or current == total:
+        rate = current / total * 100
+        print(f"  Progress: {rate:.0f}%")
+
+trajectory = pib_ik.sketch_to_trajectory(
+    sketch,
+    config,
+    progress_callback=on_progress
+)
+
+# Show results
+print(f"\nTrajectory generated!")
+print(f"  Waypoints: {len(trajectory)}")
+print(f"  Success rate: {trajectory.metadata['success_rate']:.1%}")
+print(f"  Failed points: {trajectory.metadata['fail_count']}")
+
+# Save
+trajectory.to_json("output_trajectory.json")
+print(f"\nSaved to output_trajectory.json")
+```
+
+---
+
+## Troubleshooting
+
+!!! warning "No strokes extracted from image"
+    **Cause:** Image may be inverted or threshold is wrong.
+
+    **Solution:**
+
+    ```python
+    config = ImageConfig(
+        auto_foreground=True,  # Auto-detect foreground
+        threshold=100,         # Try different values (0-255)
+    )
+    ```
+
+!!! warning "Too many small strokes"
+    **Cause:** Noise or small features being detected.
+
+    **Solution:**
+
+    ```python
+    config = ImageConfig(
+        min_contour_length=20,   # Filter small contours
+        min_contour_points=5,    # Minimum points per stroke
+        simplify_tolerance=3.0,  # More simplification
+    )
+    ```
+
+!!! warning "Strokes are too simplified"
+    **Cause:** `simplify_tolerance` is too high.
+
+    **Solution:**
+
+    ```python
+    config = ImageConfig(
+        simplify_tolerance=0.5,  # Less simplification
+    )
+    ```
+
+!!! warning "IK success rate is low"
+    **Cause:** Target positions may be outside robot reach.
+
+    **Solution:**
+
+    ```python
+    config = TrajectoryConfig(
+        paper=PaperConfig(
+            size=0.10,           # Smaller drawing area
+            drawing_scale=0.7,   # Use less of the paper
+        ),
+    )
+    ```
+
+!!! warning "RuntimeError: No successful IK solutions"
+    **Cause:** Paper position is completely outside robot reach.
+
+    **Solution:** Adjust paper position or let it auto-calculate:
+
+    ```python
+    config = TrajectoryConfig(
+        paper=PaperConfig(
+            center_y=None,  # Auto-calculate from robot reach
+        ),
+    )
+    ```
+
+---
+
+## Next Steps
+
+- [Swift Visualization](swift-visualization.md) - Visualize your trajectory
+- [Controlling the Robot](controlling-robot.md) - Execute on hardware
+- [Working with Sketches](working-with-sketches.md) - Modify sketches programmatically
+- [Custom Configurations](custom-configurations.md) - All configuration options

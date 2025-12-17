@@ -1,11 +1,43 @@
 """Abstract base class for robot control backends."""
 
+import logging
 import math
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Union
+from typing import Callable, Dict, List, Literal, Optional, Sequence, Union
 
 import numpy as np
+import yaml
+
+logger = logging.getLogger(__name__)
+
+# Type alias for unit parameter
+UnitType = Literal["percent", "rad"]
+
+
+def _load_joint_limits() -> Dict[str, Dict[str, float]]:
+    """Load joint limits from the bundled YAML config."""
+    config_path = Path(__file__).parent.parent / "resources" / "joint_limits.yaml"
+    if not config_path.exists():
+        logger.warning(f"Joint limits config not found: {config_path}")
+        return {}
+
+    with open(config_path, "r") as f:
+        data = yaml.safe_load(f)
+
+    return data.get("joints", {})
+
+
+# Global joint limits cache
+_JOINT_LIMITS: Optional[Dict[str, Dict[str, float]]] = None
+
+
+def get_joint_limits() -> Dict[str, Dict[str, float]]:
+    """Get joint limits (cached)."""
+    global _JOINT_LIMITS
+    if _JOINT_LIMITS is None:
+        _JOINT_LIMITS = _load_joint_limits()
+    return _JOINT_LIMITS
 
 
 class RobotBackend(ABC):
@@ -15,8 +47,8 @@ class RobotBackend(ABC):
     Provides a unified interface for controlling the PIB robot through
     different backends (Webots simulation, real robot, Swift visualization).
 
-    All position values in the public API use radians (URDF convention).
-    Each backend handles conversion to its native format internally.
+    Position values use percentage (0-100%) by default, which maps to the
+    joint's configured min/max range. Use unit="rad" for raw radians.
 
     Implementations:
         - WebotsBackend: Webots simulator
@@ -25,20 +57,22 @@ class RobotBackend(ABC):
 
     Example:
         >>> with backend as robot:
-        ...     # Set a single joint
-        ...     robot.set_joint("elbow_left", 0.5)
+        ...     # Set a single joint (percentage by default)
+        ...     robot.set_joint("elbow_left", 50.0)  # 50% of range
         ...
-        ...     # Get current position
-        ...     angle = robot.get_joint("elbow_left")
+        ...     # Get current position in percentage
+        ...     angle = robot.get_joint("elbow_left")  # Returns 0-100
         ...
-        ...     # Save current pose
+        ...     # Use radians if needed
+        ...     robot.set_joint("elbow_left", 0.5, unit="rad")
+        ...     angle_rad = robot.get_joint("elbow_left", unit="rad")
+        ...
+        ...     # Save and restore pose (in percentage)
         ...     saved_pose = robot.get_joints()
-        ...
-        ...     # Restore pose later
         ...     robot.set_joints(saved_pose)
         ...
         ...     # Set with verification
-        ...     success = robot.set_joint("elbow_left", 0.5, verify=True)
+        ...     success = robot.set_joint("elbow_left", 50.0, verify=True)
     """
 
     # Motor names available on PIB robot
@@ -60,6 +94,82 @@ class RobotBackend(ABC):
 
     # Default tolerance for verification (radians)
     DEFAULT_VERIFY_TOLERANCE = 0.05  # ~2.9 degrees
+    # Default tolerance for verification (percentage)
+    DEFAULT_VERIFY_TOLERANCE_PERCENT = 2.0  # 2%
+
+    # --- Unit Conversion Methods ---
+
+    def _percent_to_radians(self, motor_name: str, percent: float) -> float:
+        """
+        Convert percentage (0-100) to radians based on joint limits.
+
+        Args:
+            motor_name: Name of the motor.
+            percent: Position as percentage (0 = min, 100 = max).
+
+        Returns:
+            Position in radians.
+        """
+        limits = get_joint_limits().get(motor_name)
+        if limits is None:
+            logger.warning(
+                f"No limits configured for joint '{motor_name}', "
+                f"treating percent as radians"
+            )
+            return percent
+
+        min_rad = limits.get("min", 0.0)
+        max_rad = limits.get("max", 0.0)
+
+        # Warn if out of range
+        if percent < 0.0 or percent > 100.0:
+            logger.warning(
+                f"Joint '{motor_name}' position {percent:.1f}% is outside "
+                f"0-100% range (will be clamped by hardware/simulation)"
+            )
+
+        # Linear interpolation: 0% -> min, 100% -> max
+        radians = min_rad + (percent / 100.0) * (max_rad - min_rad)
+        return radians
+
+    def _radians_to_percent(self, motor_name: str, radians: float) -> float:
+        """
+        Convert radians to percentage (0-100) based on joint limits.
+
+        Args:
+            motor_name: Name of the motor.
+            radians: Position in radians.
+
+        Returns:
+            Position as percentage (0 = min, 100 = max).
+        """
+        limits = get_joint_limits().get(motor_name)
+        if limits is None:
+            logger.warning(
+                f"No limits configured for joint '{motor_name}', "
+                f"returning radians as-is"
+            )
+            return radians
+
+        min_rad = limits.get("min", 0.0)
+        max_rad = limits.get("max", 0.0)
+
+        # Avoid division by zero
+        range_rad = max_rad - min_rad
+        if abs(range_rad) < 1e-9:
+            return 0.0
+
+        # Linear interpolation: min -> 0%, max -> 100%
+        percent = ((radians - min_rad) / range_rad) * 100.0
+
+        # Warn if out of range
+        if percent < 0.0 or percent > 100.0:
+            logger.warning(
+                f"Joint '{motor_name}' position {percent:.1f}% is outside "
+                f"0-100% range"
+            )
+
+        return percent
 
     @abstractmethod
     def _to_backend_format(self, radians: np.ndarray) -> np.ndarray:
@@ -98,27 +208,55 @@ class RobotBackend(ABC):
 
     # --- Get Methods ---
 
-    @abstractmethod
-    def get_joint(self, motor_name: str) -> Optional[float]:
+    def get_joint(
+        self,
+        motor_name: str,
+        unit: UnitType = "percent",
+    ) -> Optional[float]:
         """
         Get current position of a single joint.
 
         Args:
             motor_name: Name of motor (e.g., "elbow_left").
+            unit: Unit for the returned value ("percent" or "rad").
+                  Default is "percent" (0-100% of joint range).
+
+        Returns:
+            Current position in specified unit, or None if unavailable.
+
+        Example:
+            >>> angle = backend.get_joint("elbow_left")  # Returns percentage
+            >>> print(f"Elbow is at {angle:.1f}%")
+            >>>
+            >>> angle_rad = backend.get_joint("elbow_left", unit="rad")
+            >>> print(f"Elbow is at {angle_rad:.2f} radians")
+        """
+        radians = self._get_joint_radians(motor_name)
+        if radians is None:
+            return None
+
+        if unit == "rad":
+            return radians
+        else:  # percent
+            return self._radians_to_percent(motor_name, radians)
+
+    @abstractmethod
+    def _get_joint_radians(self, motor_name: str) -> Optional[float]:
+        """
+        Get current position of a single joint in radians (internal).
+
+        Args:
+            motor_name: Name of motor.
 
         Returns:
             Current position in radians, or None if unavailable.
-
-        Example:
-            >>> angle = backend.get_joint("elbow_left")
-            >>> print(f"Elbow is at {angle:.2f} radians")
         """
         ...
 
-    @abstractmethod
     def get_joints(
         self,
         motor_names: Optional[List[str]] = None,
+        unit: UnitType = "percent",
     ) -> Dict[str, float]:
         """
         Get current positions of multiple joints.
@@ -126,16 +264,43 @@ class RobotBackend(ABC):
         Args:
             motor_names: List of motor names to query. If None, returns all
                         available joints.
+            unit: Unit for the returned values ("percent" or "rad").
+                  Default is "percent" (0-100% of joint range).
+
+        Returns:
+            Dict mapping motor names to positions in specified unit.
+
+        Example:
+            >>> # Get all joints in percentage (can be used to save pose)
+            >>> saved_pose = backend.get_joints()
+            >>>
+            >>> # Get specific joints in radians
+            >>> arm = backend.get_joints(["elbow_left", "wrist_left"], unit="rad")
+        """
+        radians_dict = self._get_joints_radians(motor_names)
+
+        if unit == "rad":
+            return radians_dict
+        else:  # percent
+            return {
+                name: self._radians_to_percent(name, rad)
+                for name, rad in radians_dict.items()
+            }
+
+    @abstractmethod
+    def _get_joints_radians(
+        self,
+        motor_names: Optional[List[str]] = None,
+    ) -> Dict[str, float]:
+        """
+        Get current positions of multiple joints in radians (internal).
+
+        Args:
+            motor_names: List of motor names to query. If None, returns all
+                        available joints.
 
         Returns:
             Dict mapping motor names to positions in radians.
-
-        Example:
-            >>> # Get all joints (can be used to save pose)
-            >>> saved_pose = backend.get_joints()
-            >>>
-            >>> # Get specific joints
-            >>> arm = backend.get_joints(["elbow_left", "shoulder_vertical_left"])
         """
         ...
 
@@ -144,7 +309,8 @@ class RobotBackend(ABC):
     def set_joint(
         self,
         motor_name: str,
-        position_radians: float,
+        position: float,
+        unit: UnitType = "percent",
         verify: bool = False,
         verify_timeout: float = 1.0,
         verify_tolerance: Optional[float] = None,
@@ -154,21 +320,25 @@ class RobotBackend(ABC):
 
         Args:
             motor_name: Name of motor (e.g., "elbow_left").
-            position_radians: Target position in radians.
+            position: Target position in specified unit.
+            unit: Unit for position ("percent" or "rad").
+                  Default is "percent" (0 = min, 100 = max).
             verify: If True, verify the joint reached the target position.
             verify_timeout: Max time to wait for verification (seconds).
-            verify_tolerance: Position tolerance for verification (radians).
-                            Defaults to DEFAULT_VERIFY_TOLERANCE.
+            verify_tolerance: Position tolerance for verification.
+                            In same unit as position. Defaults to 2% or 0.05 rad.
 
         Returns:
             True if successful (and verified if verify=True).
 
         Example:
-            >>> backend.set_joint("elbow_left", 0.5)
-            >>> backend.set_joint("elbow_left", 0.5, verify=True)
+            >>> backend.set_joint("elbow_left", 50.0)  # 50% of range
+            >>> backend.set_joint("elbow_left", 0.5, unit="rad")  # radians
+            >>> backend.set_joint("elbow_left", 50.0, verify=True)
         """
         return self.set_joints(
-            {motor_name: position_radians},
+            {motor_name: position},
+            unit=unit,
             verify=verify,
             verify_timeout=verify_timeout,
             verify_tolerance=verify_tolerance,
@@ -177,6 +347,7 @@ class RobotBackend(ABC):
     def set_joints(
         self,
         positions: Union[Dict[str, float], Sequence[float]],
+        unit: UnitType = "percent",
         verify: bool = False,
         verify_timeout: float = 1.0,
         verify_tolerance: Optional[float] = None,
@@ -185,30 +356,35 @@ class RobotBackend(ABC):
         Set positions of multiple joints simultaneously.
 
         Args:
-            positions: Either a dict mapping motor names to positions (radians),
+            positions: Either a dict mapping motor names to positions,
                       or a sequence of positions for all motors in MOTOR_NAMES order.
+            unit: Unit for positions ("percent" or "rad").
+                  Default is "percent" (0 = min, 100 = max).
             verify: If True, verify joints reached target positions.
             verify_timeout: Max time to wait for verification (seconds).
-            verify_tolerance: Position tolerance for verification (radians).
-                            Defaults to DEFAULT_VERIFY_TOLERANCE.
+            verify_tolerance: Position tolerance for verification.
+                            In same unit as positions. Defaults to 2% or 0.05 rad.
 
         Returns:
             True if successful (and verified if verify=True).
 
         Example:
-            >>> # Using dict
+            >>> # Using dict with percentage (default)
             >>> backend.set_joints({
-            ...     "shoulder_vertical_left": 0.3,
-            ...     "elbow_left": 0.8,
+            ...     "shoulder_vertical_left": 30.0,  # 30%
+            ...     "elbow_left": 80.0,              # 80%
             ... })
             >>>
-            >>> # Restore a saved pose
-            >>> saved_pose = backend.get_joints()
+            >>> # Using radians
+            >>> backend.set_joints({"elbow_left": 0.5}, unit="rad")
+            >>>
+            >>> # Save and restore pose
+            >>> saved_pose = backend.get_joints()  # Returns percentages
             >>> # ... do something ...
             >>> backend.set_joints(saved_pose)  # Restore
             >>>
             >>> # With verification
-            >>> success = backend.set_joints({"elbow_left": 0.5}, verify=True)
+            >>> success = backend.set_joints({"elbow_left": 50.0}, verify=True)
         """
         # Convert sequence to dict if needed
         if not isinstance(positions, dict):
@@ -220,18 +396,35 @@ class RobotBackend(ABC):
                 )
             positions = dict(zip(self.MOTOR_NAMES, positions_list))
 
+        # Convert to radians if needed
+        if unit == "percent":
+            positions_radians = {
+                name: self._percent_to_radians(name, pos)
+                for name, pos in positions.items()
+            }
+        else:  # rad
+            positions_radians = dict(positions)
+
         # Send command
-        success = self._set_joints_impl(positions)
+        success = self._set_joints_impl(positions_radians)
 
         if not success:
             return False
 
         # Optionally verify
         if verify:
+            # Use appropriate default tolerance based on unit
+            if verify_tolerance is None:
+                if unit == "percent":
+                    verify_tolerance = self.DEFAULT_VERIFY_TOLERANCE_PERCENT
+                else:
+                    verify_tolerance = self.DEFAULT_VERIFY_TOLERANCE
+
             return self._verify_positions(
-                positions,
+                positions,  # Original positions in user's unit
+                unit=unit,
                 timeout=verify_timeout,
-                tolerance=verify_tolerance or self.DEFAULT_VERIFY_TOLERANCE,
+                tolerance=verify_tolerance,
             )
 
         return True
@@ -252,6 +445,7 @@ class RobotBackend(ABC):
     def _verify_positions(
         self,
         target_positions: Dict[str, float],
+        unit: UnitType,
         timeout: float,
         tolerance: float,
     ) -> bool:
@@ -259,9 +453,10 @@ class RobotBackend(ABC):
         Verify joints reached target positions within tolerance.
 
         Args:
-            target_positions: Dict of target positions (radians).
+            target_positions: Dict of target positions (in specified unit).
+            unit: Unit of the target positions ("percent" or "rad").
             timeout: Max time to wait (seconds).
-            tolerance: Acceptable error (radians).
+            tolerance: Acceptable error (in same unit).
 
         Returns:
             True if all joints are within tolerance.
@@ -272,7 +467,7 @@ class RobotBackend(ABC):
         check_interval = 0.05  # 50ms between checks
 
         while (time.time() - start_time) < timeout:
-            current = self.get_joints(list(target_positions.keys()))
+            current = self.get_joints(list(target_positions.keys()), unit=unit)
 
             all_within_tolerance = True
             for name, target in target_positions.items():
