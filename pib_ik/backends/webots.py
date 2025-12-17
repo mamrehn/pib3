@@ -88,20 +88,22 @@ class WebotsBackend(RobotBackend):
         self._timestep = int(self._robot.getBasicTimeStep())
 
         # Initialize all motors
-        self._motors = {}
-        for joint_name, motor_name in JOINT_TO_WEBOTS_MOTOR.items():
-            motor = self._robot.getDevice(motor_name)
-            if motor is not None:
-                self._motors[joint_name] = motor
+        if len (self._motors) == 0:
+            self._motors = {}
+            for joint_name, motor_name in JOINT_TO_WEBOTS_MOTOR.items():
+                motor = self._robot.getDevice(motor_name)
+                if motor is not None:
+                    self._motors[joint_name] = motor
 
-                # Enable once, forever. Readout will be available at each timestep.
-                sensor = motor.getPositionSensor()
-                if sensor is not None:
-                    sensor.enable(self._timestep)
+                    # Enable once, forever. Readout will be available at each timestep.
+                    sensor = motor.getPositionSensor()
+                    if sensor is not None:
+                        sensor.enable(self._timestep)
 
     def disconnect(self) -> None:
         """Cleanup (no-op for Webots, robot lifecycle managed by simulator)."""
-        self._motors = {}
+        # self._motors = {}
+        pass
 
     @property
     def is_connected(self) -> bool:
