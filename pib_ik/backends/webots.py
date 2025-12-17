@@ -129,11 +129,11 @@ class WebotsBackend(RobotBackend):
             sensor = motor.getPositionSensor()
             if sensor is not None:
                 webots_pos_old = sensor.getValue()
-                for _ in range(100):
+                for _ in range(200):
                     self._robot.step(self._timestep)  # Advance simulation
                     webots_pos = sensor.getValue()
                     # Check if we are close enough
-                    if abs(webots_pos - webots_pos_old) < 0.001:
+                    if abs(webots_pos - webots_pos_old) < 0.0001:
                         return webots_pos - self.WEBOTS_OFFSET
                     else:
                         webots_pos_old = webots_pos
