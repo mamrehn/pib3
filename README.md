@@ -26,6 +26,23 @@ with pib_ik.Robot(host="172.26.34.149") as robot:
     robot.run_trajectory("output.json")
 ```
 
+### More Manual Joint Control
+
+```python
+from pib_ik import Robot
+
+with Robot(host="172.26.34.149") as robot:
+    # Move head to center
+    robot.set_joint("turn_head_motor", 50.0)
+
+    # Bend elbow to 75%
+    robot.set_joint("elbow_left", 75.0)
+
+    # Read current position
+    pos = robot.get_joint("elbow_left")
+    print(f"Left elbow is at {pos:.1f}%")
+```
+
 ## Documentation
 
 Full documentation: **[mamrehn.github.io/pib_ik](https://mamrehn.github.io/pib_ik/)**
