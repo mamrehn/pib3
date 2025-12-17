@@ -87,7 +87,7 @@ Issues = "https://github.com/mamrehn/pib_ik/issues"
 packages = ["pib_ik", "pib_ik.backends", "pib_ik.tools"]
 
 [tool.setuptools.package-data]
-pib_ik = ["resources/*.urdf", "resources/*.proto", "resources/stl/*.stl"]
+pib_ik = ["resources/*.urdf", "resources/*.proto", "resources/*.yaml", "resources/stl/*.stl"]
 
 [tool.black]
 line-length = 88

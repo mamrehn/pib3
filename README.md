@@ -82,7 +82,29 @@ with pib_ik.Robot(host="172.26.34.149") as robot:
 
 # Manual joint control
 with pib_ik.Robot(host="172.26.34.149") as robot:
-    robot.set_joint("elbow-lower_1", 0.5)  # radians
+    # Set a single joint
+    robot.set_joint("elbow_left", 0.5)  # radians
+
+    # Set with verification (waits until joint reaches position)
+    success = robot.set_joint("elbow_left", 0.5, verify=True)
+
+    # Read current joint position
+    angle = robot.get_joint("elbow_left")
+    print(f"Elbow at {angle:.2f} rad")
+
+    # Save current pose
+    saved_pose = robot.get_joints()
+
+    # ... do something ...
+
+    # Restore saved pose
+    robot.set_joints(saved_pose)
+
+    # Set multiple joints with verification
+    robot.set_joints({
+        "shoulder_vertical_left": 0.3,
+        "elbow_left": 0.8,
+    }, verify=True, verify_timeout=2.0)
 ```
 
 ### Webots Simulation
@@ -147,6 +169,18 @@ trajectory = pib_ik.generate_trajectory("drawing.png", config=config)
 - `Robot` / `RealRobotBackend` - Real robot via rosbridge websocket
 - `Webots` / `WebotsBackend` - Webots simulator integration
 
+All backends provide these methods:
+
+| Method | Description |
+|--------|-------------|
+| `get_joint(name)` | Get current position of a joint (radians) |
+| `get_joints(names=None)` | Get positions of multiple joints (dict) |
+| `set_joint(name, pos, verify=False)` | Set a single joint position |
+| `set_joints(positions, verify=False)` | Set multiple joints (dict or saved pose) |
+| `run_trajectory(trajectory)` | Execute a full trajectory |
+
+The `verify` parameter waits until the joint(s) reach the target position within tolerance.
+
 ## Tools
 
 ### Proto to URDF Converter
@@ -168,19 +202,25 @@ Trajectories are stored in a standardized JSON format:
 
 ```json
 {
-  "metadata": {
-    "unit": "radians",
-    "offsets": {"webots": 1.0},
-    "created_at": "2024-01-01T12:00:00",
-    "source_image": "drawing.png"
-  },
-  "joint_names": ["shoulder_vertical_1", "shoulder_horizontal_1", ...],
+  "format_version": "1.0",
+  "unit": "radians",
+  "coordinate_frame": "urdf",
+  "joint_names": ["turn_head_motor", "tilt_forward_motor", ...],
   "waypoints": [
-    {"positions_radians": [0.1, 0.2, ...], "pen_down": true},
-    ...
-  ]
+    [0.1, 0.2, 0.3, ...],
+    [0.15, 0.25, 0.35, ...]
+  ],
+  "metadata": {
+    "created_at": "2024-01-01T12:00:00Z",
+    "offsets": {
+      "webots": 1.0,
+      "description": "Add to convert radians -> Webots motor positions"
+    }
+  }
 }
 ```
+
+Each waypoint is an array of joint positions (in radians) matching the order of `joint_names`.
 
 All joint positions are stored in radians. Backend-specific conversions:
 - **Webots**: Adds 1.0 radian offset
@@ -196,7 +236,7 @@ All joint positions are stored in radians. Backend-specific conversions:
 
 ## Robot Specifications
 
-- **Robot**: PIB humanoid (44 DOF total)
+- **Robot**: PIB humanoid (36 DOF)
 - **Drawing Arm**: Left arm (6 DOF) + index finger
 - **End Effector**: Left index finger tip
 - **Default Workspace**: ~12cm x 12cm at ~74cm height

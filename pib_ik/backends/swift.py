@@ -359,7 +359,60 @@ class SwiftBackend(RobotBackend):
         """Check if visualization is active."""
         return self._env is not None and self._robot is not None
 
-    def set_joints(self, positions_radians: Dict[str, float]) -> bool:
+    def get_joint(self, motor_name: str) -> Optional[float]:
+        """
+        Get current position of a single joint.
+
+        Args:
+            motor_name: Name of motor (e.g., "elbow_left").
+
+        Returns:
+            Current position in radians, or None if unavailable.
+        """
+        if not self.is_connected:
+            return None
+
+        if motor_name in self._joint_name_to_idx:
+            idx = self._joint_name_to_idx[motor_name]
+            if idx < len(self._robot.q):
+                return float(self._robot.q[idx])
+
+        return None
+
+    def get_joints(
+        self,
+        motor_names: Optional[List[str]] = None,
+    ) -> Dict[str, float]:
+        """
+        Get current positions of multiple joints.
+
+        Args:
+            motor_names: List of motor names to query. If None, returns all
+                        available joints.
+
+        Returns:
+            Dict mapping motor names to positions in radians.
+        """
+        if not self.is_connected:
+            return {}
+
+        result = {}
+
+        if motor_names is None:
+            # Return all joints we know about
+            for name, idx in self._joint_name_to_idx.items():
+                if idx < len(self._robot.q):
+                    result[name] = float(self._robot.q[idx])
+        else:
+            for name in motor_names:
+                if name in self._joint_name_to_idx:
+                    idx = self._joint_name_to_idx[name]
+                    if idx < len(self._robot.q):
+                        result[name] = float(self._robot.q[idx])
+
+        return result
+
+    def _set_joints_impl(self, positions_radians: Dict[str, float]) -> bool:
         """Set joint positions and update visualization."""
         if not self.is_connected:
             return False

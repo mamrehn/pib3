@@ -103,7 +103,57 @@ class WebotsBackend(RobotBackend):
         """Check if robot is initialized."""
         return self._robot is not None
 
-    def set_joints(self, positions_radians: Dict[str, float]) -> bool:
+    def get_joint(self, motor_name: str) -> Optional[float]:
+        """
+        Get current position of a single joint.
+
+        Args:
+            motor_name: Name of motor (e.g., "elbow_left").
+
+        Returns:
+            Current position in radians, or None if unavailable.
+        """
+        if not self.is_connected:
+            return None
+
+        if motor_name in self._motors:
+            motor = self._motors[motor_name]
+            # Get position sensor if available
+            sensor = motor.getPositionSensor()
+            if sensor is not None:
+                webots_pos = sensor.getValue()
+                return webots_pos - self.WEBOTS_OFFSET
+
+        return None
+
+    def get_joints(
+        self,
+        motor_names: Optional[List[str]] = None,
+    ) -> Dict[str, float]:
+        """
+        Get current positions of multiple joints.
+
+        Args:
+            motor_names: List of motor names to query. If None, returns all
+                        available joints.
+
+        Returns:
+            Dict mapping motor names to positions in radians.
+        """
+        if not self.is_connected:
+            return {}
+
+        result = {}
+        names_to_query = motor_names if motor_names is not None else list(self._motors.keys())
+
+        for name in names_to_query:
+            pos = self.get_joint(name)
+            if pos is not None:
+                result[name] = pos
+
+        return result
+
+    def _set_joints_impl(self, positions_radians: Dict[str, float]) -> bool:
         """Set joint positions (converts to Webots format internally)."""
         if not self.is_connected:
             return False

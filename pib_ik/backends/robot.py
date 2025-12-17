@@ -1,6 +1,7 @@
 """Real robot backend via rosbridge for pib_ik package."""
 
 import math
+import threading
 import time
 from typing import Callable, Dict, List, Optional
 
@@ -55,8 +56,18 @@ class RealRobotBackend(RobotBackend):
         >>> with RealRobotBackend(host="172.26.34.149") as robot:
         ...     robot.run_trajectory("trajectory.json")
         ...
-        ...     # Or control individual joints
+        ...     # Control individual joints
         ...     robot.set_joint("elbow_left", 0.5)  # radians
+        ...
+        ...     # Read joint positions
+        ...     angle = robot.get_joint("elbow_left")
+        ...
+        ...     # Save and restore pose
+        ...     saved_pose = robot.get_joints()
+        ...     robot.set_joints(saved_pose)
+        ...
+        ...     # Set with verification
+        ...     success = robot.set_joint("elbow_left", 0.5, verify=True)
     """
 
     def __init__(
@@ -78,6 +89,9 @@ class RealRobotBackend(RobotBackend):
         self.timeout = timeout
         self._client = None
         self._service = None
+        self._joint_states_subscriber = None
+        self._joint_states: Dict[str, float] = {}
+        self._joint_states_lock = threading.Lock()
 
     @classmethod
     def from_config(cls, config: RobotConfig) -> "RealRobotBackend":
@@ -95,6 +109,10 @@ class RealRobotBackend(RobotBackend):
     def _radians_to_centidegrees(self, radians: float) -> int:
         """Convert single value from radians to centidegrees."""
         return round(math.degrees(radians) * 100)
+
+    def _centidegrees_to_radians(self, centidegrees: float) -> float:
+        """Convert single value from centidegrees to radians."""
+        return math.radians(centidegrees / 100.0)
 
     def connect(self) -> None:
         """Establish connection to robot via rosbridge websocket."""
@@ -128,8 +146,42 @@ class RealRobotBackend(RobotBackend):
             'datatypes/ApplyJointTrajectory'
         )
 
+        # Subscribe to motor_current for reading positions
+        # PIB robot publishes motor positions as DiagnosticStatus messages
+        self._joint_states_subscriber = roslibpy.Topic(
+            self._client,
+            '/motor_current',
+            'diagnostic_msgs/msg/DiagnosticStatus'
+        )
+        self._joint_states_subscriber.subscribe(self._on_motor_current)
+
+    def _on_motor_current(self, message: dict) -> None:
+        """Callback for motor current/position updates from ROS.
+
+        PIB robot publishes motor positions via /motor_current topic as
+        DiagnosticStatus messages with position in centidegrees.
+        """
+        name = message.get('name', '')
+        values = message.get('values', [])
+
+        if name and values:
+            try:
+                # Position is stored as string in the first value
+                centidegrees = float(values[0].get('value', 0))
+                with self._joint_states_lock:
+                    self._joint_states[name] = self._centidegrees_to_radians(centidegrees)
+            except (ValueError, IndexError, TypeError):
+                pass
+
     def disconnect(self) -> None:
         """Close connection to robot."""
+        if self._joint_states_subscriber is not None:
+            try:
+                self._joint_states_subscriber.unsubscribe()
+            except Exception:
+                pass
+            self._joint_states_subscriber = None
+
         if self._client is not None:
             try:
                 self._client.terminate()
@@ -138,12 +190,51 @@ class RealRobotBackend(RobotBackend):
             self._client = None
             self._service = None
 
+        with self._joint_states_lock:
+            self._joint_states.clear()
+
     @property
     def is_connected(self) -> bool:
         """Check if connected to robot."""
         return self._client is not None and self._client.is_connected
 
-    def set_joints(self, positions_radians: Dict[str, float]) -> bool:
+    def get_joint(self, motor_name: str) -> Optional[float]:
+        """
+        Get current position of a single joint.
+
+        Args:
+            motor_name: Name of motor (e.g., "elbow_left").
+
+        Returns:
+            Current position in radians, or None if unavailable.
+        """
+        with self._joint_states_lock:
+            return self._joint_states.get(motor_name)
+
+    def get_joints(
+        self,
+        motor_names: Optional[List[str]] = None,
+    ) -> Dict[str, float]:
+        """
+        Get current positions of multiple joints.
+
+        Args:
+            motor_names: List of motor names to query. If None, returns all
+                        available joints.
+
+        Returns:
+            Dict mapping motor names to positions in radians.
+        """
+        with self._joint_states_lock:
+            if motor_names is None:
+                return dict(self._joint_states)
+            return {
+                name: self._joint_states[name]
+                for name in motor_names
+                if name in self._joint_states
+            }
+
+    def _set_joints_impl(self, positions_radians: Dict[str, float]) -> bool:
         """
         Set joint positions via apply_joint_trajectory service.
 
@@ -156,31 +247,30 @@ class RealRobotBackend(RobotBackend):
         if not self.is_connected:
             return False
 
-        # Build JointTrajectory message
+        # Build JointTrajectory message (ROS2 format)
         joint_names = []
-        points = []
+        positions_centideg = []
 
         for joint_name, position in positions_radians.items():
             motor_name = JOINT_TO_ROBOT_MOTOR.get(joint_name, joint_name)
             centidegrees = self._radians_to_centidegrees(position)
             joint_names.append(motor_name)
-            points.append({
-                'positions': [float(centidegrees)],
-                'velocities': [],
-                'accelerations': [],
-                'effort': [],
-                'time_from_start': {'secs': 0, 'nsecs': 0},
-            })
+            positions_centideg.append(float(centidegrees))
 
         message = {
             'joint_trajectory': {
                 'header': {
-                    'seq': 0,
-                    'stamp': {'secs': 0, 'nsecs': 0},
+                    'stamp': {'sec': 0, 'nanosec': 0},
                     'frame_id': '',
                 },
                 'joint_names': joint_names,
-                'points': points,
+                'points': [{
+                    'positions': positions_centideg,
+                    'velocities': [],
+                    'accelerations': [],
+                    'effort': [],
+                    'time_from_start': {'sec': 0, 'nanosec': 0},
+                }],
             }
         }
 
@@ -210,32 +300,24 @@ class RealRobotBackend(RobotBackend):
         motor_names = [JOINT_TO_ROBOT_MOTOR.get(n, n) for n in joint_names]
 
         for i, point in enumerate(waypoints):
-            # Build positions dict (already in centidegrees from _to_backend_format)
-            positions = {}
-            for j, motor_name in enumerate(motor_names):
-                positions[motor_name] = float(point[j])
+            # Build positions list (already in centidegrees from _to_backend_format)
+            positions_centideg = [float(point[j]) for j in range(len(motor_names))]
 
-            # Send via service (one point at a time for real-time control)
-            # Build single-point trajectory
-            points_msg = []
-            for motor_name in motor_names:
-                points_msg.append({
-                    'positions': [positions.get(motor_name, 0)],
-                    'velocities': [],
-                    'accelerations': [],
-                    'effort': [],
-                    'time_from_start': {'secs': 0, 'nsecs': 0},
-                })
-
+            # Send via service (ROS2 format)
             message = {
                 'joint_trajectory': {
                     'header': {
-                        'seq': i,
-                        'stamp': {'secs': 0, 'nsecs': 0},
+                        'stamp': {'sec': 0, 'nanosec': 0},
                         'frame_id': '',
                     },
                     'joint_names': motor_names,
-                    'points': points_msg,
+                    'points': [{
+                        'positions': positions_centideg,
+                        'velocities': [],
+                        'accelerations': [],
+                        'effort': [],
+                        'time_from_start': {'sec': 0, 'nanosec': 0},
+                    }],
                 }
             }
 
