@@ -1,8 +1,8 @@
 # pib-ik
 
-Inverse kinematics and trajectory generation for the PIB (Printable, Intelligent Bot) humanoid robot. Convert images to robot arm trajectories for drawing tasks.
+Inverse kinematics and trajectory generation for the pib (Printable, Intelligent Bot) humanoid robot. Convert images to robot arm trajectories for drawing tasks.
 
-![PIB Robot](https://pib.rocks/wp-content/uploads/2023/09/pib_1-1.png)
+![pib robot](https://pib.rocks/)
 
 ## Installation
 
@@ -21,6 +21,12 @@ pip install "pib-ik[robot] @ git+https://github.com/mamrehn/pib_ik.git"
 
 # All features
 pip install "pib-ik[all] @ git+https://github.com/mamrehn/pib_ik.git"
+```
+
+If absolutely needing to install this package globally instead of inside a venv do this:
+
+```bash
+pip install  --break-system-packages "pib-ik[all] @ git+https://github.com/mamrehn/pib_ik.git"
 ```
 
 ### Development Installation
