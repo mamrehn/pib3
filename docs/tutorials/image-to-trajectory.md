@@ -315,6 +315,77 @@ print(f"\nSaved to output_trajectory.json")
 
 ---
 
+## Sequential Trajectories
+
+When the robot needs to draw multiple images in sequence, each new trajectory should start from the end position of the previous one. Use the `initial_q` parameter:
+
+### Basic Sequential Drawing
+
+```python
+import pib_ik
+
+# First trajectory starts from default pose
+traj1 = pib_ik.generate_trajectory("image1.png")
+
+# Second trajectory starts from where first ended
+traj2 = pib_ik.generate_trajectory("image2.png", initial_q=traj1)
+
+# Third trajectory continues from second
+traj3 = pib_ik.generate_trajectory("image3.png", initial_q=traj2)
+
+# Execute all on robot
+with pib_ik.Robot(host="172.26.34.149") as robot:
+    robot.run_trajectory(traj1)
+    robot.run_trajectory(traj2)
+    robot.run_trajectory(traj3)
+```
+
+### Starting from Robot's Current Position
+
+You can also start from the robot's current joint positions:
+
+```python
+import pib_ik
+
+with pib_ik.Robot(host="172.26.34.149") as robot:
+    # Get current joint positions
+    current_joints = robot.get_joints(unit="rad")
+
+    # Generate trajectory starting from current position
+    trajectory = pib_ik.generate_trajectory(
+        "drawing.png",
+        initial_q=current_joints
+    )
+
+    robot.run_trajectory(trajectory)
+```
+
+### Using with Step-by-Step API
+
+```python
+import pib_ik
+
+sketch1 = pib_ik.image_to_sketch("drawing1.png")
+sketch2 = pib_ik.image_to_sketch("drawing2.png")
+
+# First trajectory
+traj1 = pib_ik.sketch_to_trajectory(sketch1)
+
+# Second trajectory starts from first's end position
+traj2 = pib_ik.sketch_to_trajectory(sketch2, initial_q=traj1)
+```
+
+### Supported Input Types for initial_q
+
+| Type | Description |
+|------|-------------|
+| `Trajectory` | Uses the last waypoint from the trajectory |
+| `np.ndarray` | Array of joint positions in radians (36 values for PIB) |
+| `dict` | Dictionary mapping joint names to radian values |
+| `None` | Default - uses fixed initial drawing pose |
+
+---
+
 ## Troubleshooting
 
 !!! warning "No strokes extracted from image"

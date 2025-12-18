@@ -114,6 +114,7 @@ def generate_trajectory(
     output_path: Optional[Union[str, Path]] = None,
     config: Optional[TrajectoryConfig] = None,
     visualize: bool = False,
+    initial_q: Optional[Union["np.ndarray", dict, Trajectory]] = None,
 ) -> Trajectory:
     """
     Convenience function: Convert image directly to robot trajectory.
@@ -126,6 +127,15 @@ def generate_trajectory(
         output_path: If provided, save trajectory JSON to this path.
         config: Full configuration (uses sensible defaults if None).
         visualize: Show Swift visualization during IK solving.
+        initial_q: Initial joint configuration to start IK solving from.
+            Can be one of:
+            - numpy array of shape (n_joints,) with joint positions in radians
+            - dict mapping joint names to positions in radians
+            - Trajectory object (uses last waypoint)
+            - None (default): use fixed initial pose for drawing
+
+            This enables sequential trajectory execution where each new
+            trajectory starts from the robot's current position.
 
     Returns:
         Trajectory object ready for execution.
@@ -141,6 +151,11 @@ def generate_trajectory(
         ...     paper=PaperConfig(size=0.20, drawing_scale=0.9),
         ... )
         >>> trajectory = pib_ik.generate_trajectory("drawing.png", config=config)
+
+        >>> # Sequential trajectories (robot draws multiple images)
+        >>> traj1 = pib_ik.generate_trajectory("image1.png")
+        >>> traj2 = pib_ik.generate_trajectory("image2.png", initial_q=traj1)
+        >>> traj3 = pib_ik.generate_trajectory("image3.png", initial_q=traj2)
     """
     if config is None:
         config = TrajectoryConfig()
@@ -149,7 +164,9 @@ def generate_trajectory(
     sketch = image_to_sketch(image, config.image)
 
     # Step 2: Sketch to trajectory
-    trajectory = sketch_to_trajectory(sketch, config, visualize=visualize)
+    trajectory = sketch_to_trajectory(
+        sketch, config, visualize=visualize, initial_q=initial_q
+    )
 
     # Optional: Save to file
     if output_path is not None:

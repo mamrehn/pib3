@@ -466,6 +466,7 @@ def sketch_to_trajectory(
     config: Optional[TrajectoryConfig] = None,
     visualize: bool = False,
     progress_callback: Optional[Callable[[int, int, bool], None]] = None,
+    initial_q: Optional[Union[np.ndarray, Dict[str, float], "Trajectory"]] = None,
 ) -> Trajectory:
     """
     Convert a Sketch to a robot Trajectory using inverse kinematics.
@@ -475,6 +476,15 @@ def sketch_to_trajectory(
         config: Trajectory configuration. Uses defaults if None.
         visualize: If True, show Swift visualization during IK solving.
         progress_callback: Optional callback(current_point, total_points, success).
+        initial_q: Initial joint configuration to start IK solving from.
+            Can be one of:
+            - numpy array of shape (n_joints,) with joint positions in radians
+            - dict mapping joint names to positions in radians
+            - Trajectory object (uses last waypoint)
+            - None (default): use fixed initial pose for drawing
+
+            This allows sequential trajectory execution where each new
+            trajectory starts from the end position of the previous one.
 
     Returns:
         Trajectory object with joint positions for each waypoint.
@@ -488,6 +498,10 @@ def sketch_to_trajectory(
         >>> sketch = image_to_sketch("drawing.png")
         >>> trajectory = sketch_to_trajectory(sketch)
         >>> trajectory.to_json("output.json")
+
+        >>> # Sequential trajectories
+        >>> traj1 = sketch_to_trajectory(sketch1)
+        >>> traj2 = sketch_to_trajectory(sketch2, initial_q=traj1)  # Start from traj1 end
     """
     import spatialmath as sm
 
@@ -516,8 +530,31 @@ def sketch_to_trajectory(
     tool_offset = sm.SE3(0, 0.027, 0)
 
     # Initialize configuration
-    q_current = np.zeros(robot.n)
-    q_current = _set_initial_arm_pose(q_current, arm)
+    if initial_q is not None:
+        # Use provided initial configuration
+        if isinstance(initial_q, Trajectory):
+            # Use last waypoint from trajectory
+            q_current = initial_q.waypoints[-1].copy()
+        elif isinstance(initial_q, dict):
+            # Convert dict of joint names to array
+            q_current = np.zeros(robot.n)
+            q_current = _set_initial_arm_pose(q_current, arm)  # Start with defaults
+            joint_name_to_idx = {name: idx for idx, name in URDF_TO_MOTOR_NAME.items()}
+            for name, value in initial_q.items():
+                if name in joint_name_to_idx:
+                    q_current[joint_name_to_idx[name]] = value
+        else:
+            # Assume numpy array
+            q_current = np.asarray(initial_q, dtype=np.float64).copy()
+            if q_current.shape[0] != robot.n:
+                raise ValueError(
+                    f"initial_q array has {q_current.shape[0]} elements, "
+                    f"expected {robot.n}"
+                )
+    else:
+        # Default: start from fixed initial pose
+        q_current = np.zeros(robot.n)
+        q_current = _set_initial_arm_pose(q_current, arm)
     robot.q = q_current
 
     # Get initial TCP position
