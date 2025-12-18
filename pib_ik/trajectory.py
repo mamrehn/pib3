@@ -36,9 +36,13 @@ RIGHT_ARM_JOINTS = {
 LEFT_FINGER_JOINTS = [11, 12]
 RIGHT_FINGER_JOINTS = [28, 29]
 
-# TCP link names
+# TCP link names for index finger drawing
 LEFT_TCP_LINK = 'urdf_finger_distal_2'
 RIGHT_TCP_LINK = 'urdf_finger_distal_7'
+
+# TCP link names for pencil grip drawing (palm-based)
+LEFT_TCP_LINK_PENCIL = 'urdf_palm_left'
+RIGHT_TCP_LINK_PENCIL = 'urdf_palm_right'
 
 # Motor name mapping for URDF joints to Webots/real robot motor names
 URDF_TO_MOTOR_NAME = {
@@ -267,9 +271,25 @@ def _solve_ik_point(
     joint_limits: List[Tuple[float, float]],
     path_joints: List[int],
     config: IKConfig,
+    target_orientation: Optional[np.ndarray] = None,
+    orientation_weight: float = 0.5,
 ) -> Tuple[np.ndarray, bool]:
     """
     Solve IK for a single point using gradient descent.
+
+    Args:
+        robot: Robot model.
+        target_pos: Target position [x, y, z].
+        q_init: Initial joint configuration.
+        end_link: End effector link name.
+        tool_offset: SE3 transform from end link to tool tip.
+        arm_joint_indices: Indices of arm joints.
+        joint_limits: Joint limits [(lower, upper), ...].
+        path_joints: Joints in the kinematic path.
+        config: IK configuration.
+        target_orientation: Optional target orientation as rotation matrix (3x3).
+            If provided, IK will try to match this orientation.
+        orientation_weight: Weight for orientation error (0-1). Position is weighted 1.0.
 
     Returns:
         (q_solution, success)
@@ -279,6 +299,9 @@ def _solve_ik_point(
     arm_cols = list(range(len(arm_joint_indices)))
     target_pos_array = np.array(target_pos)
     q_work = q_init.copy()
+
+    # Determine if we're doing position-only or position+orientation IK
+    use_orientation = target_orientation is not None and orientation_weight > 0
 
     try:
         for iteration in range(config.max_iterations):
@@ -293,7 +316,35 @@ def _solve_ik_point(
 
             # Position error
             pos_error = target_pos_array - curr_tool_pos
-            error_norm = np.linalg.norm(pos_error)
+            pos_error_norm = np.linalg.norm(pos_error)
+
+            # Orientation error (if using orientation control)
+            if use_orientation:
+                # Current orientation (rotation matrix)
+                R_current = T_tool.R
+                R_target = target_orientation
+
+                # Orientation error using angle-axis representation
+                # R_error = R_target @ R_current.T
+                R_error = R_target @ R_current.T
+                # Convert to axis-angle for error vector
+                angle = np.arccos(np.clip((np.trace(R_error) - 1) / 2, -1, 1))
+                if angle < 1e-6:
+                    orient_error = np.zeros(3)
+                else:
+                    # Extract axis from skew-symmetric part
+                    axis = np.array([
+                        R_error[2, 1] - R_error[1, 2],
+                        R_error[0, 2] - R_error[2, 0],
+                        R_error[1, 0] - R_error[0, 1]
+                    ]) / (2 * np.sin(angle))
+                    orient_error = axis * angle * orientation_weight
+
+                # Combined error
+                error_6d = np.concatenate([pos_error, orient_error])
+                error_norm = pos_error_norm  # Use position error for convergence check
+            else:
+                error_norm = pos_error_norm
 
             if error_norm < config.tolerance:
                 # Success - validate joint limits
@@ -306,12 +357,26 @@ def _solve_ik_point(
 
             # Compute Jacobian
             J_full = robot.jacob0(q_work, end=end_link)
-            J_pos = J_full[:3, :]
-            J_arm = J_pos[:, arm_cols]
 
-            # Damped least squares
-            JJT = J_arm @ J_arm.T + config.damping * np.eye(3)
-            dq_arm = J_arm.T @ np.linalg.solve(JJT, pos_error * config.step_size)
+            if use_orientation:
+                # Use full 6-DOF Jacobian
+                J_arm = J_full[:, arm_cols]
+                # Apply weighting: position weight = 1.0, orientation weight as specified
+                W = np.diag([1.0, 1.0, 1.0, orientation_weight, orientation_weight, orientation_weight])
+                J_weighted = W @ J_arm
+                error_weighted = W @ error_6d
+
+                # Damped least squares
+                JJT = J_weighted @ J_weighted.T + config.damping * np.eye(6)
+                dq_arm = J_weighted.T @ np.linalg.solve(JJT, error_weighted * config.step_size)
+            else:
+                # Position-only IK (3-DOF)
+                J_pos = J_full[:3, :]
+                J_arm = J_pos[:, arm_cols]
+
+                # Damped least squares
+                JJT = J_arm @ J_arm.T + config.damping * np.eye(3)
+                dq_arm = J_arm.T @ np.linalg.solve(JJT, pos_error * config.step_size)
 
             # Update arm joints with limit clamping
             for i, col in enumerate(arm_cols):
@@ -429,8 +494,18 @@ def _interpolate_stroke_points(
 def _set_initial_arm_pose(
     q: np.ndarray,
     arm: str = "left",
+    grip_style: str = "index_finger",
 ) -> np.ndarray:
-    """Set initial arm pose for drawing."""
+    """Set initial arm pose for drawing.
+
+    Args:
+        q: Joint configuration array to modify.
+        arm: Which arm to use ("left" or "right").
+        grip_style: Drawing grip style ("index_finger" or "pencil_grip").
+
+    Returns:
+        Modified joint configuration array.
+    """
     arm_joints = LEFT_ARM_JOINTS if arm == "left" else RIGHT_ARM_JOINTS
 
     q[arm_joints['shoulder_vertical']] = 1.0
@@ -440,22 +515,40 @@ def _set_initial_arm_pose(
     q[arm_joints['forearm']] = 0.0
     q[arm_joints['wrist']] = 1.0
 
-    # Bend non-drawing fingers
-    if arm == "left":
-        # Thumb
-        q[8] = 0.5
-        q[9] = 1.0
-        q[10] = 1.0
-        # Middle, ring, pinky
-        for idx in [13, 14, 15, 16, 17, 18]:
-            q[idx] = 1.0
+    if grip_style == "pencil_grip":
+        # Pencil grip: all fingers curled in power grip (thumb over fingers)
+        if arm == "left":
+            # Thumb wrapped over
+            q[8] = 1.0   # thumb_left_opposition
+            q[9] = 1.0   # thumb_left_stretch (proximal)
+            q[10] = 1.0  # thumb_left_stretch (distal)
+            # All fingers curled
+            for idx in [11, 12, 13, 14, 15, 16, 17, 18]:
+                q[idx] = 1.0
+        else:
+            # Right hand
+            q[25] = 1.0  # thumb_right_opposition
+            q[26] = 1.0  # thumb_right_stretch (proximal)
+            q[27] = 1.0  # thumb_right_stretch (distal)
+            for idx in [28, 29, 30, 31, 32, 33, 34, 35]:
+                q[idx] = 1.0
     else:
-        # Right hand fingers
-        q[25] = 0.5
-        q[26] = 1.0
-        q[27] = 1.0
-        for idx in [30, 31, 32, 33, 34, 35]:
-            q[idx] = 1.0
+        # Index finger drawing: extend index, curl others
+        if arm == "left":
+            # Thumb partially bent
+            q[8] = 0.5
+            q[9] = 1.0
+            q[10] = 1.0
+            # Middle, ring, pinky curled
+            for idx in [13, 14, 15, 16, 17, 18]:
+                q[idx] = 1.0
+        else:
+            # Right hand fingers
+            q[25] = 0.5
+            q[26] = 1.0
+            q[27] = 1.0
+            for idx in [30, 31, 32, 33, 34, 35]:
+                q[idx] = 1.0
 
     return q
 
@@ -513,20 +606,35 @@ def sketch_to_trajectory(
 
     # Determine arm configuration
     arm = config.ik.arm
+    grip_style = config.ik.grip_style
+
     if arm == "left":
         arm_joints = LEFT_ARM_JOINTS
         finger_joints = LEFT_FINGER_JOINTS
-        tcp_link = LEFT_TCP_LINK
+        tcp_link_finger = LEFT_TCP_LINK
+        tcp_link_pencil = LEFT_TCP_LINK_PENCIL
     else:
         arm_joints = RIGHT_ARM_JOINTS
         finger_joints = RIGHT_FINGER_JOINTS
-        tcp_link = RIGHT_TCP_LINK
+        tcp_link_finger = RIGHT_TCP_LINK
+        tcp_link_pencil = RIGHT_TCP_LINK_PENCIL
 
     arm_joint_indices = list(arm_joints.values())
-    path_joints = arm_joint_indices + finger_joints
 
-    # Tool offset (finger tip extends in +Y of link frame)
-    tool_offset = sm.SE3(0, 0.027, 0)
+    # Configure TCP and tool offset based on grip style
+    if grip_style == "pencil_grip":
+        # Pencil grip: use palm as reference, pencil tip ~80mm from grip
+        # Pencil extends from palm toward pinky side (negative Y in palm frame)
+        # and forward (positive X)
+        tcp_link = tcp_link_pencil
+        tool_offset = sm.SE3(0.04, -0.06, 0)  # 40mm forward, 60mm toward pinky
+        # For pencil grip, don't include finger joints in IK (fingers are fixed)
+        path_joints = arm_joint_indices
+    else:
+        # Index finger drawing: use finger tip as TCP
+        tcp_link = tcp_link_finger
+        tool_offset = sm.SE3(0, 0.027, 0)  # 27mm in Y (finger tip direction)
+        path_joints = arm_joint_indices + finger_joints
 
     # Initialize configuration
     if initial_q is not None:
@@ -537,7 +645,7 @@ def sketch_to_trajectory(
         elif isinstance(initial_q, dict):
             # Convert dict of joint names to array
             q_current = np.zeros(robot.n)
-            q_current = _set_initial_arm_pose(q_current, arm)  # Start with defaults
+            q_current = _set_initial_arm_pose(q_current, arm, grip_style)  # Start with defaults
             joint_name_to_idx = {name: idx for idx, name in URDF_TO_MOTOR_NAME.items()}
             for name, value in initial_q.items():
                 if name in joint_name_to_idx:
@@ -553,7 +661,7 @@ def sketch_to_trajectory(
     else:
         # Default: start from fixed initial pose
         q_current = np.zeros(robot.n)
-        q_current = _set_initial_arm_pose(q_current, arm)
+        q_current = _set_initial_arm_pose(q_current, arm, grip_style)
     robot.q = q_current
 
     # Get initial TCP position
@@ -612,6 +720,20 @@ def sketch_to_trajectory(
     fail_count = 0
     total_points = len(trajectory_3d)
 
+    # Target orientation for pencil grip: palm vertical, pencil pointing down
+    # Rotation matrix where tool Z points down (-Z world), X points forward (+X world)
+    # This is a 180° rotation about the X-axis
+    if grip_style == "pencil_grip":
+        target_orientation = np.array([
+            [1.0,  0.0,  0.0],
+            [0.0, -1.0,  0.0],
+            [0.0,  0.0, -1.0]
+        ])
+        orientation_weight = 0.3  # Soft constraint, position is more important
+    else:
+        target_orientation = None
+        orientation_weight = 0.0
+
     for i, (x, y, z, is_lift) in enumerate(trajectory_3d):
         q_sol, success = _solve_ik_point(
             robot,
@@ -623,6 +745,8 @@ def sketch_to_trajectory(
             joint_limits,
             path_joints,
             config.ik,
+            target_orientation=target_orientation,
+            orientation_weight=orientation_weight,
         )
 
         if success:
@@ -666,6 +790,7 @@ def sketch_to_trajectory(
             "robot_model": "pib",
             "tcp_link": tcp_link,
             "arm": arm,
+            "grip_style": grip_style,
             "total_points": len(q_array),
             "success_count": success_count,
             "fail_count": fail_count,

@@ -250,6 +250,41 @@ trajectory = pib_ik.sketch_to_trajectory(
 
 ---
 
+## Grip Styles
+
+The library supports two drawing grip styles:
+
+### Pencil Grip (Default)
+
+Uses a clenched fist holding a pencil, with the pencil tip near the base of the pinky. The IK solver maintains a vertical palm orientation to keep the pencil pointing down.
+
+```python
+import pib_ik
+
+# Default - uses pencil grip
+trajectory = pib_ik.generate_trajectory("drawing.png")
+```
+
+### Index Finger
+
+Uses the extended index finger tip as the drawing tool:
+
+```python
+from pib_ik import TrajectoryConfig, IKConfig
+
+config = TrajectoryConfig(
+    ik=IKConfig(grip_style="index_finger"),
+)
+trajectory = pib_ik.generate_trajectory("drawing.png", config=config)
+```
+
+| Grip Style | TCP Reference | Tool Offset | Orientation | Hand Pose |
+|------------|---------------|-------------|-------------|-----------|
+| `pencil_grip` (default) | Palm | ~80mm | Vertical palm enforced | Power grip (all fingers curled) |
+| `index_finger` | Index finger tip | 27mm | Not constrained | Index extended, others curled |
+
+---
+
 ## Complete Example
 
 ```python
@@ -281,6 +316,7 @@ config = TrajectoryConfig(
         max_iterations=150,
         tolerance=0.002,  # 2mm position tolerance
         arm="left",       # Use left arm
+        # grip_style="pencil_grip" is the default
     ),
 )
 

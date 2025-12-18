@@ -25,6 +25,13 @@ LEFT_HAND_CLOSED: Dict[str, float] = {
     "pinky_left_stretch": 0.0267,
 }
 
+# Pencil grip pose - power grip with all fingers curled around pencil
+# Thumb wraps over the curled fingers
+LEFT_HAND_PENCIL_GRIP: Dict[str, float] = LEFT_HAND_CLOSED
+
+# Right hand pencil grip - TODO: calibrate
+RIGHT_HAND_PENCIL_GRIP: Optional[Dict[str, float]] = None  # Not yet calibrated
+
 # Right Hand Limits (radians) - TODO: calibrate
 RIGHT_HAND_OPEN: Dict[str, float] = {
     "thumb_right_opposition": 0.0,

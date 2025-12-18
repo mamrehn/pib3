@@ -61,9 +61,11 @@ Swift = SwiftBackend
 from .hand_poses import (
     LEFT_HAND_OPEN,
     LEFT_HAND_CLOSED,
+    LEFT_HAND_PENCIL_GRIP,
     LEFT_HAND_JOINTS,
     RIGHT_HAND_OPEN,
     RIGHT_HAND_CLOSED,
+    RIGHT_HAND_PENCIL_GRIP,
     RIGHT_HAND_JOINTS,
     left_hand_pose,
     right_hand_pose,
@@ -100,9 +102,11 @@ __all__ = [
     # Hand poses
     "LEFT_HAND_OPEN",
     "LEFT_HAND_CLOSED",
+    "LEFT_HAND_PENCIL_GRIP",
     "LEFT_HAND_JOINTS",
     "RIGHT_HAND_OPEN",
     "RIGHT_HAND_CLOSED",
+    "RIGHT_HAND_PENCIL_GRIP",
     "RIGHT_HAND_JOINTS",
     "left_hand_pose",
     "right_hand_pose",

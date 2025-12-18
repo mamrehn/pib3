@@ -1,7 +1,7 @@
 """Configuration dataclasses for pib_ik package."""
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 
 @dataclass
@@ -34,12 +34,16 @@ class IKConfig:
         step_size: Gradient descent step size.
         damping: Damping factor for damped least squares.
         arm: Which arm to use for drawing ("left" or "right").
+        grip_style: Drawing grip style:
+            - "index_finger": Use extended index finger as drawing tool (default).
+            - "pencil_grip": Clenched fist holding a pencil, tip near pinky base.
     """
     max_iterations: int = 150
     tolerance: float = 0.002
     step_size: float = 0.4
     damping: float = 0.01
     arm: str = "left"
+    grip_style: Literal["index_finger", "pencil_grip"] = "pencil_grip"
 
 
 @dataclass
