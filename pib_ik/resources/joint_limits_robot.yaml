@@ -1,0 +1,96 @@
+# PIB Robot Joint Limits for Real Robot
+# These values define the mapping from percentage (0-100%) to radians.
+# 0% = min (radians), 100% = max (radians)
+#
+# Calibrate using: python -m pib_ik.tools.calibrate_joints --host <robot_ip>
+#
+# Values marked with null need calibration.
+
+joints:
+  # Head joints
+  turn_head_motor:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  tilt_forward_motor:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+
+  # Left arm joints
+  shoulder_vertical_left:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  shoulder_horizontal_left:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  upper_arm_left_rotation:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  elbow_left:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  lower_arm_left_rotation:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  wrist_left:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+
+  # Left hand joints
+  thumb_left_opposition:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  thumb_left_stretch:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  index_left_stretch:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  middle_left_stretch:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  ring_left_stretch:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  pinky_left_stretch:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+
+  # Right arm joints
+  shoulder_vertical_right:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  shoulder_horizontal_right:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  upper_arm_right_rotation:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  elbow_right:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  lower_arm_right_rotation:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  wrist_right:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+
+  # Right hand joints
+  thumb_right_opposition:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  thumb_right_stretch:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  index_right_stretch:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  middle_right_stretch:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  ring_right_stretch:
+    min: null  # Not calibrated
+    max: null  # Not calibrated
+  pinky_right_stretch:
+    min: null  # Not calibrated
+    max: null  # Not calibrated

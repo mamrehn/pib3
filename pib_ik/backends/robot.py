@@ -55,27 +55,37 @@ class RealRobotBackend(RobotBackend):
     /motor_current topic. Use the `timeout` parameter in get_joints() to
     wait for data to arrive.
 
+    Note:
+        Uses joint_limits_robot.yaml for percentage <-> radians conversion.
+        Calibrate with: python -m pib_ik.tools.calibrate_joints
+
     Example:
         >>> from pib_ik.backends import RealRobotBackend
         >>> with RealRobotBackend(host="172.26.34.149") as robot:
         ...     robot.run_trajectory("trajectory.json")
         ...
-        ...     # Control individual joints
-        ...     robot.set_joint("elbow_left", 0.5)  # radians
+        ...     # Control individual joints (use radians until calibrated)
+        ...     robot.set_joint("elbow_left", 0.5, unit="rad")
         ...
         ...     # Read joint positions (waits up to 5s by default)
-        ...     angle = robot.get_joint("elbow_left")
+        ...     angle = robot.get_joint("elbow_left", unit="rad")
+        ...
+        ...     # After calibration, use percentage
+        ...     robot.set_joint("elbow_left", 50.0)  # 50% of range
         ...
         ...     # Save and restore pose
-        ...     saved_pose = robot.get_joints()
-        ...     robot.set_joints(saved_pose)
+        ...     saved_pose = robot.get_joints(unit="rad")
+        ...     robot.set_joints(saved_pose, unit="rad")
         ...
         ...     # Read with custom timeout
-        ...     joints = robot.get_joints(timeout=2.0)
+        ...     joints = robot.get_joints(timeout=2.0, unit="rad")
         ...
         ...     # Set with verification
-        ...     success = robot.set_joint("elbow_left", 0.5, verify=True)
+        ...     success = robot.set_joint("elbow_left", 0.5, unit="rad", verify=True)
     """
+
+    # Use robot-specific joint limits (requires calibration for percentage mode)
+    JOINT_LIMITS_FILE = "joint_limits_robot.yaml"
 
     # Default timeout for waiting for joint data from ROS (seconds)
     DEFAULT_GET_JOINTS_TIMEOUT = 5.0

@@ -182,9 +182,16 @@ Options:
 
 ---
 
-## Configuration File
+## Configuration Files
 
-Calibration values are stored in `pib_ik/resources/joint_limits.yaml`:
+The library uses **separate joint limit files** for simulation and real robot:
+
+| File | Used By | Purpose |
+|------|---------|---------|
+| `joint_limits_webots.yaml` | WebotsBackend, SwiftBackend | Simulation limits (from proto file) |
+| `joint_limits_robot.yaml` | RealRobotBackend | Real robot limits (calibrated) |
+
+Calibration values are stored in `pib_ik/resources/joint_limits_robot.yaml`:
 
 ```yaml
 joints:
@@ -203,9 +210,12 @@ joints:
   # ... etc
 ```
 
+!!! note "Uncalibrated Joints"
+    Joints with `null` values are not calibrated. Using percentage mode with uncalibrated joints will raise a `ValueError`. Use `unit="rad"` until calibrated.
+
 ### Manual Editing
 
-You can also edit this file manually:
+You can also edit `joint_limits_robot.yaml` manually:
 
 ```yaml
 joints:

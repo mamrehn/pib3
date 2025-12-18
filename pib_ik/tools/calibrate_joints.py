@@ -75,8 +75,8 @@ ALL_JOINTS = (
 
 
 def get_config_path() -> Path:
-    """Get path to the joint_limits.yaml config file."""
-    return Path(__file__).parent.parent / "resources" / "joint_limits.yaml"
+    """Get path to the joint_limits_robot.yaml config file."""
+    return Path(__file__).parent.parent / "resources" / "joint_limits_robot.yaml"
 
 
 def load_existing_config() -> Dict:
@@ -89,18 +89,18 @@ def load_existing_config() -> Dict:
 
 
 def save_config(config: Dict) -> None:
-    """Save joint limits config to file."""
+    """Save joint limits config to file and clear cache."""
     config_path = get_config_path()
 
     # Build the YAML content with comments
     lines = [
-        "# PIB Robot Joint Limits Configuration",
-        "# Calibrated using pib_ik.tools.calibrate_joints",
+        "# PIB Robot Joint Limits for Real Robot",
+        "# Calibrated using: python -m pib_ik.tools.calibrate_joints",
         "#",
         "# These values define the mapping from percentage (0-100%) to radians.",
         "# 0% = min (radians), 100% = max (radians)",
         "#",
-        "# Values are in radians.",
+        "# Values are in radians. Joints with 'null' are not calibrated.",
         "",
         "joints:",
     ]
@@ -143,6 +143,13 @@ def save_config(config: Dict) -> None:
 
     with open(config_path, "w") as f:
         f.write("\n".join(lines))
+
+    # Clear the joint limits cache so new values are used immediately
+    try:
+        from pib_ik.backends.base import clear_joint_limits_cache
+        clear_joint_limits_cache()
+    except ImportError:
+        pass
 
     print(f"\nConfig saved to: {config_path}")
 

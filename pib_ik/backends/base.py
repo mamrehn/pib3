@@ -14,10 +14,24 @@ logger = logging.getLogger(__name__)
 # Type alias for unit parameter
 UnitType = Literal["percent", "rad"]
 
+# Cache for loaded joint limits files (filename -> limits dict)
+_JOINT_LIMITS_CACHE: Dict[str, Dict[str, Dict[str, float]]] = {}
 
-def _load_joint_limits() -> Dict[str, Dict[str, float]]:
-    """Load joint limits from the bundled YAML config."""
-    config_path = Path(__file__).parent.parent / "resources" / "joint_limits.yaml"
+
+def load_joint_limits(filename: str) -> Dict[str, Dict[str, float]]:
+    """
+    Load joint limits from a YAML config file.
+
+    Args:
+        filename: Name of the limits file (e.g., "joint_limits_robot.yaml").
+
+    Returns:
+        Dict mapping joint names to their min/max limits.
+    """
+    if filename in _JOINT_LIMITS_CACHE:
+        return _JOINT_LIMITS_CACHE[filename]
+
+    config_path = Path(__file__).parent.parent / "resources" / filename
     if not config_path.exists():
         logger.warning(f"Joint limits config not found: {config_path}")
         return {}
@@ -25,19 +39,23 @@ def _load_joint_limits() -> Dict[str, Dict[str, float]]:
     with open(config_path, "r") as f:
         data = yaml.safe_load(f)
 
-    return data.get("joints", {})
+    limits = data.get("joints", {})
+    _JOINT_LIMITS_CACHE[filename] = limits
+    return limits
 
 
-# Global joint limits cache
-_JOINT_LIMITS: Optional[Dict[str, Dict[str, float]]] = None
+def clear_joint_limits_cache() -> None:
+    """Clear the joint limits cache. Useful after calibration."""
+    _JOINT_LIMITS_CACHE.clear()
 
 
 def get_joint_limits() -> Dict[str, Dict[str, float]]:
-    """Get joint limits (cached)."""
-    global _JOINT_LIMITS
-    if _JOINT_LIMITS is None:
-        _JOINT_LIMITS = _load_joint_limits()
-    return _JOINT_LIMITS
+    """
+    Get default joint limits (for backward compatibility).
+
+    Deprecated: Use load_joint_limits() with specific filename instead.
+    """
+    return load_joint_limits("joint_limits_webots.yaml")
 
 
 class RobotBackend(ABC):
@@ -97,6 +115,15 @@ class RobotBackend(ABC):
     # Default tolerance for verification (percentage)
     DEFAULT_VERIFY_TOLERANCE_PERCENT = 2.0  # 2%
 
+    # Joint limits file for this backend (override in subclasses)
+    # - "joint_limits_webots.yaml" for simulation (Webots, Swift)
+    # - "joint_limits_robot.yaml" for real robot
+    JOINT_LIMITS_FILE: str = "joint_limits_webots.yaml"
+
+    def _get_joint_limits(self) -> Dict[str, Dict[str, float]]:
+        """Get joint limits for this backend."""
+        return load_joint_limits(self.JOINT_LIMITS_FILE)
+
     # --- Unit Conversion Methods ---
 
     def _percent_to_radians(self, motor_name: str, percent: float) -> float:
@@ -109,17 +136,25 @@ class RobotBackend(ABC):
 
         Returns:
             Position in radians.
-        """
-        limits = get_joint_limits().get(motor_name)
-        if limits is None:
-            logger.warning(
-                f"No limits configured for joint '{motor_name}', "
-                f"treating percent as radians"
-            )
-            return percent
 
-        min_rad = limits.get("min", 0.0)
-        max_rad = limits.get("max", 0.0)
+        Raises:
+            ValueError: If joint limits are not calibrated (min/max is None).
+        """
+        limits = self._get_joint_limits().get(motor_name)
+        if limits is None:
+            raise ValueError(
+                f"No limits configured for joint '{motor_name}' in {self.JOINT_LIMITS_FILE}. "
+                f"Run calibration or use unit='rad'."
+            )
+
+        min_rad = limits.get("min")
+        max_rad = limits.get("max")
+
+        if min_rad is None or max_rad is None:
+            raise ValueError(
+                f"Joint '{motor_name}' is not calibrated (min={min_rad}, max={max_rad}). "
+                f"Run: python -m pib_ik.tools.calibrate_joints --joints {motor_name}"
+            )
 
         # Warn if out of range
         if percent < 0.0 or percent > 100.0:
@@ -142,17 +177,25 @@ class RobotBackend(ABC):
 
         Returns:
             Position as percentage (0 = min, 100 = max).
-        """
-        limits = get_joint_limits().get(motor_name)
-        if limits is None:
-            logger.warning(
-                f"No limits configured for joint '{motor_name}', "
-                f"returning radians as-is"
-            )
-            return radians
 
-        min_rad = limits.get("min", 0.0)
-        max_rad = limits.get("max", 0.0)
+        Raises:
+            ValueError: If joint limits are not calibrated (min/max is None).
+        """
+        limits = self._get_joint_limits().get(motor_name)
+        if limits is None:
+            raise ValueError(
+                f"No limits configured for joint '{motor_name}' in {self.JOINT_LIMITS_FILE}. "
+                f"Run calibration or use unit='rad'."
+            )
+
+        min_rad = limits.get("min")
+        max_rad = limits.get("max")
+
+        if min_rad is None or max_rad is None:
+            raise ValueError(
+                f"Joint '{motor_name}' is not calibrated (min={min_rad}, max={max_rad}). "
+                f"Run: python -m pib_ik.tools.calibrate_joints --joints {motor_name}"
+            )
 
         # Avoid division by zero
         range_rad = max_rad - min_rad
