@@ -1,6 +1,10 @@
-# pib-ik
+<h1 align="center">
+<img src="examples/pib3_logo.png" width="440">
+</h1><br>
 
-Inverse kinematics and trajectory generation for the [PIB](https://pib.rocks/) humanoid robot. Convert images to robot arm drawing trajectories.
+**piB3**
+
+Inverse kinematics and trajectory generation for the [pib](https://pib.rocks/) printable humanoid robot. Convert images to robot arm drawing trajectories. 
 
 ## Installation
 
