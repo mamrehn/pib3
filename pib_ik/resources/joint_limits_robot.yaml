@@ -9,88 +9,88 @@
 joints:
   # Head joints
   turn_head_motor:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   tilt_forward_motor:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: -0.7853981633974483  # -45 degrees
+    max: 1.2217304763960306   # +70 degrees
 
   # Left arm joints
   shoulder_vertical_left:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   shoulder_horizontal_left:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   upper_arm_left_rotation:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   elbow_left:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: -0.7853981633974483  # -45 degrees
+    max: 1.5707963267948966   # +90 degrees
   lower_arm_left_rotation:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   wrist_left:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: -0.5235987755982988  # -30 degrees
+    max: 0.5235987755982988   # +30 degrees
 
   # Left hand joints
   thumb_left_opposition:
-    min: 0.0007
-    max: 0.0017
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   thumb_left_stretch:
-    min: 0.0403
-    max: 0.0414
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   index_left_stretch:
-    min: 0.0027
-    max: 0.0361
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   middle_left_stretch:
-    min: 0.0033
-    max: 0.0354
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   ring_left_stretch:
-    min: 0.0039
-    max: 0.0342
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   pinky_left_stretch:
-    min: 0.0036
-    max: 0.0253
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
 
   # Right arm joints
   shoulder_vertical_right:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   shoulder_horizontal_right:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   upper_arm_right_rotation:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   elbow_right:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: -0.7853981633974483  # -45 degrees
+    max: 1.5707963267948966   # +90 degrees
   lower_arm_right_rotation:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   wrist_right:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
 
   # Right hand joints
   thumb_right_opposition:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   thumb_right_stretch:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   index_right_stretch:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   middle_right_stretch:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   ring_right_stretch:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   pinky_right_stretch:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
