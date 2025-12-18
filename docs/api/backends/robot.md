@@ -219,6 +219,7 @@ def get_joint(
     self,
     motor_name: str,
     unit: Literal["percent", "rad"] = "percent",
+    timeout: Optional[float] = None,
 ) -> Optional[float]
 ```
 
@@ -228,6 +229,7 @@ def get_joint(
 |-----------|------|---------|-------------|
 | `motor_name` | `str` | *required* | Motor name to query. |
 | `unit` | `"percent"` or `"rad"` | `"percent"` | Return unit. |
+| `timeout` | `float` or `None` | `5.0` | Max time to wait for ROS messages to arrive (seconds). |
 
 **Returns:** `float` or `None` - Current position, or `None` if unavailable.
 
@@ -235,10 +237,12 @@ def get_joint(
 
 ```python
 with Robot(host="172.26.34.149") as robot:
+    # Uses default 5s timeout
     pos = robot.get_joint("elbow_left")
     print(f"Elbow at {pos:.1f}%")
 
-    pos_rad = robot.get_joint("elbow_left", unit="rad")
+    # Custom timeout
+    pos_rad = robot.get_joint("elbow_left", unit="rad", timeout=2.0)
     print(f"Elbow at {pos_rad:.3f} rad")
 ```
 
@@ -251,6 +255,7 @@ def get_joints(
     self,
     motor_names: Optional[List[str]] = None,
     unit: Literal["percent", "rad"] = "percent",
+    timeout: Optional[float] = None,
 ) -> Dict[str, float]
 ```
 
@@ -260,6 +265,7 @@ def get_joints(
 |-----------|------|---------|-------------|
 | `motor_names` | `List[str]` or `None` | `None` | Motors to query. `None` returns all. |
 | `unit` | `"percent"` or `"rad"` | `"percent"` | Return unit. |
+| `timeout` | `float` or `None` | `5.0` | Max time to wait for ROS messages to arrive (seconds). |
 
 **Returns:** `Dict[str, float]` - Motor names mapped to positions.
 
@@ -267,15 +273,15 @@ def get_joints(
 
 ```python
 with Robot(host="172.26.34.149") as robot:
-    # Get specific joints
+    # Get specific joints (uses default 5s timeout)
     arm = robot.get_joints([
         "shoulder_vertical_left",
         "elbow_left",
         "wrist_left",
     ])
 
-    # Get all joints (for saving pose)
-    all_joints = robot.get_joints()
+    # Get all joints with custom timeout
+    all_joints = robot.get_joints(timeout=2.0)
 ```
 
 ---
@@ -410,16 +416,19 @@ centidegrees = round(degrees(radians) * 100)
     robot.set_joint("elbow_left", 1.0, unit="rad")
     ```
 
-!!! warning "Position Reading is None"
-    **Cause:** Motor feedback not received yet.
+!!! warning "Position Reading is None or Empty Dict"
+    **Cause:** Motor feedback not received within timeout, or motor not publishing.
 
-    **Solution:** Wait briefly after connecting:
+    **Solution:** The `get_joint()` and `get_joints()` methods wait up to 5 seconds by default for ROS messages to arrive. If you're still getting `None`, try:
+
+    1. Increase the timeout:
 
     ```python
-    import time
+    pos = robot.get_joint("elbow_left", timeout=10.0)
+    ```
 
-    robot = Robot(host="172.26.34.149")
-    robot.connect()
-    time.sleep(1.0)  # Wait for feedback
-    pos = robot.get_joint("elbow_left")
+    2. Verify the motor is publishing feedback in ROS:
+
+    ```bash
+    ros2 topic echo /motor_current
     ```

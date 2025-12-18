@@ -182,13 +182,14 @@ with WebotsBackend() as robot:
 
 ### get_joint()
 
-Read a single joint position.
+Read a single joint position. Waits for motor readings to stabilize (same value twice) before returning.
 
 ```python
 def get_joint(
     self,
     motor_name: str,
     unit: Literal["percent", "rad"] = "percent",
+    timeout: Optional[float] = None,
 ) -> Optional[float]
 ```
 
@@ -198,26 +199,32 @@ def get_joint(
 |-----------|------|---------|-------------|
 | `motor_name` | `str` | *required* | Motor name to query. |
 | `unit` | `"percent"` or `"rad"` | `"percent"` | Return unit. |
+| `timeout` | `float` or `None` | `5.0` | Max time to wait for motor reading to stabilize (seconds). |
 
-**Returns:** `float` or `None` - Current position, or `None` if unavailable.
+**Returns:** `float` or `None` - Current position, or `None` if unavailable or motor still moving.
 
 **Example:**
 
 ```python
 with WebotsBackend() as robot:
+    # Uses default 5s timeout for stabilization
     pos = robot.get_joint("elbow_left")
     print(f"Elbow at {pos:.1f}%")
+
+    # Shorter timeout
+    pos = robot.get_joint("elbow_left", timeout=1.0)
 ```
 
 ### get_joints()
 
-Read multiple joint positions.
+Read multiple joint positions. Waits for each motor reading to stabilize before returning.
 
 ```python
 def get_joints(
     self,
     motor_names: Optional[List[str]] = None,
     unit: Literal["percent", "rad"] = "percent",
+    timeout: Optional[float] = None,
 ) -> Dict[str, float]
 ```
 
@@ -227,6 +234,7 @@ def get_joints(
 |-----------|------|---------|-------------|
 | `motor_names` | `List[str]` or `None` | `None` | Motors to query. `None` returns all. |
 | `unit` | `"percent"` or `"rad"` | `"percent"` | Return unit. |
+| `timeout` | `float` or `None` | `5.0` | Max time to wait for each motor reading to stabilize (seconds). |
 
 **Returns:** `Dict[str, float]` - Motor names mapped to positions.
 

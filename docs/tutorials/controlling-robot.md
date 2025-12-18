@@ -91,13 +91,18 @@ with Robot(host="172.26.34.149") as robot:
 
 ### Reading Joint Positions
 
+Joint positions are received asynchronously from the robot. By default, `get_joint()` and `get_joints()` wait up to 5 seconds for data to arrive.
+
 ```python
 from pib_ik import Robot
 
 with Robot(host="172.26.34.149") as robot:
-    # Read single joint
+    # Read single joint (waits up to 5s by default)
     elbow_pos = robot.get_joint("elbow_left")
     print(f"Elbow is at {elbow_pos:.1f}%")
+
+    # Read with custom timeout
+    elbow_pos = robot.get_joint("elbow_left", timeout=2.0)
 
     # Read multiple joints
     arm_joints = robot.get_joints([

@@ -109,6 +109,7 @@ def get_joint(
     self,
     motor_name: str,
     unit: Literal["percent", "rad"] = "percent",
+    timeout: Optional[float] = None,
 ) -> Optional[float]
 ```
 
@@ -118,25 +119,34 @@ def get_joint(
 |-----------|------|---------|-------------|
 | `motor_name` | `str` | *required* | Name of the motor to query. Must be one of the names in `MOTOR_NAMES`. |
 | `unit` | `"percent"` or `"rad"` | `"percent"` | Unit for the returned value. `"percent"` returns 0-100% of the joint's calibrated range. `"rad"` returns raw radians. |
+| `timeout` | `float` or `None` | `None` | Max time to wait for joint data (seconds). See note below. |
+
+**Timeout Behavior by Backend:**
+
+| Backend | Default | Behavior |
+|---------|---------|----------|
+| `RealRobotBackend` | 5.0s | Waits for ROS messages to arrive |
+| `WebotsBackend` | 5.0s | Waits for motor readings to stabilize |
+| `SwiftBackend` | ignored | Returns immediately (synchronous access) |
 
 **Returns:** `float` or `None`
 
 - Current position in the specified unit
-- `None` if the position is unavailable (e.g., sensor not ready)
+- `None` if the position is unavailable (e.g., sensor not ready, timeout expired)
 
 **Example:**
 
 ```python
-from pib_ik import Swift
+from pib_ik import Robot
 
-with Swift() as viz:
-    # Get position as percentage (default)
-    pos_percent = viz.get_joint("elbow_left")
-    print(f"Elbow at {pos_percent:.1f}%")  # e.g., "Elbow at 50.0%"
+with Robot(host="172.26.34.149") as robot:
+    # Get position (waits up to 5s by default)
+    pos_percent = robot.get_joint("elbow_left")
+    print(f"Elbow at {pos_percent:.1f}%")
 
-    # Get position in radians
-    pos_rad = viz.get_joint("elbow_left", unit="rad")
-    print(f"Elbow at {pos_rad:.3f} rad")  # e.g., "Elbow at 0.785 rad"
+    # Get position with custom timeout
+    pos_rad = robot.get_joint("elbow_left", unit="rad", timeout=2.0)
+    print(f"Elbow at {pos_rad:.3f} rad")
 ```
 
 !!! note "Percentage Requires Calibration"
@@ -153,6 +163,7 @@ def get_joints(
     self,
     motor_names: Optional[List[str]] = None,
     unit: Literal["percent", "rad"] = "percent",
+    timeout: Optional[float] = None,
 ) -> Dict[str, float]
 ```
 
@@ -162,6 +173,15 @@ def get_joints(
 |-----------|------|---------|-------------|
 | `motor_names` | `List[str]` or `None` | `None` | List of motor names to query. If `None`, returns all available joints. |
 | `unit` | `"percent"` or `"rad"` | `"percent"` | Unit for the returned values. |
+| `timeout` | `float` or `None` | `None` | Max time to wait for joint data (seconds). See `get_joint()` for backend-specific behavior. |
+
+**Timeout Behavior by Backend:**
+
+| Backend | Default | Behavior |
+|---------|---------|----------|
+| `RealRobotBackend` | 5.0s | Waits for ROS messages to arrive |
+| `WebotsBackend` | 5.0s | Waits for motor readings to stabilize |
+| `SwiftBackend` | ignored | Returns immediately (synchronous access) |
 
 **Returns:** `Dict[str, float]`
 
@@ -173,17 +193,15 @@ def get_joints(
 from pib_ik import Robot
 
 with Robot(host="172.26.34.149") as robot:
-    # Get all joints (useful for saving poses)
+    # Get all joints (waits up to 5s by default)
     all_positions = robot.get_joints()
     print(f"Got {len(all_positions)} joint positions")
 
-    # Get specific joints
-    arm_positions = robot.get_joints([
-        "shoulder_vertical_left",
-        "shoulder_horizontal_left",
-        "elbow_left",
-        "wrist_left",
-    ])
+    # Get specific joints with custom timeout
+    arm_positions = robot.get_joints(
+        ["shoulder_vertical_left", "elbow_left", "wrist_left"],
+        timeout=2.0,
+    )
     for name, pos in arm_positions.items():
         print(f"{name}: {pos:.1f}%")
 

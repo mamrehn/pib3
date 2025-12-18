@@ -245,35 +245,38 @@ class RealRobotBackend(RobotBackend):
         """
         Get current positions of multiple joints in radians.
 
+        Waits until all requested joints have data, or timeout expires.
+
         Args:
-            motor_names: List of motor names to query. If None, returns all
-                        available joints.
-            timeout: Max time to wait for joint data if none available (seconds).
+            motor_names: List of motor names to query. If None, waits for all
+                        motors in MOTOR_NAMES to have data.
+            timeout: Max time to wait for joint data (seconds).
                     If None, uses DEFAULT_GET_JOINTS_TIMEOUT (5.0s).
 
         Returns:
             Dict mapping motor names to positions in radians.
+            May contain fewer joints than requested if timeout expires.
         """
         if timeout is None:
             timeout = self.DEFAULT_GET_JOINTS_TIMEOUT
 
-        # Wait for messages to arrive
+        # Determine which joints we're waiting for
+        expected_joints = set(motor_names) if motor_names else set(self.MOTOR_NAMES)
+
+        # Wait for all expected joints to have data
         start = time.time()
         while (time.time() - start) < timeout:
             with self._joint_states_lock:
-                if motor_names is None:
-                    if self._joint_states:
-                        return dict(self._joint_states)
-                else:
-                    available = {
+                available_joints = set(self._joint_states.keys())
+                if expected_joints <= available_joints:
+                    # All expected joints are available
+                    return {
                         name: self._joint_states[name]
-                        for name in motor_names
-                        if name in self._joint_states
+                        for name in expected_joints
                     }
-                    if available:
-                        return available
             time.sleep(0.05)  # Poll every 50ms
 
+        # Timeout expired - return whatever we have
         with self._joint_states_lock:
             if motor_names is None:
                 return dict(self._joint_states)
