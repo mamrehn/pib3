@@ -51,6 +51,10 @@ class RealRobotBackend(RobotBackend):
 
     Position values are converted from radians to centidegrees.
 
+    Joint positions are received asynchronously via ROS messages on the
+    /motor_current topic. Use the `timeout` parameter in get_joints() to
+    wait for data to arrive.
+
     Example:
         >>> from pib_ik.backends import RealRobotBackend
         >>> with RealRobotBackend(host="172.26.34.149") as robot:
@@ -59,16 +63,22 @@ class RealRobotBackend(RobotBackend):
         ...     # Control individual joints
         ...     robot.set_joint("elbow_left", 0.5)  # radians
         ...
-        ...     # Read joint positions
+        ...     # Read joint positions (waits up to 5s by default)
         ...     angle = robot.get_joint("elbow_left")
         ...
         ...     # Save and restore pose
         ...     saved_pose = robot.get_joints()
         ...     robot.set_joints(saved_pose)
         ...
+        ...     # Read with custom timeout
+        ...     joints = robot.get_joints(timeout=2.0)
+        ...
         ...     # Set with verification
         ...     success = robot.set_joint("elbow_left", 0.5, verify=True)
     """
+
+    # Default timeout for waiting for joint data from ROS (seconds)
+    DEFAULT_GET_JOINTS_TIMEOUT = 5.0
 
     def __init__(
         self,
@@ -198,16 +208,32 @@ class RealRobotBackend(RobotBackend):
         """Check if connected to robot."""
         return self._client is not None and self._client.is_connected
 
-    def _get_joint_radians(self, motor_name: str) -> Optional[float]:
+    def _get_joint_radians(
+        self,
+        motor_name: str,
+        timeout: Optional[float] = None,
+    ) -> Optional[float]:
         """
         Get current position of a single joint in radians.
 
         Args:
             motor_name: Name of motor (e.g., "elbow_left").
+            timeout: Max time to wait for joint data (seconds).
+                    If None, uses DEFAULT_GET_JOINTS_TIMEOUT (5.0s).
 
         Returns:
             Current position in radians, or None if unavailable.
         """
+        if timeout is None:
+            timeout = self.DEFAULT_GET_JOINTS_TIMEOUT
+
+        start = time.time()
+        while (time.time() - start) < timeout:
+            with self._joint_states_lock:
+                if motor_name in self._joint_states:
+                    return self._joint_states[motor_name]
+            time.sleep(0.05)  # Poll every 50ms
+
         with self._joint_states_lock:
             return self._joint_states.get(motor_name)
 
@@ -223,28 +249,30 @@ class RealRobotBackend(RobotBackend):
             motor_names: List of motor names to query. If None, returns all
                         available joints.
             timeout: Max time to wait for joint data if none available (seconds).
-                    If None, returns immediately (may be empty dict).
+                    If None, uses DEFAULT_GET_JOINTS_TIMEOUT (5.0s).
 
         Returns:
             Dict mapping motor names to positions in radians.
         """
-        # If timeout specified and no data yet, wait for messages to arrive
-        if timeout is not None:
-            start = time.time()
-            while (time.time() - start) < timeout:
-                with self._joint_states_lock:
-                    if motor_names is None:
-                        if self._joint_states:
-                            return dict(self._joint_states)
-                    else:
-                        available = {
-                            name: self._joint_states[name]
-                            for name in motor_names
-                            if name in self._joint_states
-                        }
-                        if available:
-                            return available
-                time.sleep(0.05)  # Poll every 50ms
+        if timeout is None:
+            timeout = self.DEFAULT_GET_JOINTS_TIMEOUT
+
+        # Wait for messages to arrive
+        start = time.time()
+        while (time.time() - start) < timeout:
+            with self._joint_states_lock:
+                if motor_names is None:
+                    if self._joint_states:
+                        return dict(self._joint_states)
+                else:
+                    available = {
+                        name: self._joint_states[name]
+                        for name in motor_names
+                        if name in self._joint_states
+                    }
+                    if available:
+                        return available
+            time.sleep(0.05)  # Poll every 50ms
 
         with self._joint_states_lock:
             if motor_names is None:

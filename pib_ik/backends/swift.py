@@ -361,12 +361,17 @@ class SwiftBackend(RobotBackend):
         """Check if visualization is active."""
         return self._env is not None and self._robot is not None
 
-    def _get_joint_radians(self, motor_name: str) -> Optional[float]:
+    def _get_joint_radians(
+        self,
+        motor_name: str,
+        timeout: Optional[float] = None,
+    ) -> Optional[float]:
         """
         Get current position of a single joint in radians.
 
         Args:
             motor_name: Name of motor (e.g., "elbow_left").
+            timeout: Ignored (Swift has synchronous access).
 
         Returns:
             Current position in radians, or None if unavailable.

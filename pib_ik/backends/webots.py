@@ -45,12 +45,23 @@ class WebotsBackend(RobotBackend):
 
     Must be instantiated from within a Webots controller script.
 
+    When reading joint positions, the backend waits for motor readings to
+    stabilize (same value twice) to ensure accurate readings when motors
+    are in motion. Use the `timeout` parameter in get_joints() to control
+    how long to wait (default: 5.0 seconds).
+
     Example:
         # In your Webots controller file:
         from pib_ik.backends import WebotsBackend
 
         with WebotsBackend() as backend:
             backend.run_trajectory("trajectory.json")
+
+            # Read joint positions (waits up to 5s for stabilization)
+            joints = backend.get_joints()
+
+            # Read with custom timeout
+            joints = backend.get_joints(timeout=2.0)
     """
 
     WEBOTS_OFFSET = 0.0  # radians offset for Webots motors
@@ -112,7 +123,7 @@ class WebotsBackend(RobotBackend):
         return self._robot is not None
 
     # Default timeout for waiting for motor stabilization (seconds)
-    DEFAULT_STABILIZATION_TIMEOUT = 10.0  # 200 steps * 50ms = 10s
+    DEFAULT_GET_JOINTS_TIMEOUT = 5.0
 
     def _get_joint_radians(
         self,
@@ -125,7 +136,7 @@ class WebotsBackend(RobotBackend):
         Args:
             motor_name: Name of motor (e.g., "elbow_left").
             timeout: Max time to wait for motor to stabilize (seconds).
-                    If None, uses DEFAULT_STABILIZATION_TIMEOUT.
+                    If None, uses DEFAULT_GET_JOINTS_TIMEOUT (5.0s).
 
         Returns:
             Current position in radians, or None if unavailable.
@@ -139,7 +150,7 @@ class WebotsBackend(RobotBackend):
             sensor = motor.getPositionSensor()
             if sensor is not None:
                 if timeout is None:
-                    timeout = self.DEFAULT_STABILIZATION_TIMEOUT
+                    timeout = self.DEFAULT_GET_JOINTS_TIMEOUT
                 start = time.time()
                 webots_pos_old = sensor.getValue()
                 while (time.time() - start) < timeout:
@@ -166,7 +177,7 @@ class WebotsBackend(RobotBackend):
             motor_names: List of motor names to query. If None, returns all
                         available joints.
             timeout: Max time to wait for each motor to stabilize (seconds).
-                    If None, uses DEFAULT_STABILIZATION_TIMEOUT.
+                    If None, uses DEFAULT_GET_JOINTS_TIMEOUT (5.0s).
 
         Returns:
             Dict mapping motor names to positions in radians.

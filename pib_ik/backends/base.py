@@ -212,6 +212,7 @@ class RobotBackend(ABC):
         self,
         motor_name: str,
         unit: UnitType = "percent",
+        timeout: Optional[float] = None,
     ) -> Optional[float]:
         """
         Get current position of a single joint.
@@ -220,6 +221,13 @@ class RobotBackend(ABC):
             motor_name: Name of motor (e.g., "elbow_left").
             unit: Unit for the returned value ("percent" or "rad").
                   Default is "percent" (0-100% of joint range).
+            timeout: Max time to wait for joint data (seconds). Behavior varies
+                    by backend:
+                    - RealRobotBackend: Waits for ROS messages to arrive.
+                      Default: 5.0 seconds.
+                    - WebotsBackend: Waits for motor reading to stabilize
+                      (same value twice). Default: 5.0 seconds.
+                    - SwiftBackend: Ignored (synchronous access).
 
         Returns:
             Current position in specified unit, or None if unavailable.
@@ -231,7 +239,7 @@ class RobotBackend(ABC):
             >>> angle_rad = backend.get_joint("elbow_left", unit="rad")
             >>> print(f"Elbow is at {angle_rad:.2f} radians")
         """
-        radians = self._get_joint_radians(motor_name)
+        radians = self._get_joint_radians(motor_name, timeout=timeout)
         if radians is None:
             return None
 
@@ -241,12 +249,18 @@ class RobotBackend(ABC):
             return self._radians_to_percent(motor_name, radians)
 
     @abstractmethod
-    def _get_joint_radians(self, motor_name: str) -> Optional[float]:
+    def _get_joint_radians(
+        self,
+        motor_name: str,
+        timeout: Optional[float] = None,
+    ) -> Optional[float]:
         """
         Get current position of a single joint in radians (internal).
 
         Args:
             motor_name: Name of motor.
+            timeout: Max time to wait for joint data (seconds).
+                    May be ignored by backends with synchronous access.
 
         Returns:
             Current position in radians, or None if unavailable.
@@ -267,9 +281,13 @@ class RobotBackend(ABC):
                         available joints.
             unit: Unit for the returned values ("percent" or "rad").
                   Default is "percent" (0-100% of joint range).
-            timeout: Max time to wait for joint data if none available (seconds).
-                    Useful for RealRobotBackend where joint states arrive async.
-                    If None, returns immediately (may be empty dict on real robot).
+            timeout: Max time to wait for joint data (seconds). Behavior varies
+                    by backend:
+                    - RealRobotBackend: Waits for ROS messages to arrive.
+                      Default: 5.0 seconds.
+                    - WebotsBackend: Waits for motor readings to stabilize
+                      (same value twice). Default: 5.0 seconds.
+                    - SwiftBackend: Ignored (synchronous access).
 
         Returns:
             Dict mapping motor names to positions in specified unit.
@@ -281,7 +299,7 @@ class RobotBackend(ABC):
             >>> # Get specific joints in radians
             >>> arm = backend.get_joints(["elbow_left", "wrist_left"], unit="rad")
             >>>
-            >>> # Wait up to 2 seconds for data on real robot
+            >>> # Custom timeout
             >>> joints = robot.get_joints(timeout=2.0)
         """
         radians_dict = self._get_joints_radians(motor_names, timeout=timeout)
