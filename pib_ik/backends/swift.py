@@ -384,6 +384,7 @@ class SwiftBackend(RobotBackend):
     def _get_joints_radians(
         self,
         motor_names: Optional[List[str]] = None,
+        timeout: Optional[float] = None,
     ) -> Dict[str, float]:
         """
         Get current positions of multiple joints in radians.
@@ -391,6 +392,7 @@ class SwiftBackend(RobotBackend):
         Args:
             motor_names: List of motor names to query. If None, returns all
                         available joints.
+            timeout: Ignored (Swift has synchronous access).
 
         Returns:
             Dict mapping motor names to positions in radians.

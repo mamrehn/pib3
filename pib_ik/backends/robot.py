@@ -214,6 +214,7 @@ class RealRobotBackend(RobotBackend):
     def _get_joints_radians(
         self,
         motor_names: Optional[List[str]] = None,
+        timeout: Optional[float] = None,
     ) -> Dict[str, float]:
         """
         Get current positions of multiple joints in radians.
@@ -221,10 +222,30 @@ class RealRobotBackend(RobotBackend):
         Args:
             motor_names: List of motor names to query. If None, returns all
                         available joints.
+            timeout: Max time to wait for joint data if none available (seconds).
+                    If None, returns immediately (may be empty dict).
 
         Returns:
             Dict mapping motor names to positions in radians.
         """
+        # If timeout specified and no data yet, wait for messages to arrive
+        if timeout is not None:
+            start = time.time()
+            while (time.time() - start) < timeout:
+                with self._joint_states_lock:
+                    if motor_names is None:
+                        if self._joint_states:
+                            return dict(self._joint_states)
+                    else:
+                        available = {
+                            name: self._joint_states[name]
+                            for name in motor_names
+                            if name in self._joint_states
+                        }
+                        if available:
+                            return available
+                time.sleep(0.05)  # Poll every 50ms
+
         with self._joint_states_lock:
             if motor_names is None:
                 return dict(self._joint_states)

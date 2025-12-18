@@ -1,5 +1,6 @@
 """Webots simulator backend for pib_ik package."""
 
+import time
 from typing import Callable, Dict, List, Optional
 
 import numpy as np
@@ -110,12 +111,21 @@ class WebotsBackend(RobotBackend):
         """Check if robot is initialized."""
         return self._robot is not None
 
-    def _get_joint_radians(self, motor_name: str) -> Optional[float]:
+    # Default timeout for waiting for motor stabilization (seconds)
+    DEFAULT_STABILIZATION_TIMEOUT = 10.0  # 200 steps * 50ms = 10s
+
+    def _get_joint_radians(
+        self,
+        motor_name: str,
+        timeout: Optional[float] = None,
+    ) -> Optional[float]:
         """
         Get current position of a single joint in radians.
 
         Args:
             motor_name: Name of motor (e.g., "elbow_left").
+            timeout: Max time to wait for motor to stabilize (seconds).
+                    If None, uses DEFAULT_STABILIZATION_TIMEOUT.
 
         Returns:
             Current position in radians, or None if unavailable.
@@ -128,11 +138,14 @@ class WebotsBackend(RobotBackend):
             # Get position sensor if available
             sensor = motor.getPositionSensor()
             if sensor is not None:
+                if timeout is None:
+                    timeout = self.DEFAULT_STABILIZATION_TIMEOUT
+                start = time.time()
                 webots_pos_old = sensor.getValue()
-                for _ in range(200):
+                while (time.time() - start) < timeout:
                     self._robot.step(self._timestep)  # Advance simulation
                     webots_pos = sensor.getValue()
-                    # Check if we are close enough
+                    # Check if motor has stabilized (same reading twice)
                     if abs(webots_pos - webots_pos_old) < 0.0001:
                         return webots_pos - self.WEBOTS_OFFSET
                     else:
@@ -144,6 +157,7 @@ class WebotsBackend(RobotBackend):
     def _get_joints_radians(
         self,
         motor_names: Optional[List[str]] = None,
+        timeout: Optional[float] = None,
     ) -> Dict[str, float]:
         """
         Get current positions of multiple joints in radians.
@@ -151,6 +165,8 @@ class WebotsBackend(RobotBackend):
         Args:
             motor_names: List of motor names to query. If None, returns all
                         available joints.
+            timeout: Max time to wait for each motor to stabilize (seconds).
+                    If None, uses DEFAULT_STABILIZATION_TIMEOUT.
 
         Returns:
             Dict mapping motor names to positions in radians.
@@ -162,7 +178,7 @@ class WebotsBackend(RobotBackend):
         names_to_query = motor_names if motor_names is not None else list(self._motors.keys())
 
         for name in names_to_query:
-            pos = self._get_joint_radians(name)
+            pos = self._get_joint_radians(name, timeout=timeout)
             if pos is not None:
                 result[name] = pos
 

@@ -257,6 +257,7 @@ class RobotBackend(ABC):
         self,
         motor_names: Optional[List[str]] = None,
         unit: UnitType = "percent",
+        timeout: Optional[float] = None,
     ) -> Dict[str, float]:
         """
         Get current positions of multiple joints.
@@ -266,6 +267,9 @@ class RobotBackend(ABC):
                         available joints.
             unit: Unit for the returned values ("percent" or "rad").
                   Default is "percent" (0-100% of joint range).
+            timeout: Max time to wait for joint data if none available (seconds).
+                    Useful for RealRobotBackend where joint states arrive async.
+                    If None, returns immediately (may be empty dict on real robot).
 
         Returns:
             Dict mapping motor names to positions in specified unit.
@@ -276,8 +280,11 @@ class RobotBackend(ABC):
             >>>
             >>> # Get specific joints in radians
             >>> arm = backend.get_joints(["elbow_left", "wrist_left"], unit="rad")
+            >>>
+            >>> # Wait up to 2 seconds for data on real robot
+            >>> joints = robot.get_joints(timeout=2.0)
         """
-        radians_dict = self._get_joints_radians(motor_names)
+        radians_dict = self._get_joints_radians(motor_names, timeout=timeout)
 
         if unit == "rad":
             return radians_dict
@@ -291,6 +298,7 @@ class RobotBackend(ABC):
     def _get_joints_radians(
         self,
         motor_names: Optional[List[str]] = None,
+        timeout: Optional[float] = None,
     ) -> Dict[str, float]:
         """
         Get current positions of multiple joints in radians (internal).
@@ -298,6 +306,8 @@ class RobotBackend(ABC):
         Args:
             motor_names: List of motor names to query. If None, returns all
                         available joints.
+            timeout: Max time to wait for joint data if none available (seconds).
+                    May be ignored by backends with synchronous access.
 
         Returns:
             Dict mapping motor names to positions in radians.
