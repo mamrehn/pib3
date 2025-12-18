@@ -296,53 +296,68 @@ class RealRobotBackend(RobotBackend):
                 if name in self._joint_states
             }
 
-    def _set_joints_impl(self, positions_radians: Dict[str, float]) -> bool:
+    # Default velocity for motor movements (centidegrees per second)
+    DEFAULT_VELOCITY_CENTIDEG = 10000  # 100 degrees/sec
+
+    def _set_joints_impl(
+        self,
+        positions_radians: Dict[str, float],
+        velocity_centideg: Optional[float] = None,
+    ) -> bool:
         """
         Set joint positions via apply_joint_trajectory service.
 
+        Sends each joint as a separate service call because the PIB robot's
+        ROS implementation processes one joint per call.
+
         Args:
             positions_radians: Dict mapping motor names to positions in radians.
+            velocity_centideg: Velocity in centidegrees/sec. If None, uses default.
 
         Returns:
-            True if successful.
+            True if all joints were set successfully.
         """
         if not self.is_connected:
             return False
 
-        # Build JointTrajectory message (ROS2 format)
-        joint_names = []
-        positions_centideg = []
+        if velocity_centideg is None:
+            velocity_centideg = self.DEFAULT_VELOCITY_CENTIDEG
 
+        import roslibpy
+
+        all_successful = True
+
+        # Send each joint as a separate service call
         for joint_name, position in positions_radians.items():
             motor_name = JOINT_TO_ROBOT_MOTOR.get(joint_name, joint_name)
             centidegrees = self._radians_to_centidegrees(position)
-            joint_names.append(motor_name)
-            positions_centideg.append(float(centidegrees))
 
-        message = {
-            'joint_trajectory': {
-                'header': {
-                    'stamp': {'sec': 0, 'nanosec': 0},
-                    'frame_id': '',
-                },
-                'joint_names': joint_names,
-                'points': [{
-                    'positions': positions_centideg,
-                    'velocities': [],
-                    'accelerations': [],
-                    'effort': [],
-                    'time_from_start': {'sec': 0, 'nanosec': 0},
-                }],
+            message = {
+                'joint_trajectory': {
+                    'header': {
+                        'stamp': {'sec': 0, 'nanosec': 0},
+                        'frame_id': '',
+                    },
+                    'joint_names': [motor_name],
+                    'points': [{
+                        'positions': [float(centidegrees)],
+                        'velocities': [float(velocity_centideg)],
+                        'accelerations': [],
+                        'effort': [],
+                        'time_from_start': {'sec': 0, 'nanosec': 0},
+                    }],
+                }
             }
-        }
 
-        try:
-            import roslibpy
-            request = roslibpy.ServiceRequest(message)
-            result = self._service.call(request, timeout=self.timeout)
-            return result.get('successful', False)
-        except Exception:
-            return False
+            try:
+                request = roslibpy.ServiceRequest(message)
+                result = self._service.call(request, timeout=self.timeout)
+                if not result.get('successful', False):
+                    all_successful = False
+            except Exception:
+                all_successful = False
+
+        return all_successful
 
     def _execute_waypoints(
         self,
