@@ -37,23 +37,23 @@ joints:
 
   # Left hand joints
   thumb_left_opposition:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: 0.0007
+    max: 0.0017
   thumb_left_stretch:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: 0.0403
+    max: 0.0414
   index_left_stretch:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: 0.0027
+    max: 0.0361
   middle_left_stretch:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: 0.0033
+    max: 0.0354
   ring_left_stretch:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: 0.0039
+    max: 0.0342
   pinky_left_stretch:
-    min: null  # Not calibrated
-    max: null  # Not calibrated
+    min: 0.0036
+    max: 0.0253
 
   # Right arm joints
   shoulder_vertical_right:
