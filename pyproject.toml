@@ -54,6 +54,7 @@ image = [
 viz = [
     "swift-sim>=1.0.0",
     "spatialgeometry>=1.0.0",
+    "websockets<12.0",  # swift-sim incompatible with websockets>=12
 ]
 
 # Real robot connection via rosbridge
@@ -66,6 +67,7 @@ all = [
     "scikit-image>=0.18.0",
     "swift-sim>=1.0.0",
     "spatialgeometry>=1.0.0",
+    "websockets<12.0",  # swift-sim incompatible with websockets>=12
     "roslibpy>=1.0.0",
 ]
 
