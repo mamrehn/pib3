@@ -6,10 +6,10 @@ Joint angle units and conversions across different components.
 
 | Context | Unit | Range (typical) |
 |---------|------|-----------------|
-| Internal/Trajectory | radians | 0 to ~3.14 |
+| Canonical (Trajectory/Webots) | radians | -π/2 to +π/2 |
 | User API (default) | percentage | 0% to 100% |
-| Webots motors | radians + 1.0 | 1.0 to ~4.14 |
-| Real robot (ROS) | centidegrees | 0 to ~18000 |
+| Swift visualization | radians - 1.0 | -2.57 to +0.57 |
+| Real robot (ROS) | centidegrees | -9000 to +9000 |
 
 ## Percentage System
 
@@ -65,32 +65,49 @@ with Robot() as robot:
     print(f"Elbow at {math.degrees(pos):.1f} degrees")
 ```
 
-## Webots Offset
+## Canonical Format (Webots)
 
-Webots motors have a **+1.0 radian offset** from URDF angles:
+The canonical format uses **Webots motor radians** directly. This is the native format for Webots simulation and the internal storage format for trajectories.
 
-```
-Webots_motor = URDF_radians + 1.0
-URDF_radians = Webots_motor - 1.0
-```
+Webots motors use sensible radian ranges (e.g., -π/2 to +π/2 for the head motor).
 
-### Why the Offset?
+### No Offset for Webots
 
-The PIB robot's Webots proto file uses motor positions where 1.0 represents the "neutral" position. The URDF convention uses 0.0 as neutral. The offset aligns these conventions.
-
-### Handled Automatically
-
-The `WebotsBackend` applies this conversion internally:
+The `WebotsBackend` uses the canonical format directly:
 
 ```python
 class WebotsBackend(RobotBackend):
-    WEBOTS_OFFSET = 1.0
+    WEBOTS_OFFSET = 0.0  # No conversion needed
 
     def _to_backend_format(self, radians):
-        return radians + self.WEBOTS_OFFSET
+        return radians  # Identity
 
     def _from_backend_format(self, values):
-        return values - self.WEBOTS_OFFSET
+        return values  # Identity
+```
+
+## Swift Offset
+
+Swift visualization requires a **-1.0 radian offset** from canonical:
+
+```
+Swift_position = Canonical_radians - 1.0
+Canonical_radians = Swift_position + 1.0
+```
+
+### Handled Automatically
+
+The `SwiftBackend` applies this conversion internally:
+
+```python
+class SwiftBackend(RobotBackend):
+    SWIFT_OFFSET = -1.0
+
+    def _to_backend_format(self, radians):
+        return radians + self.SWIFT_OFFSET  # Subtracts 1.0
+
+    def _from_backend_format(self, values):
+        return values - self.SWIFT_OFFSET  # Adds 1.0
 ```
 
 You don't need to think about this offset when using the library.
@@ -128,13 +145,13 @@ class RealRobotBackend(RobotBackend):
 
 ## Trajectory Format
 
-Trajectories are always stored in **radians** (URDF convention):
+Trajectories are stored in **canonical Webots motor radians**:
 
 ```json
 {
   "format_version": "1.0",
   "unit": "radians",
-  "coordinate_frame": "urdf",
+  "coordinate_frame": "webots",
   "waypoints": [
     [0.5, 1.2, 0.8, ...],
     [0.6, 1.3, 0.9, ...]
@@ -142,15 +159,19 @@ Trajectories are always stored in **radians** (URDF convention):
 }
 ```
 
-Backends convert to their native format when executing.
+Backends convert to their native format when executing:
+
+- **Webots**: Uses waypoints directly (no conversion)
+- **Swift**: Subtracts 1.0 from each value
+- **Real Robot**: Converts to centidegrees
 
 ## Comparison Table
 
 | Operation | Swift | Webots | Real Robot |
 |-----------|-------|--------|------------|
 | Internal storage | radians | radians | radians |
-| Backend conversion | none | +1.0 rad | to centideg |
-| Position sensor | radians | radians - 1.0 | from centideg |
+| Backend conversion | -1.0 rad | none | to centideg |
+| Position sensor | +1.0 rad | none | from centideg |
 | API (percentage) | ✓ | ✓ | ✓ |
 | API (radians) | ✓ | ✓ | ✓ |
 

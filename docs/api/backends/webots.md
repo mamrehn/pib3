@@ -300,15 +300,15 @@ Similar mappings exist for right arm and remaining fingers.
 
 ---
 
-## Coordinate Offset
+## Coordinate System
 
-Webots motors use a 1.0 radian offset from URDF coordinates:
+The canonical format uses **Webots motor radians** directly. No offset is needed:
 
 ```
-Webots_position = URDF_radians + 1.0
+Webots_position = Canonical_radians  (no offset)
 ```
 
-This is handled automatically by the backend - you don't need to apply this offset manually.
+Webots motors use sensible radian ranges (e.g., -π/2 to +π/2 for the head motor).
 
 ---
 

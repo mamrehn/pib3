@@ -136,8 +136,11 @@ print(f"Metadata: {loaded.metadata}")
 ### Format Conversion
 
 ```python
-# Get waypoints in Webots format (+1.0 offset)
+# Get waypoints in Webots format (no offset, canonical format)
 webots_waypoints = trajectory.to_webots_format()
+
+# Get waypoints in Swift format (-1.0 offset)
+swift_waypoints = trajectory.to_swift_format()
 
 # Get waypoints in robot format (centidegrees)
 robot_waypoints = trajectory.to_robot_format()
@@ -149,7 +152,7 @@ robot_waypoints = trajectory.to_robot_format()
 {
   "format_version": "1.0",
   "unit": "radians",
-  "coordinate_frame": "urdf",
+  "coordinate_frame": "webots",
   "joint_names": ["turn_head_motor", "tilt_forward_motor", ...],
   "waypoints": [
     [0.1, 0.2, 0.3, ...],

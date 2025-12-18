@@ -5,10 +5,9 @@ import math
 import re
 import os
 
-# NOTE: There is a 1.0 radian offset between URDF joint angles and Webots motor positions
-# URDF_q = Webots_motor - 1.0  (or equivalently: Webots_motor = URDF_q + 1.0)
-# This offset is NOT baked into the URDF because doing so would rotate the visual geometry.
-# Instead, apply the offset in your control/IK code when sending values to Webots/real robot.
+# NOTE: The canonical format uses Webots motor radians directly.
+# Swift visualization requires a -1.0 radian offset: Swift_pos = Canonical_radians - 1.0
+# This offset is applied in SwiftBackend, not baked into the URDF.
 
 # --- Vector Math ---
 

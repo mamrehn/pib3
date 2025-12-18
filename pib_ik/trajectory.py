@@ -90,7 +90,7 @@ URDF_TO_MOTOR_NAME = {
 class Trajectory:
     """Robot joint trajectory for executing a drawing.
 
-    Stores joint positions in canonical radians (URDF frame).
+    Stores joint positions in canonical Webots motor radians.
 
     Attributes:
         joint_names: Names of joints in order (36 for PIB).
@@ -104,8 +104,9 @@ class Trajectory:
     # Constants
     FORMAT_VERSION = "1.0"
     UNIT = "radians"
-    COORDINATE_FRAME = "urdf"
-    WEBOTS_OFFSET = 1.0
+    COORDINATE_FRAME = "webots"  # Canonical format = Webots motor radians
+    WEBOTS_OFFSET = 0.0  # No offset needed for Webots
+    SWIFT_OFFSET = -1.0  # Swift visualization needs -1.0 from canonical
 
     def __len__(self) -> int:
         """Return number of waypoints."""
@@ -116,8 +117,12 @@ class Trajectory:
         self.waypoints = np.asarray(self.waypoints, dtype=np.float64)
 
     def to_webots_format(self) -> np.ndarray:
-        """Convert waypoints to Webots motor positions (add offset)."""
+        """Convert waypoints to Webots motor positions (identity, no offset)."""
         return self.waypoints + self.WEBOTS_OFFSET
+
+    def to_swift_format(self) -> np.ndarray:
+        """Convert waypoints to Swift visualization format (subtract 1.0)."""
+        return self.waypoints + self.SWIFT_OFFSET
 
     def to_robot_format(self) -> np.ndarray:
         """Convert waypoints to real robot format (centidegrees)."""
@@ -136,7 +141,8 @@ class Trajectory:
                 "created_at": datetime.utcnow().isoformat() + "Z",
                 "offsets": {
                     "webots": self.WEBOTS_OFFSET,
-                    "description": "Add to convert radians -> Webots motor positions",
+                    "swift": self.SWIFT_OFFSET,
+                    "description": "Canonical format is Webots motor radians. Swift needs -1.0.",
                 },
             },
         }
@@ -145,21 +151,14 @@ class Trajectory:
 
     @classmethod
     def from_json(cls, path: Union[str, Path]) -> "Trajectory":
-        """Load trajectory from JSON file, validating unit metadata."""
+        """Load trajectory from JSON file."""
         with open(path) as f:
             data = json.load(f)
 
         unit = data.get("unit")
         waypoints = np.array(data.get("waypoints", data.get("points", [])))
 
-        if unit is None:
-            # Legacy file without unit field
-            warnings.warn(
-                f"Trajectory file has no 'unit' field. "
-                f"Assuming legacy Webots format (radians + 1.0 offset)."
-            )
-            waypoints = waypoints - cls.WEBOTS_OFFSET
-        elif unit != "radians":
+        if unit is not None and unit != "radians":
             raise ValueError(f"Unsupported trajectory unit: {unit}")
 
         return cls(
