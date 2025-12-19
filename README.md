@@ -15,28 +15,14 @@ Use cases:
 ## Installation
 
 ```bash
-pip install "pib-ik[all] @ git+https://github.com/mamrehn/pib3.git"
+python -m venv venv
+venv\Scripts\activate  # OR on Linux: source ./venv/bin/activate 
+pip install -U "pib-ik[all] @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 ## Quick Start
 
-```python
-import pib3
-
-# Convert image to trajectory
-trajectory = pib3.generate_trajectory("drawing.png")
-trajectory.to_json("output.json")
-
-# Visualize in browser
-with pib3.Swift() as viz:
-    viz.run_trajectory("output.json")
-
-# Or run on real robot
-with pib3.Robot(host="172.26.34.149") as robot:
-    robot.run_trajectory("output.json")
-```
-
-### More Manual Joint Control
+### Manual Joint Control
 
 ```python
 from pib3 import Robot
@@ -51,6 +37,28 @@ with Robot(host="172.26.34.149") as robot:
     # Read current position
     pos = robot.get_joint("elbow_left")
     print(f"Left elbow is at {pos:.1f}%")
+```
+
+### Automatic 3-D trajectory planning based on 2-D lines (e.g. for drawing on paper)
+
+```python
+import pib3
+
+# Convert image to trajectory
+trajectory = pib3.generate_trajectory("drawing.png")
+trajectory.to_json("output.json")
+
+# Visualize in browser
+with pib3.Swift() as viz:
+    viz.run_trajectory("output.json")
+```
+
+### Usage of digital twin code on real world pib robot
+
+```python
+# Or run on real robot
+with pib3.Robot(host="172.26.34.149") as robot:
+    robot.run_trajectory("output.json")
 ```
 
 ## Documentation
