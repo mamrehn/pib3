@@ -14,7 +14,7 @@ By the end of this tutorial, you will:
 
 ## Prerequisites
 
-- pib-ik installed with image support: `pip install "pib-ik[image] @ git+https://github.com/mamrehn/pib_ik.git"`
+- pib-ik installed with image support: `pip install "pib-ik[image] @ git+https://github.com/mamrehn/pib3.git"`
 - A sample image to convert
 
 ---
@@ -46,10 +46,10 @@ graph LR
 The simplest way to convert an image:
 
 ```python
-import pib_ik
+import pib3
 
 # One function does everything
-trajectory = pib_ik.generate_trajectory("my_drawing.png")
+trajectory = pib3.generate_trajectory("my_drawing.png")
 
 # Save for later use
 trajectory.to_json("output.json")
@@ -64,10 +64,10 @@ For more control, use the step-by-step approach:
 ### Step 1: Load and Process Image
 
 ```python
-import pib_ik
+import pib3
 
 # Convert image to sketch (2D strokes)
-sketch = pib_ik.image_to_sketch("my_drawing.png")
+sketch = pib3.image_to_sketch("my_drawing.png")
 
 # Inspect the result
 print(f"Number of strokes: {len(sketch)}")
@@ -90,7 +90,7 @@ for i, stroke in enumerate(sketch):
 
 ```python
 # Convert to 3D robot trajectory
-trajectory = pib_ik.sketch_to_trajectory(sketch)
+trajectory = pib3.sketch_to_trajectory(sketch)
 
 print(f"Waypoints: {len(trajectory)}")
 print(f"Success rate: {trajectory.metadata.get('success_rate', 0):.1%}")
@@ -103,7 +103,7 @@ print(f"Success rate: {trajectory.metadata.get('success_rate', 0):.1%}")
 trajectory.to_json("my_trajectory.json")
 
 # Load it back later
-loaded = pib_ik.Trajectory.from_json("my_trajectory.json")
+loaded = pib3.Trajectory.from_json("my_trajectory.json")
 ```
 
 ---
@@ -123,29 +123,29 @@ loaded = pib_ik.Trajectory.from_json("my_trajectory.json")
 ### Example: Processing Different Image Types
 
 ```python
-import pib_ik
-from pib_ik import ImageConfig
+import pib3
+from pib3 import ImageConfig
 
 # For a clean black-on-white drawing
 config = ImageConfig(
     threshold=128,
     auto_foreground=True,
 )
-sketch = pib_ik.image_to_sketch("clean_drawing.png", config)
+sketch = pib3.image_to_sketch("clean_drawing.png", config)
 
 # For a pencil sketch (lighter lines)
 config = ImageConfig(
     threshold=200,  # More sensitive to light lines
     simplify_tolerance=3.0,  # More smoothing
 )
-sketch = pib_ik.image_to_sketch("pencil_sketch.jpg", config)
+sketch = pib3.image_to_sketch("pencil_sketch.jpg", config)
 
 # For a detailed image (preserve details)
 config = ImageConfig(
     simplify_tolerance=1.0,  # Less simplification
     min_contour_length=5,    # Keep smaller features
 )
-sketch = pib_ik.image_to_sketch("detailed.png", config)
+sketch = pib3.image_to_sketch("detailed.png", config)
 ```
 
 ---
@@ -155,43 +155,43 @@ sketch = pib_ik.image_to_sketch("detailed.png", config)
 ### From File Path
 
 ```python
-import pib_ik
+import pib3
 
 # String path
-sketch = pib_ik.image_to_sketch("drawing.png")
+sketch = pib3.image_to_sketch("drawing.png")
 
 # Path object
 from pathlib import Path
-sketch = pib_ik.image_to_sketch(Path("images/drawing.png"))
+sketch = pib3.image_to_sketch(Path("images/drawing.png"))
 ```
 
 ### From NumPy Array
 
 ```python
 import numpy as np
-import pib_ik
+import pib3
 
 # Grayscale array (height, width)
 gray_image = np.zeros((100, 100), dtype=np.uint8)
 gray_image[25:75, 25:75] = 255  # White square
-sketch = pib_ik.image_to_sketch(gray_image)
+sketch = pib3.image_to_sketch(gray_image)
 
 # RGB array (height, width, 3)
 rgb_image = np.zeros((100, 100, 3), dtype=np.uint8)
 rgb_image[25:75, 25:75] = [255, 0, 0]  # Red square
-sketch = pib_ik.image_to_sketch(rgb_image)
+sketch = pib3.image_to_sketch(rgb_image)
 
 # RGBA with transparency
 rgba_image = np.zeros((100, 100, 4), dtype=np.uint8)
 rgba_image[25:75, 25:75] = [0, 0, 0, 255]  # Opaque black square
-sketch = pib_ik.image_to_sketch(rgba_image)
+sketch = pib3.image_to_sketch(rgba_image)
 ```
 
 ### From PIL Image
 
 ```python
 from PIL import Image
-import pib_ik
+import pib3
 
 # Open with PIL
 pil_image = Image.open("drawing.png")
@@ -201,7 +201,7 @@ pil_image = pil_image.resize((200, 200))
 pil_image = pil_image.rotate(45)
 
 # Convert to sketch
-sketch = pib_ik.image_to_sketch(pil_image)
+sketch = pib3.image_to_sketch(pil_image)
 ```
 
 ---
@@ -211,7 +211,7 @@ sketch = pib_ik.image_to_sketch(pil_image)
 For large images or slow systems, track IK solving progress:
 
 ```python
-import pib_ik
+import pib3
 
 def progress_callback(current, total, success):
     """Called for each trajectory point."""
@@ -219,8 +219,8 @@ def progress_callback(current, total, success):
     status = "✓" if success else "✗"
     print(f"\r[{percent:5.1f}%] Point {current}/{total} {status}", end="")
 
-sketch = pib_ik.image_to_sketch("complex_drawing.png")
-trajectory = pib_ik.sketch_to_trajectory(
+sketch = pib3.image_to_sketch("complex_drawing.png")
+trajectory = pib3.sketch_to_trajectory(
     sketch,
     progress_callback=progress_callback
 )
@@ -234,12 +234,12 @@ print()  # New line after progress
 Watch the IK solving process in Swift:
 
 ```python
-import pib_ik
+import pib3
 
-sketch = pib_ik.image_to_sketch("drawing.png")
+sketch = pib3.image_to_sketch("drawing.png")
 
 # Enable visualization during IK solving
-trajectory = pib_ik.sketch_to_trajectory(
+trajectory = pib3.sketch_to_trajectory(
     sketch,
     visualize=True  # Opens Swift browser window
 )
@@ -259,10 +259,10 @@ The library supports two drawing grip styles:
 Uses a clenched fist holding a pencil, with the pencil tip near the base of the pinky. The IK solver maintains a vertical palm orientation to keep the pencil pointing down.
 
 ```python
-import pib_ik
+import pib3
 
 # Default - uses pencil grip
-trajectory = pib_ik.generate_trajectory("drawing.png")
+trajectory = pib3.generate_trajectory("drawing.png")
 ```
 
 ### Index Finger
@@ -270,12 +270,12 @@ trajectory = pib_ik.generate_trajectory("drawing.png")
 Uses the extended index finger tip as the drawing tool:
 
 ```python
-from pib_ik import TrajectoryConfig, IKConfig
+from pib3 import TrajectoryConfig, IKConfig
 
 config = TrajectoryConfig(
     ik=IKConfig(grip_style="index_finger"),
 )
-trajectory = pib_ik.generate_trajectory("drawing.png", config=config)
+trajectory = pib3.generate_trajectory("drawing.png", config=config)
 ```
 
 | Grip Style | TCP Reference | Tool Offset | Orientation | Hand Pose |
@@ -291,8 +291,8 @@ trajectory = pib_ik.generate_trajectory("drawing.png", config=config)
 """
 Complete image-to-trajectory example.
 """
-import pib_ik
-from pib_ik import TrajectoryConfig, PaperConfig, ImageConfig, IKConfig
+import pib3
+from pib3 import TrajectoryConfig, PaperConfig, ImageConfig, IKConfig
 
 # Configure all parameters
 config = TrajectoryConfig(
@@ -322,7 +322,7 @@ config = TrajectoryConfig(
 
 # Process image
 print("Loading image...")
-sketch = pib_ik.image_to_sketch("my_drawing.png", config.image)
+sketch = pib3.image_to_sketch("my_drawing.png", config.image)
 print(f"Extracted {len(sketch)} strokes with {sketch.total_points()} points")
 
 # Generate trajectory with progress
@@ -332,7 +332,7 @@ def on_progress(current, total, success):
         rate = current / total * 100
         print(f"  Progress: {rate:.0f}%")
 
-trajectory = pib_ik.sketch_to_trajectory(
+trajectory = pib3.sketch_to_trajectory(
     sketch,
     config,
     progress_callback=on_progress
@@ -358,19 +358,19 @@ When the robot needs to draw multiple images in sequence, each new trajectory sh
 ### Basic Sequential Drawing
 
 ```python
-import pib_ik
+import pib3
 
 # First trajectory starts from default pose
-traj1 = pib_ik.generate_trajectory("image1.png")
+traj1 = pib3.generate_trajectory("image1.png")
 
 # Second trajectory starts from where first ended
-traj2 = pib_ik.generate_trajectory("image2.png", initial_q=traj1)
+traj2 = pib3.generate_trajectory("image2.png", initial_q=traj1)
 
 # Third trajectory continues from second
-traj3 = pib_ik.generate_trajectory("image3.png", initial_q=traj2)
+traj3 = pib3.generate_trajectory("image3.png", initial_q=traj2)
 
 # Execute all on robot
-with pib_ik.Robot(host="172.26.34.149") as robot:
+with pib3.Robot(host="172.26.34.149") as robot:
     robot.run_trajectory(traj1)
     robot.run_trajectory(traj2)
     robot.run_trajectory(traj3)
@@ -381,14 +381,14 @@ with pib_ik.Robot(host="172.26.34.149") as robot:
 You can also start from the robot's current joint positions:
 
 ```python
-import pib_ik
+import pib3
 
-with pib_ik.Robot(host="172.26.34.149") as robot:
+with pib3.Robot(host="172.26.34.149") as robot:
     # Get current joint positions
     current_joints = robot.get_joints(unit="rad")
 
     # Generate trajectory starting from current position
-    trajectory = pib_ik.generate_trajectory(
+    trajectory = pib3.generate_trajectory(
         "drawing.png",
         initial_q=current_joints
     )
@@ -399,16 +399,16 @@ with pib_ik.Robot(host="172.26.34.149") as robot:
 ### Using with Step-by-Step API
 
 ```python
-import pib_ik
+import pib3
 
-sketch1 = pib_ik.image_to_sketch("drawing1.png")
-sketch2 = pib_ik.image_to_sketch("drawing2.png")
+sketch1 = pib3.image_to_sketch("drawing1.png")
+sketch2 = pib3.image_to_sketch("drawing2.png")
 
 # First trajectory
-traj1 = pib_ik.sketch_to_trajectory(sketch1)
+traj1 = pib3.sketch_to_trajectory(sketch1)
 
 # Second trajectory starts from first's end position
-traj2 = pib_ik.sketch_to_trajectory(sketch2, initial_q=traj1)
+traj2 = pib3.sketch_to_trajectory(sketch2, initial_q=traj1)
 ```
 
 ### Supported Input Types for initial_q

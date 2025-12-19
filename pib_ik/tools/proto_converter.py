@@ -515,7 +515,7 @@ def convert_proto_to_urdf(
         FileNotFoundError: If proto_path doesn't exist.
 
     Example:
-        >>> from pib_ik.tools import convert_proto_to_urdf
+        >>> from pib3.tools import convert_proto_to_urdf
         >>> urdf = convert_proto_to_urdf(
         ...     "pibsim_webots/protos/pib.proto",
         ...     "pib_model.urdf"

@@ -1,4 +1,4 @@
-"""Trajectory generation via inverse kinematics for pib_ik package."""
+"""Trajectory generation via inverse kinematics for pib3 package."""
 
 import json
 import warnings
@@ -586,7 +586,7 @@ def sketch_to_trajectory(
         RuntimeError: If no IK solutions are found.
 
     Example:
-        >>> from pib_ik import image_to_sketch, sketch_to_trajectory
+        >>> from pib3 import image_to_sketch, sketch_to_trajectory
         >>> sketch = image_to_sketch("drawing.png")
         >>> trajectory = sketch_to_trajectory(sketch)
         >>> trajectory.to_json("output.json")
@@ -786,7 +786,7 @@ def sketch_to_trajectory(
         joint_names=joint_names,
         waypoints=q_array,
         metadata={
-            "source": "pib_ik",
+            "source": "pib3",
             "robot_model": "pib",
             "tcp_link": tcp_link,
             "arm": arm,

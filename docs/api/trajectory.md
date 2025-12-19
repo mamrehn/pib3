@@ -18,7 +18,7 @@ graph LR
 
 ### generate_trajectory
 
-::: pib_ik.generate_trajectory
+::: pib3.generate_trajectory
     options:
       show_root_heading: true
       show_source: true
@@ -26,21 +26,21 @@ graph LR
 ### Usage
 
 ```python
-import pib_ik
+import pib3
 
 # Basic usage
-trajectory = pib_ik.generate_trajectory("drawing.png")
+trajectory = pib3.generate_trajectory("drawing.png")
 trajectory.to_json("output.json")
 
 # With configuration
-from pib_ik import TrajectoryConfig, PaperConfig
+from pib3 import TrajectoryConfig, PaperConfig
 config = TrajectoryConfig(
     paper=PaperConfig(size=0.15, drawing_scale=0.9)
 )
-trajectory = pib_ik.generate_trajectory("drawing.png", config=config)
+trajectory = pib3.generate_trajectory("drawing.png", config=config)
 
 # With visualization during IK solving
-trajectory = pib_ik.generate_trajectory(
+trajectory = pib3.generate_trajectory(
     "drawing.png",
     visualize=True  # Opens Swift browser view
 )
@@ -50,7 +50,7 @@ trajectory = pib_ik.generate_trajectory(
 
 ## sketch_to_trajectory
 
-::: pib_ik.trajectory.sketch_to_trajectory
+::: pib3.trajectory.sketch_to_trajectory
     options:
       show_root_heading: true
       show_source: true
@@ -58,32 +58,32 @@ trajectory = pib_ik.generate_trajectory(
 ### Usage
 
 ```python
-import pib_ik
+import pib3
 
 # Step-by-step approach
-sketch = pib_ik.image_to_sketch("drawing.png")
-trajectory = pib_ik.sketch_to_trajectory(sketch)
+sketch = pib3.image_to_sketch("drawing.png")
+trajectory = pib3.sketch_to_trajectory(sketch)
 
 # With progress callback
 def on_progress(current, total, success):
     print(f"Point {current}/{total}: {'OK' if success else 'FAIL'}")
 
-trajectory = pib_ik.sketch_to_trajectory(
+trajectory = pib3.sketch_to_trajectory(
     sketch,
     progress_callback=on_progress
 )
 
 # With custom config
-from pib_ik import TrajectoryConfig
+from pib3 import TrajectoryConfig
 config = TrajectoryConfig(...)
-trajectory = pib_ik.sketch_to_trajectory(sketch, config)
+trajectory = pib3.sketch_to_trajectory(sketch, config)
 ```
 
 ---
 
 ## Trajectory Class
 
-::: pib_ik.trajectory.Trajectory
+::: pib3.trajectory.Trajectory
     options:
       show_root_heading: true
       show_source: true
@@ -99,7 +99,7 @@ trajectory = pib_ik.sketch_to_trajectory(sketch, config)
 
 ```python
 import numpy as np
-from pib_ik import Trajectory
+from pib3 import Trajectory
 
 # From arrays
 joint_names = ["joint_0", "joint_1", "joint_2"]
@@ -119,7 +119,7 @@ trajectory = Trajectory(
 ### Saving and Loading
 
 ```python
-from pib_ik import Trajectory
+from pib3 import Trajectory
 
 # Save to JSON
 trajectory.to_json("my_trajectory.json")
@@ -159,7 +159,7 @@ robot_waypoints = trajectory.to_robot_format()
     [0.15, 0.25, 0.35, ...]
   ],
   "metadata": {
-    "source": "pib_ik",
+    "source": "pib3",
     "robot_model": "pib",
     "success_rate": 0.95,
     "created_at": "2024-01-01T12:00:00Z"

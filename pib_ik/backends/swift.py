@@ -1,4 +1,4 @@
-"""Swift visualization backend for pib_ik package."""
+"""Swift visualization backend for pib3 package."""
 
 import http.server
 import json
@@ -241,7 +241,7 @@ class SwiftBackend(RobotBackend):
     in a web browser.
 
     Example:
-        >>> from pib_ik.backends import SwiftBackend
+        >>> from pib3.backends import SwiftBackend
         >>> with SwiftBackend() as viz:
         ...     viz.run_trajectory("trajectory.json")
 
@@ -604,7 +604,7 @@ class SwiftBackend(RobotBackend):
             port: HTTP server port for slider UI (default: 8001).
 
         Example:
-            >>> from pib_ik import Swift
+            >>> from pib3 import Swift
             >>> viz = Swift()
             >>> viz.launch_interactive()
             # Open http://localhost:8001 for sliders

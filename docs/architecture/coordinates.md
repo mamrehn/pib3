@@ -50,7 +50,7 @@ Normalized 2D coordinates after image processing.
 
 ```python
 # Sketch coordinates (normalized)
-from pib_ik import Stroke, Point
+from pib3 import Stroke, Point
 
 stroke = Stroke([
     Point(0.0, 0.0),   # Top-left
@@ -70,7 +70,7 @@ Physical coordinates on the drawing paper, relative to paper center.
 
 ```python
 # Paper coordinates (meters from paper center)
-from pib_ik import PaperConfig
+from pib3 import PaperConfig
 
 config = PaperConfig(
     center_x=0.15,   # Paper center X in robot frame
@@ -106,7 +106,7 @@ Robot joint angles.
 
 ```python
 # Joint space
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot() as robot:
     # Percentage (requires calibration)

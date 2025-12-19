@@ -2,7 +2,7 @@
 # These values define the mapping from percentage (0-100%) to radians.
 # 0% = min (radians), 100% = max (radians)
 #
-# Calibrate using: python -m pib_ik.tools.calibrate_joints --host <robot_ip>
+# Calibrate using: python -m pib3.tools.calibrate_joints --host <robot_ip>
 #
 # Values marked with null need calibration.
 

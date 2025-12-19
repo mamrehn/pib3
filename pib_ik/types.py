@@ -1,4 +1,4 @@
-"""Core data types for pib_ik package."""
+"""Core data types for pib3 package."""
 
 from dataclasses import dataclass, field
 from typing import List, Tuple

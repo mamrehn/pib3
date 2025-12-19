@@ -7,13 +7,13 @@ Use Cerebra or another control interface to manually move joints to their limits
 then this script reads and records the values.
 
 Usage:
-    python -m pib_ik.tools.calibrate_joints --host 172.26.34.149
+    python -m pib3.tools.calibrate_joints --host 172.26.34.149
 
     # Calibrate only specific joints:
-    python -m pib_ik.tools.calibrate_joints --joints elbow_left wrist_left
+    python -m pib3.tools.calibrate_joints --joints elbow_left wrist_left
 
     # Calibrate only left hand:
-    python -m pib_ik.tools.calibrate_joints --group left_hand
+    python -m pib3.tools.calibrate_joints --group left_hand
 """
 
 import argparse
@@ -95,7 +95,7 @@ def save_config(config: Dict) -> None:
     # Build the YAML content with comments
     lines = [
         "# PIB Robot Joint Limits for Real Robot",
-        "# Calibrated using: python -m pib_ik.tools.calibrate_joints",
+        "# Calibrated using: python -m pib3.tools.calibrate_joints",
         "#",
         "# These values define the mapping from percentage (0-100%) to radians.",
         "# 0% = min (radians), 100% = max (radians)",
@@ -146,7 +146,7 @@ def save_config(config: Dict) -> None:
 
     # Clear the joint limits cache so new values are used immediately
     try:
-        from pib_ik.backends.base import clear_joint_limits_cache
+        from pib3.backends.base import clear_joint_limits_cache
         clear_joint_limits_cache()
     except ImportError:
         pass
@@ -258,7 +258,7 @@ def run_calibration(
 
     # Import here to avoid import errors if roslibpy not installed
     try:
-        from pib_ik.backends import RealRobotBackend
+        from pib3.backends import RealRobotBackend
     except ImportError as e:
         print(f"Error: {e}")
         print("Install with: pip install pib-ik[robot]")
@@ -371,16 +371,16 @@ def main():
         epilog="""
 Examples:
   # Calibrate all joints
-  python -m pib_ik.tools.calibrate_joints --host 172.26.34.149
+  python -m pib3.tools.calibrate_joints --host 172.26.34.149
 
   # Calibrate only left hand
-  python -m pib_ik.tools.calibrate_joints --host 172.26.34.149 --group left_hand
+  python -m pib3.tools.calibrate_joints --host 172.26.34.149 --group left_hand
 
   # Calibrate specific joints
-  python -m pib_ik.tools.calibrate_joints --host 172.26.34.149 --joints elbow_left wrist_left
+  python -m pib3.tools.calibrate_joints --host 172.26.34.149 --joints elbow_left wrist_left
 
   # List available joints and groups
-  python -m pib_ik.tools.calibrate_joints --list
+  python -m pib3.tools.calibrate_joints --list
         """,
     )
 
@@ -445,7 +445,7 @@ Examples:
         # Default: show help
         parser.print_help()
         print("\n\nQuick start:")
-        print(f"  python -m pib_ik.tools.calibrate_joints --host {args.host} --group left_hand")
+        print(f"  python -m pib3.tools.calibrate_joints --host {args.host} --group left_hand")
         return
 
     run_calibration(args.host, args.port, joints_to_calibrate)

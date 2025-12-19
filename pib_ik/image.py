@@ -1,4 +1,4 @@
-"""Image to sketch conversion for pib_ik package."""
+"""Image to sketch conversion for pib3 package."""
 
 from pathlib import Path
 from typing import List, Optional, Tuple, Union

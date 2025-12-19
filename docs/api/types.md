@@ -13,7 +13,7 @@ pib-ik uses two main types to represent drawings:
 
 A stroke represents a single continuous drawing motion - a sequence of points connected without lifting the pen.
 
-::: pib_ik.types.Stroke
+::: pib3.types.Stroke
     options:
       show_root_heading: true
       show_source: true
@@ -29,7 +29,7 @@ A stroke represents a single continuous drawing motion - a sequence of points co
 
 ```python
 import numpy as np
-from pib_ik import Stroke
+from pib3 import Stroke
 
 # From a list of points
 stroke = Stroke(
@@ -61,7 +61,7 @@ Stroke coordinates are **normalized** to the range [0, 1]:
 
 A sketch is a collection of strokes representing a complete drawing.
 
-::: pib_ik.types.Sketch
+::: pib3.types.Sketch
     options:
       show_root_heading: true
       show_source: true
@@ -80,7 +80,7 @@ A sketch is a collection of strokes representing a complete drawing.
 ### Creating Sketches
 
 ```python
-from pib_ik import Sketch, Stroke
+from pib3 import Sketch, Stroke
 
 # Empty sketch
 sketch = Sketch()
@@ -118,7 +118,7 @@ print(f"Bounds: {sketch.bounds()}")
 
 ```python
 import json
-from pib_ik import Sketch
+from pib3 import Sketch
 
 # To dictionary (JSON-serializable)
 data = sketch.to_dict()

@@ -14,7 +14,7 @@ By the end of this tutorial, you will:
 
 ## Prerequisites
 
-- pib-ik installed with robot support: `pip install "pib-ik[robot] @ git+https://github.com/mamrehn/pib_ik.git"`
+- pib-ik installed with robot support: `pip install "pib-ik[robot] @ git+https://github.com/mamrehn/pib3.git"`
 - A PIB robot connected to your network
 - Rosbridge running on the robot
 - [Calibrated joint limits](../getting-started/calibration.md) (recommended)
@@ -26,7 +26,7 @@ By the end of this tutorial, you will:
 ### Basic Connection
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 # Connect using context manager (recommended)
 with Robot(host="172.26.34.149") as robot:
@@ -39,7 +39,7 @@ with Robot(host="172.26.34.149") as robot:
 ### Manual Connection
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 robot = Robot(host="172.26.34.149", port=9090)
 robot.connect()
@@ -54,7 +54,7 @@ finally:
 ### Connection Options
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 robot = Robot(
     host="172.26.34.149",  # Robot IP address
@@ -76,7 +76,7 @@ The percentage system maps joint ranges to 0-100%:
 ### Setting Joint Positions
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Move head to center (50%)
@@ -94,7 +94,7 @@ with Robot(host="172.26.34.149") as robot:
 Joint positions are received asynchronously from the robot. By default, `get_joint()` and `get_joints()` wait up to 5 seconds for data to arrive.
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Read single joint (waits up to 5s by default)
@@ -125,7 +125,7 @@ with Robot(host="172.26.34.149") as robot:
 If you prefer working with radians:
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Set position in radians
@@ -149,7 +149,7 @@ with Robot(host="172.26.34.149") as robot:
 ### Using a Dictionary
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Move multiple joints at once
@@ -164,7 +164,7 @@ with Robot(host="172.26.34.149") as robot:
 ### Setting All Joints
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Get current pose as dictionary
@@ -185,7 +185,7 @@ with Robot(host="172.26.34.149") as robot:
 A common pattern is to save a pose, do something, then restore:
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Save current pose
@@ -205,7 +205,7 @@ with Robot(host="172.26.34.149") as robot:
 
 ```python
 import json
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Save pose to file
@@ -227,7 +227,7 @@ with Robot(host="172.26.34.149") as robot:
 Use verification to ensure joints reach their target positions:
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Wait until joint reaches position
@@ -248,7 +248,7 @@ with Robot(host="172.26.34.149") as robot:
 ### Verifying Multiple Joints
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     success = robot.set_joints(
@@ -271,7 +271,7 @@ with Robot(host="172.26.34.149") as robot:
 ### Left Hand Joints
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Open all fingers (0%)
@@ -298,7 +298,7 @@ with Robot(host="172.26.34.149") as robot:
 ### Using Hand Pose Presets
 
 ```python
-from pib_ik import Robot, left_hand_pose
+from pib3 import Robot, left_hand_pose
 
 with Robot(host="172.26.34.149") as robot:
     # Open hand (grip=0.0)
@@ -318,7 +318,7 @@ with Robot(host="172.26.34.149") as robot:
 Execute pre-generated trajectories:
 
 ```python
-from pib_ik import Robot, Trajectory
+from pib3 import Robot, Trajectory
 
 with Robot(host="172.26.34.149") as robot:
     # Load trajectory from file
@@ -344,13 +344,13 @@ with Robot(host="172.26.34.149") as robot:
 """
 Complete robot drawing session example.
 """
-import pib_ik
-from pib_ik import Robot, Trajectory
+import pib3
+from pib3 import Robot, Trajectory
 
 def main():
     # Generate trajectory from image
     print("Generating trajectory...")
-    trajectory = pib_ik.generate_trajectory("drawing.png")
+    trajectory = pib3.generate_trajectory("drawing.png")
     trajectory.to_json("session_trajectory.json")
     print(f"Generated {len(trajectory)} waypoints")
 

@@ -33,7 +33,7 @@ The PIB robot has 12 finger joints (6 per hand), allowing for various hand poses
 ## Basic Control
 
 ```python
-from pib_ik import Robot, Swift
+from pib3 import Robot, Swift
 
 # Works with any backend
 with Swift() as viz:
@@ -162,7 +162,7 @@ def pinch_grip_left(backend):
 ### Wave Animation
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 import time
 
 def wave_animation(backend):
@@ -188,7 +188,7 @@ with Swift() as viz:
 ### Finger Counting
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 import time
 
 def count_to_five(backend):

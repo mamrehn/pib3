@@ -5,7 +5,7 @@ Complete API documentation for pib-ik.
 ## Module Overview
 
 ```
-pib_ik
+pib3
 ├── Core Functions
 │   ├── generate_trajectory()    # One-shot image to trajectory
 │   ├── image_to_sketch()        # Image to 2D strokes
@@ -42,17 +42,17 @@ pib_ik
 
 | Function | Description |
 |----------|-------------|
-| [`generate_trajectory()`](trajectory.md#pib_ik.generate_trajectory) | Convert image directly to trajectory |
-| [`image_to_sketch()`](image.md#pib_ik.image.image_to_sketch) | Convert image to 2D strokes |
-| [`sketch_to_trajectory()`](trajectory.md#pib_ik.trajectory.sketch_to_trajectory) | Convert strokes to 3D trajectory |
+| [`generate_trajectory()`](trajectory.md#pib3.generate_trajectory) | Convert image directly to trajectory |
+| [`image_to_sketch()`](image.md#pib3.image.image_to_sketch) | Convert image to 2D strokes |
+| [`sketch_to_trajectory()`](trajectory.md#pib3.trajectory.sketch_to_trajectory) | Convert strokes to 3D trajectory |
 
 ### Core Types
 
 | Type | Description |
 |------|-------------|
-| [`Stroke`](types.md#pib_ik.types.Stroke) | Single continuous drawing line |
-| [`Sketch`](types.md#pib_ik.types.Sketch) | Collection of strokes |
-| [`Trajectory`](trajectory.md#pib_ik.trajectory.Trajectory) | Robot joint positions over time |
+| [`Stroke`](types.md#pib3.types.Stroke) | Single continuous drawing line |
+| [`Sketch`](types.md#pib3.types.Sketch) | Collection of strokes |
+| [`Trajectory`](trajectory.md#pib3.trajectory.Trajectory) | Robot joint positions over time |
 
 ### Backends
 
@@ -66,23 +66,23 @@ pib_ik
 
 ```python
 # Main functions
-import pib_ik
-trajectory = pib_ik.generate_trajectory("image.png")
+import pib3
+trajectory = pib3.generate_trajectory("image.png")
 
 # Types
-from pib_ik import Stroke, Sketch, Trajectory
+from pib3 import Stroke, Sketch, Trajectory
 
 # Configuration
-from pib_ik import TrajectoryConfig, PaperConfig, IKConfig, ImageConfig
+from pib3 import TrajectoryConfig, PaperConfig, IKConfig, ImageConfig
 
 # Backends (short names)
-from pib_ik import Robot, Swift, Webots
+from pib3 import Robot, Swift, Webots
 
 # Backends (full names)
-from pib_ik.backends import RealRobotBackend, SwiftBackend, WebotsBackend
+from pib3.backends import RealRobotBackend, SwiftBackend, WebotsBackend
 
 # Hand poses
-from pib_ik import left_hand_pose, right_hand_pose
+from pib3 import left_hand_pose, right_hand_pose
 ```
 
 ## Documentation Sections

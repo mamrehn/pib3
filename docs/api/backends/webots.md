@@ -8,7 +8,7 @@ Run trajectories in the Webots robotics simulator.
 
 ## WebotsBackend Class
 
-::: pib_ik.backends.webots.WebotsBackend
+::: pib3.backends.webots.WebotsBackend
     options:
       show_root_heading: true
       show_source: false
@@ -20,7 +20,7 @@ Run trajectories in the Webots robotics simulator.
 
 ```python
 # In your Webots controller file:
-from pib_ik.backends import WebotsBackend
+from pib3.backends import WebotsBackend
 
 with WebotsBackend() as backend:
     backend.run_trajectory("trajectory.json")
@@ -46,7 +46,7 @@ WebotsBackend(step_ms: int = 50)
 **Example:**
 
 ```python
-from pib_ik.backends import WebotsBackend
+from pib3.backends import WebotsBackend
 
 # Default: 50ms per step
 backend = WebotsBackend()
@@ -77,7 +77,7 @@ def connect(self) -> None
 **Example:**
 
 ```python
-from pib_ik.backends import WebotsBackend
+from pib3.backends import WebotsBackend
 
 backend = WebotsBackend()
 backend.connect()  # Initializes robot and motors
@@ -90,7 +90,7 @@ backend.disconnect()
 The recommended way to use the Webots backend:
 
 ```python
-from pib_ik.backends import WebotsBackend
+from pib3.backends import WebotsBackend
 
 with WebotsBackend() as backend:
     # Robot automatically initialized
@@ -268,8 +268,8 @@ def run_trajectory(
 **Example:**
 
 ```python
-from pib_ik.backends import WebotsBackend
-from pib_ik import Trajectory
+from pib3.backends import WebotsBackend
+from pib3 import Trajectory
 
 trajectory = Trajectory.from_json("trajectory.json")
 
@@ -341,7 +341,7 @@ Create a controller file `pib_controller.py`:
 
 ```python
 """PIB robot controller for Webots."""
-from pib_ik.backends import WebotsBackend
+from pib3.backends import WebotsBackend
 
 def main():
     with WebotsBackend() as robot:
@@ -370,7 +370,7 @@ Robot {
 ### Wave Animation
 
 ```python
-from pib_ik.backends import WebotsBackend
+from pib3.backends import WebotsBackend
 import time
 
 with WebotsBackend(step_ms=50) as robot:
@@ -392,11 +392,11 @@ with WebotsBackend(step_ms=50) as robot:
 ### Complete Drawing Session
 
 ```python
-from pib_ik.backends import WebotsBackend
-import pib_ik
+from pib3.backends import WebotsBackend
+import pib3
 
 # Generate trajectory from image (outside Webots)
-trajectory = pib_ik.generate_trajectory("drawing.png")
+trajectory = pib3.generate_trajectory("drawing.png")
 trajectory.to_json("drawing_trajectory.json")
 
 # Execute in Webots (in controller)

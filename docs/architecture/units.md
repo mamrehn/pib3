@@ -20,7 +20,7 @@ The percentage system provides an intuitive interface for joint control:
 - **100%**: Joint at maximum limit (fully open/forward)
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot() as robot:
     # Move to middle position
@@ -53,7 +53,7 @@ def radians_to_percent(radians, min_rad, max_rad):
 Direct angular control in radians:
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 import math
 
 with Robot() as robot:
@@ -180,7 +180,7 @@ Backends convert to their native format when executing:
 ### Working with Different Units
 
 ```python
-from pib_ik import Robot, Swift
+from pib3 import Robot, Swift
 import math
 
 # Both backends support the same API
@@ -206,7 +206,7 @@ with Robot(host="172.26.34.149") as robot:
 ### Manual Conversion
 
 ```python
-from pib_ik.backends.base import RobotBackend
+from pib3.backends.base import RobotBackend
 import math
 
 # If you need manual conversion (rarely needed)

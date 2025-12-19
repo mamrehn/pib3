@@ -8,7 +8,7 @@ Browser-based 3D visualization for testing without hardware.
 
 ## SwiftBackend Class
 
-::: pib_ik.backends.swift.SwiftBackend
+::: pib3.backends.swift.SwiftBackend
     options:
       show_root_heading: true
       show_source: false
@@ -19,7 +19,7 @@ Browser-based 3D visualization for testing without hardware.
 ## Quick Start
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 
 # Run a trajectory
 with Swift() as viz:
@@ -48,7 +48,7 @@ Swift(realtime: bool = True)
 **Example:**
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 
 # Real-time playback (default)
 viz = Swift(realtime=True)
@@ -74,7 +74,7 @@ Opens a browser window with the 3D robot visualization at `http://localhost:5200
 **Example:**
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 
 viz = Swift()
 viz.connect()  # Opens browser
@@ -87,7 +87,7 @@ viz.disconnect()
 The recommended way to use Swift:
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 
 with Swift() as viz:
     # Browser opens automatically
@@ -133,7 +133,7 @@ def set_joint(
 **Example:**
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 import time
 
 with Swift() as viz:
@@ -260,7 +260,7 @@ def run_trajectory(
 **Example:**
 
 ```python
-from pib_ik import Swift, Trajectory
+from pib3 import Swift, Trajectory
 
 trajectory = Trajectory.from_json("trajectory.json")
 
@@ -304,7 +304,7 @@ Opens two browser windows:
 **Example:**
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 
 viz = Swift()
 viz.connect()
@@ -354,7 +354,7 @@ def add_paper(
 **Example:**
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 
 with Swift() as viz:
     # Add paper at specific position
@@ -376,10 +376,10 @@ with Swift() as viz:
 Watch inverse kinematics solving in real-time:
 
 ```python
-import pib_ik
+import pib3
 
-sketch = pib_ik.image_to_sketch("drawing.png")
-trajectory = pib_ik.sketch_to_trajectory(
+sketch = pib3.image_to_sketch("drawing.png")
+trajectory = pib3.sketch_to_trajectory(
     sketch,
     visualize=True  # Opens Swift during IK solving
 )
@@ -401,7 +401,7 @@ trajectory = pib_ik.sketch_to_trajectory(
 ### Animation Sequence
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 import time
 
 with Swift() as viz:
@@ -420,7 +420,7 @@ with Swift() as viz:
 
 ```python
 import json
-from pib_ik import Swift
+from pib3 import Swift
 
 with Swift() as viz:
     # Load saved poses
@@ -457,7 +457,7 @@ with Swift() as viz:
     **Solution:** Install with the viz extra:
 
     ```bash
-    pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib_ik.git"
+    pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib3.git"
     ```
 
 !!! warning "Robot Model Not Visible"
@@ -471,7 +471,7 @@ with Swift() as viz:
 
     ```bash
     pip uninstall pib-ik
-    pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib_ik.git"
+    pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib3.git"
     ```
 
 !!! warning "Sliders Not Updating Visualization"

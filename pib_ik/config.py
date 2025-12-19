@@ -1,4 +1,4 @@
-"""Configuration dataclasses for pib_ik package."""
+"""Configuration dataclasses for pib3 package."""
 
 from dataclasses import dataclass, field
 from typing import Literal, Optional

@@ -4,7 +4,7 @@ Utility functions for working with robot models.
 
 ## Proto to URDF Converter
 
-::: pib_ik.tools.proto_converter.convert_proto_to_urdf
+::: pib3.tools.proto_converter.convert_proto_to_urdf
     options:
       show_root_heading: true
       show_source: true
@@ -19,7 +19,7 @@ The PIB robot is originally defined in Webots' `.proto` format. This tool conver
 ### Usage
 
 ```python
-from pib_ik.tools import convert_proto_to_urdf
+from pib3.tools import convert_proto_to_urdf
 
 # Convert proto to URDF
 urdf_string = convert_proto_to_urdf(
@@ -33,7 +33,7 @@ print(f"Generated URDF with {urdf_string.count('<link')} links")
 ### Command Line
 
 ```bash
-python -m pib_ik.tools.proto_converter
+python -m pib3.tools.proto_converter
 ```
 
 This generates `pib_model.urdf` from the default proto location.

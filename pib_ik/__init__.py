@@ -1,5 +1,5 @@
 """
-pib_ik - Inverse kinematics and trajectory generation for the PIB robot.
+pib3 - Inverse kinematics and trajectory generation for the PIB robot.
 
 This package provides tools to:
 1. Convert images to 2D drawing strokes
@@ -7,21 +7,21 @@ This package provides tools to:
 3. Execute trajectories on Webots simulation, Swift visualization, or real robot
 
 Quick Start:
-    >>> import pib_ik
+    >>> import pib3
     >>>
     >>> # One-shot: image to trajectory
-    >>> trajectory = pib_ik.generate_trajectory("drawing.png")
+    >>> trajectory = pib3.generate_trajectory("drawing.png")
     >>> trajectory.to_json("output.json")
     >>>
     >>> # Or step-by-step:
-    >>> sketch = pib_ik.image_to_sketch("drawing.png")
-    >>> trajectory = pib_ik.sketch_to_trajectory(sketch)
+    >>> sketch = pib3.image_to_sketch("drawing.png")
+    >>> trajectory = pib3.sketch_to_trajectory(sketch)
     >>>
     >>> # Execute on backends:
-    >>> with pib_ik.Swift() as viz:
+    >>> with pib3.Swift() as viz:
     ...     viz.run_trajectory(trajectory)
     >>>
-    >>> with pib_ik.Robot(host="172.26.34.149") as robot:
+    >>> with pib3.Robot(host="172.26.34.149") as robot:
     ...     robot.run_trajectory(trajectory)
 """
 
@@ -145,21 +145,21 @@ def generate_trajectory(
         Trajectory object ready for execution.
 
     Example:
-        >>> import pib_ik
-        >>> trajectory = pib_ik.generate_trajectory("my_drawing.png")
+        >>> import pib3
+        >>> trajectory = pib3.generate_trajectory("my_drawing.png")
         >>> trajectory.to_json("output.json")
 
         >>> # With custom config
-        >>> from pib_ik import TrajectoryConfig, PaperConfig
+        >>> from pib3 import TrajectoryConfig, PaperConfig
         >>> config = TrajectoryConfig(
         ...     paper=PaperConfig(size=0.20, drawing_scale=0.9),
         ... )
-        >>> trajectory = pib_ik.generate_trajectory("drawing.png", config=config)
+        >>> trajectory = pib3.generate_trajectory("drawing.png", config=config)
 
         >>> # Sequential trajectories (robot draws multiple images)
-        >>> traj1 = pib_ik.generate_trajectory("image1.png")
-        >>> traj2 = pib_ik.generate_trajectory("image2.png", initial_q=traj1)
-        >>> traj3 = pib_ik.generate_trajectory("image3.png", initial_q=traj2)
+        >>> traj1 = pib3.generate_trajectory("image1.png")
+        >>> traj2 = pib3.generate_trajectory("image2.png", initial_q=traj1)
+        >>> traj3 = pib3.generate_trajectory("image3.png", initial_q=traj2)
     """
     if config is None:
         config = TrajectoryConfig()

@@ -14,7 +14,7 @@ By the end of this tutorial, you will:
 
 ## Prerequisites
 
-- pib-ik installed with visualization support: `pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib_ik.git"`
+- pib-ik installed with visualization support: `pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib3.git"`
 - A modern web browser
 
 ---
@@ -35,7 +35,7 @@ When you launch Swift:
 ### Running a Trajectory
 
 ```python
-from pib_ik import Swift, Trajectory
+from pib3 import Swift, Trajectory
 
 # Load a trajectory
 trajectory = Trajectory.from_json("my_trajectory.json")
@@ -50,7 +50,7 @@ This opens your browser and plays back the trajectory animation.
 ### Real-time vs Fast Mode
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 
 # Real-time playback (default)
 with Swift(realtime=True) as viz:
@@ -68,7 +68,7 @@ with Swift(realtime=False) as viz:
 Launch an interactive session with slider controls:
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 
 # Create and connect
 viz = Swift()
@@ -100,7 +100,7 @@ viz.launch_interactive(port=8080)  # Sliders at http://localhost:8080
 Swift uses the same API as the real robot:
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 import time
 
 with Swift() as viz:
@@ -132,7 +132,7 @@ with Swift() as viz:
 Visualize the drawing surface:
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 
 with Swift() as viz:
     # Add paper at specific position
@@ -155,12 +155,12 @@ with Swift() as viz:
 Watch the IK solving process:
 
 ```python
-import pib_ik
+import pib3
 
-sketch = pib_ik.image_to_sketch("drawing.png")
+sketch = pib3.image_to_sketch("drawing.png")
 
 # Enable visualization during IK
-trajectory = pib_ik.sketch_to_trajectory(
+trajectory = pib3.sketch_to_trajectory(
     sketch,
     visualize=True  # Opens Swift and shows IK solving
 )
@@ -174,7 +174,7 @@ trajectory = pib_ik.sketch_to_trajectory(
 """
 Interactive pose editor using Swift visualization.
 """
-from pib_ik import Swift
+from pib3 import Swift
 import time
 
 def main():
@@ -221,7 +221,7 @@ if __name__ == "__main__":
 ## Animation with Progress Tracking
 
 ```python
-from pib_ik import Swift, Trajectory
+from pib3 import Swift, Trajectory
 
 trajectory = Trajectory.from_json("my_trajectory.json")
 
@@ -248,7 +248,7 @@ with Swift() as viz:
 Swift includes some preset poses for quick testing:
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 import time
 
 with Swift() as viz:
@@ -274,7 +274,7 @@ with Swift() as viz:
 ### Performance Tips
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 
 # Disable real-time for faster batch processing
 with Swift(realtime=False) as viz:
@@ -291,7 +291,7 @@ with Swift(realtime=False) as viz:
 ### Debugging Tips
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 
 with Swift() as viz:
     # Check current joint configuration
@@ -328,7 +328,7 @@ with Swift() as viz:
     **Solution:**
 
     ```bash
-    pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib_ik.git"
+    pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib3.git"
     ```
 
 !!! warning "Robot model not loading"
@@ -338,7 +338,7 @@ with Swift() as viz:
 
     ```bash
     pip uninstall pib-ik
-    pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib_ik.git"
+    pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib3.git"
     ```
 
 !!! warning "Animation is jerky"

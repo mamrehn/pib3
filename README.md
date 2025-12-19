@@ -9,31 +9,31 @@ Inverse kinematics and trajectory generation for the [pib](https://pib.rocks/) p
 ## Installation
 
 ```bash
-pip install "pib-ik[all] @ git+https://github.com/mamrehn/pib_ik.git"
+pip install "pib-ik[all] @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 ## Quick Start
 
 ```python
-import pib_ik
+import pib3
 
 # Convert image to trajectory
-trajectory = pib_ik.generate_trajectory("drawing.png")
+trajectory = pib3.generate_trajectory("drawing.png")
 trajectory.to_json("output.json")
 
 # Visualize in browser
-with pib_ik.Swift() as viz:
+with pib3.Swift() as viz:
     viz.run_trajectory("output.json")
 
 # Or run on real robot
-with pib_ik.Robot(host="172.26.34.149") as robot:
+with pib3.Robot(host="172.26.34.149") as robot:
     robot.run_trajectory("output.json")
 ```
 
 ### More Manual Joint Control
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Move head to center
@@ -49,13 +49,13 @@ with Robot(host="172.26.34.149") as robot:
 
 ## Documentation
 
-Full documentation: **[mamrehn.github.io/pib_ik](https://mamrehn.github.io/pib_ik/)**
+Full documentation: **[mamrehn.github.io/pib3](https://mamrehn.github.io/pib3/)**
 
-- [Installation Guide](https://mamrehn.github.io/pib_ik/getting-started/installation/) - Detailed setup for Linux/Windows
-- [Quick Start](https://mamrehn.github.io/pib_ik/getting-started/quickstart/) - Basic usage examples
-- [Calibration Guide](https://mamrehn.github.io/pib_ik/getting-started/calibration/) - Configure joint limits
-- [API Reference](https://mamrehn.github.io/pib_ik/api/) - Complete API documentation
-- [Tutorials](https://mamrehn.github.io/pib_ik/tutorials/) - Step-by-step guides
+- [Installation Guide](https://mamrehn.github.io/pib3/getting-started/installation/) - Detailed setup for Linux/Windows
+- [Quick Start](https://mamrehn.github.io/pib3/getting-started/quickstart/) - Basic usage examples
+- [Calibration Guide](https://mamrehn.github.io/pib3/getting-started/calibration/) - Configure joint limits
+- [API Reference](https://mamrehn.github.io/pib3/api/) - Complete API documentation
+- [Tutorials](https://mamrehn.github.io/pib3/tutorials/) - Step-by-step guides
 
 
 ## Acknowledgments

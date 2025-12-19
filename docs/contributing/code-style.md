@@ -25,8 +25,8 @@ import numpy as np
 from PIL import Image
 
 # Local
-from pib_ik.config import TrajectoryConfig
-from pib_ik.types import Sketch, Stroke
+from pib3.config import TrajectoryConfig
+from pib3.types import Sketch, Stroke
 ```
 
 ### Naming Conventions
@@ -135,7 +135,7 @@ def image_to_sketch(
         >>> print(f"Extracted {len(sketch)} strokes")
         Extracted 15 strokes
 
-        >>> from pib_ik import ImageConfig
+        >>> from pib3 import ImageConfig
         >>> config = ImageConfig(threshold=100)
         >>> sketch = image_to_sketch("light_sketch.jpg", config)
     """
@@ -248,7 +248,7 @@ class RobotBackend(ABC):
 
 ```python
 import pytest
-from pib_ik import image_to_sketch, Sketch
+from pib3 import image_to_sketch, Sketch
 
 class TestImageToSketch:
     """Tests for image_to_sketch function."""
@@ -295,7 +295,7 @@ def sample_image():
 @pytest.fixture
 def sample_sketch():
     """Create a simple test sketch."""
-    from pib_ik import Sketch, Stroke, Point
+    from pib3 import Sketch, Stroke, Point
     return Sketch([
         Stroke([Point(0.0, 0.0), Point(1.0, 1.0)]),
     ])

@@ -153,7 +153,7 @@ class RobotBackend(ABC):
         if min_rad is None or max_rad is None:
             raise ValueError(
                 f"Joint '{motor_name}' is not calibrated (min={min_rad}, max={max_rad}). "
-                f"Run: python -m pib_ik.tools.calibrate_joints --joints {motor_name}"
+                f"Run: python -m pib3.tools.calibrate_joints --joints {motor_name}"
             )
 
         # Warn if out of range
@@ -194,7 +194,7 @@ class RobotBackend(ABC):
         if min_rad is None or max_rad is None:
             raise ValueError(
                 f"Joint '{motor_name}' is not calibrated (min={min_rad}, max={max_rad}). "
-                f"Run: python -m pib_ik.tools.calibrate_joints --joints {motor_name}"
+                f"Run: python -m pib3.tools.calibrate_joints --joints {motor_name}"
             )
 
         # Avoid division by zero

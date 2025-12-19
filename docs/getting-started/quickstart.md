@@ -8,7 +8,7 @@ Make sure you have [installed pib-ik](installation.md) with the features you nee
 
 ```bash
 # Install with all features
-pip install "pib-ik[all] @ git+https://github.com/mamrehn/pib_ik.git"
+pip install "pib-ik[all] @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 ## Your First Trajectory
@@ -24,10 +24,10 @@ Create or find a simple black-and-white image. For best results:
 ### Step 2: Generate the Trajectory
 
 ```python
-import pib_ik
+import pib3
 
 # Convert image to robot trajectory
-trajectory = pib_ik.generate_trajectory("my_drawing.png")
+trajectory = pib3.generate_trajectory("my_drawing.png")
 
 # Save to JSON file
 trajectory.to_json("my_trajectory.json")
@@ -42,26 +42,26 @@ That's it! You now have a trajectory file ready for execution.
 Before running on the real robot, visualize the trajectory:
 
 ```python
-import pib_ik
+import pib3
 
 # Load the trajectory
-trajectory = pib_ik.Trajectory.from_json("my_trajectory.json")
+trajectory = pib3.Trajectory.from_json("my_trajectory.json")
 
 # Visualize in Swift (opens browser)
-with pib_ik.Swift() as viz:
+with pib3.Swift() as viz:
     viz.run_trajectory(trajectory)
 ```
 
 ### Step 4: Execute on Robot
 
 ```python
-import pib_ik
+import pib3
 
 # Load trajectory
-trajectory = pib_ik.Trajectory.from_json("my_trajectory.json")
+trajectory = pib3.Trajectory.from_json("my_trajectory.json")
 
 # Execute on real robot
-with pib_ik.Robot(host="172.26.34.149") as robot:
+with pib3.Robot(host="172.26.34.149") as robot:
     robot.run_trajectory(trajectory)
 ```
 
@@ -78,7 +78,7 @@ pib-ik uses a percentage-based system for joint control:
 ### Basic Joint Control
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Move head to center
@@ -95,7 +95,7 @@ with Robot(host="172.26.34.149") as robot:
 ### Save and Restore Poses
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Save current pose
@@ -114,7 +114,7 @@ with Robot(host="172.26.34.149") as robot:
 If you prefer radians:
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Set position in radians
@@ -132,7 +132,7 @@ with Robot(host="172.26.34.149") as robot:
 ### Running a Trajectory
 
 ```python
-from pib_ik import Swift, Trajectory
+from pib3 import Swift, Trajectory
 
 # Load trajectory
 trajectory = Trajectory.from_json("my_trajectory.json")
@@ -147,7 +147,7 @@ with Swift() as viz:
 Launch an interactive session with slider controls:
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 
 viz = Swift()
 viz.connect()
@@ -165,14 +165,14 @@ viz.launch_interactive()  # Opens browser with sliders
 For more control, use the step-by-step approach:
 
 ```python
-import pib_ik
+import pib3
 
 # Step 1: Convert image to sketch (2D strokes)
-sketch = pib_ik.image_to_sketch("drawing.png")
+sketch = pib3.image_to_sketch("drawing.png")
 print(f"Extracted {len(sketch)} strokes")
 
 # Step 2: Convert sketch to trajectory (3D robot motion)
-trajectory = pib_ik.sketch_to_trajectory(sketch)
+trajectory = pib3.sketch_to_trajectory(sketch)
 print(f"Generated {len(trajectory)} waypoints")
 
 # Step 3: Save or execute
@@ -188,14 +188,14 @@ trajectory.to_json("output.json")
 Track IK solving progress:
 
 ```python
-import pib_ik
+import pib3
 
 def on_progress(current, total, success):
     status = "OK" if success else "FAILED"
     print(f"Point {current}/{total}: {status}")
 
-sketch = pib_ik.image_to_sketch("drawing.png")
-trajectory = pib_ik.sketch_to_trajectory(
+sketch = pib3.image_to_sketch("drawing.png")
+trajectory = pib3.sketch_to_trajectory(
     sketch,
     progress_callback=on_progress
 )
@@ -206,8 +206,8 @@ trajectory = pib_ik.sketch_to_trajectory(
 Adjust parameters for your setup:
 
 ```python
-import pib_ik
-from pib_ik import TrajectoryConfig, PaperConfig, ImageConfig
+import pib3
+from pib3 import TrajectoryConfig, PaperConfig, ImageConfig
 
 config = TrajectoryConfig(
     paper=PaperConfig(
@@ -221,7 +221,7 @@ config = TrajectoryConfig(
     ),
 )
 
-trajectory = pib_ik.generate_trajectory("drawing.png", config=config)
+trajectory = pib3.generate_trajectory("drawing.png", config=config)
 ```
 
 ---

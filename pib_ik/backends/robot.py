@@ -1,4 +1,4 @@
-"""Real robot backend via rosbridge for pib_ik package."""
+"""Real robot backend via rosbridge for pib3 package."""
 
 import math
 import threading
@@ -57,10 +57,10 @@ class RealRobotBackend(RobotBackend):
 
     Note:
         Uses joint_limits_robot.yaml for percentage <-> radians conversion.
-        Calibrate with: python -m pib_ik.tools.calibrate_joints
+        Calibrate with: python -m pib3.tools.calibrate_joints
 
     Example:
-        >>> from pib_ik.backends import RealRobotBackend
+        >>> from pib3.backends import RealRobotBackend
         >>> with RealRobotBackend(host="172.26.34.149") as robot:
         ...     robot.run_trajectory("trajectory.json")
         ...

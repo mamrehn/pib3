@@ -8,7 +8,7 @@ Control the physical PIB robot via rosbridge websocket connection.
 
 ## RealRobotBackend Class
 
-::: pib_ik.backends.robot.RealRobotBackend
+::: pib3.backends.robot.RealRobotBackend
     options:
       show_root_heading: true
       show_source: false
@@ -19,7 +19,7 @@ Control the physical PIB robot via rosbridge websocket connection.
 ## Quick Start
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Control joints
@@ -56,7 +56,7 @@ Robot(
 **Example:**
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 # Default connection
 robot = Robot()
@@ -91,7 +91,7 @@ def connect(self) -> None
 **Example:**
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 robot = Robot(host="172.26.34.149")
 
@@ -108,7 +108,7 @@ finally:
 The recommended way to use the robot:
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Automatically connected
@@ -314,7 +314,7 @@ def run_trajectory(
 **Example:**
 
 ```python
-from pib_ik import Robot, Trajectory
+from pib3 import Robot, Trajectory
 
 with Robot(host="172.26.34.149") as robot:
     # From file
@@ -341,7 +341,7 @@ with Robot(host="172.26.34.149") as robot:
 
 ```python
 import json
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Save current pose

@@ -28,7 +28,7 @@ Before calibrating:
 4. **pib-ik installed** with robot support:
 
 ```bash
-pip install "pib-ik[robot] @ git+https://github.com/mamrehn/pib_ik.git"
+pip install "pib-ik[robot] @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 ---
@@ -38,19 +38,19 @@ pip install "pib-ik[robot] @ git+https://github.com/mamrehn/pib_ik.git"
 ### Calibrate Left Hand
 
 ```bash
-python -m pib_ik.tools.calibrate_joints --host 172.26.34.149 --group left_hand
+python -m pib3.tools.calibrate_joints --host 172.26.34.149 --group left_hand
 ```
 
 ### Calibrate Left Arm
 
 ```bash
-python -m pib_ik.tools.calibrate_joints --host 172.26.34.149 --group left_arm
+python -m pib3.tools.calibrate_joints --host 172.26.34.149 --group left_arm
 ```
 
 ### Calibrate Everything
 
 ```bash
-python -m pib_ik.tools.calibrate_joints --host 172.26.34.149 --all
+python -m pib3.tools.calibrate_joints --host 172.26.34.149 --all
 ```
 
 ---
@@ -60,7 +60,7 @@ python -m pib_ik.tools.calibrate_joints --host 172.26.34.149 --all
 ### Step 1: List Available Joints
 
 ```bash
-python -m pib_ik.tools.calibrate_joints --list
+python -m pib3.tools.calibrate_joints --list
 ```
 
 Output:
@@ -114,19 +114,19 @@ Choose which joints to calibrate:
 === "By Group"
 
     ```bash
-    python -m pib_ik.tools.calibrate_joints --host YOUR_ROBOT_IP --group left_arm
+    python -m pib3.tools.calibrate_joints --host YOUR_ROBOT_IP --group left_arm
     ```
 
 === "Specific Joints"
 
     ```bash
-    python -m pib_ik.tools.calibrate_joints --host YOUR_ROBOT_IP --joints elbow_left wrist_left
+    python -m pib3.tools.calibrate_joints --host YOUR_ROBOT_IP --joints elbow_left wrist_left
     ```
 
 === "All Joints"
 
     ```bash
-    python -m pib_ik.tools.calibrate_joints --host YOUR_ROBOT_IP --all
+    python -m pib3.tools.calibrate_joints --host YOUR_ROBOT_IP --all
     ```
 
 ### Step 3: Follow the Prompts
@@ -191,7 +191,7 @@ The library uses **separate joint limit files** for simulation and real robot:
 | `joint_limits_webots.yaml` | WebotsBackend, SwiftBackend | Simulation limits (from proto file) |
 | `joint_limits_robot.yaml` | RealRobotBackend | Real robot limits (calibrated) |
 
-Calibration values are stored in `pib_ik/resources/joint_limits_robot.yaml`:
+Calibration values are stored in `pib3/resources/joint_limits_robot.yaml`:
 
 ```yaml
 joints:
@@ -240,7 +240,7 @@ joints:
 After calibration, test with simple percentage commands:
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Test min, max, and center
@@ -256,7 +256,7 @@ with Robot(host="172.26.34.149") as robot:
 After calibration, use the percentage-based API:
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Percentage (default) - works across all backends

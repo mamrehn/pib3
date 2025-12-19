@@ -18,7 +18,7 @@ Configuration is organized into specialized dataclasses:
 
 Main configuration class that combines all settings.
 
-::: pib_ik.config.TrajectoryConfig
+::: pib3.config.TrajectoryConfig
     options:
       show_root_heading: true
       show_source: true
@@ -26,7 +26,7 @@ Main configuration class that combines all settings.
 ### Usage
 
 ```python
-from pib_ik import TrajectoryConfig, PaperConfig, IKConfig, ImageConfig
+from pib3 import TrajectoryConfig, PaperConfig, IKConfig, ImageConfig
 
 # Default configuration
 config = TrajectoryConfig()
@@ -40,8 +40,8 @@ config = TrajectoryConfig(
 )
 
 # Use with trajectory generation
-import pib_ik
-trajectory = pib_ik.generate_trajectory("image.png", config=config)
+import pib3
+trajectory = pib3.generate_trajectory("image.png", config=config)
 ```
 
 ---
@@ -50,7 +50,7 @@ trajectory = pib_ik.generate_trajectory("image.png", config=config)
 
 Configuration for the drawing surface.
 
-::: pib_ik.config.PaperConfig
+::: pib3.config.PaperConfig
     options:
       show_root_heading: true
       show_source: true
@@ -58,7 +58,7 @@ Configuration for the drawing surface.
 ### Usage
 
 ```python
-from pib_ik import PaperConfig
+from pib3 import PaperConfig
 
 # Default paper
 paper = PaperConfig()
@@ -94,7 +94,7 @@ paper = PaperConfig(
 
 Configuration for the inverse kinematics solver.
 
-::: pib_ik.config.IKConfig
+::: pib3.config.IKConfig
     options:
       show_root_heading: true
       show_source: true
@@ -102,7 +102,7 @@ Configuration for the inverse kinematics solver.
 ### Usage
 
 ```python
-from pib_ik import IKConfig
+from pib3 import IKConfig
 
 # Default settings
 ik = IKConfig()
@@ -140,7 +140,7 @@ ik = IKConfig(arm="right")
 
 Configuration for image processing and contour extraction.
 
-::: pib_ik.config.ImageConfig
+::: pib3.config.ImageConfig
     options:
       show_root_heading: true
       show_source: true
@@ -148,7 +148,7 @@ Configuration for image processing and contour extraction.
 ### Usage
 
 ```python
-from pib_ik import ImageConfig
+from pib3 import ImageConfig
 
 # Default settings
 image = ImageConfig()
@@ -191,7 +191,7 @@ image = ImageConfig(
 
 Configuration for real robot connection.
 
-::: pib_ik.config.RobotConfig
+::: pib3.config.RobotConfig
     options:
       show_root_heading: true
       show_source: true
@@ -199,8 +199,8 @@ Configuration for real robot connection.
 ### Usage
 
 ```python
-from pib_ik import RobotConfig
-from pib_ik.backends import RealRobotBackend
+from pib3 import RobotConfig
+from pib3.backends import RealRobotBackend
 
 # Default settings
 config = RobotConfig()

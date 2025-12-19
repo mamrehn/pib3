@@ -12,11 +12,11 @@ Complete guide for setting up a development environment.
 
 ```bash
 # Fork the repository on GitHub, then clone your fork
-git clone https://github.com/YOUR_USERNAME/pib_ik.git
-cd pib_ik
+git clone https://github.com/YOUR_USERNAME/pib3.git
+cd pib3
 
 # Add upstream remote
-git remote add upstream https://github.com/mamrehn/pib_ik.git
+git remote add upstream https://github.com/mamrehn/pib3.git
 ```
 
 ## Virtual Environment
@@ -49,20 +49,20 @@ pip install -e ".[image,viz,robot,dev]"
 
 ```bash
 # Check import works
-python -c "import pib_ik; print(pib_ik.__version__)"
+python -c "import pib3; print(pib3.__version__)"
 
 # Run tests
 pytest
 
 # Run with coverage
-pytest --cov=pib_ik --cov-report=html
+pytest --cov=pib3 --cov-report=html
 ```
 
 ## Project Structure
 
 ```
-pib_ik/
-├── pib_ik/              # Source code
+pib3/
+├── pib3/              # Source code
 │   ├── __init__.py      # Public API
 │   ├── config.py        # Configuration classes
 │   ├── types.py         # Core types
@@ -114,13 +114,13 @@ pytest -k "test_sketch"
 
 ```bash
 # Format code (if using black)
-black pib_ik tests
+black pib3 tests
 
 # Check types (if using mypy)
-mypy pib_ik
+mypy pib3
 
 # Lint (if using ruff)
-ruff check pib_ik
+ruff check pib3
 ```
 
 ### 5. Commit and Push
@@ -154,7 +154,7 @@ mkdocs serve
 ```bash
 # Test visualization (opens browser)
 python -c "
-from pib_ik import Swift
+from pib3 import Swift
 with Swift() as viz:
     viz.set_joint('elbow_left', 50.0)
     input('Press Enter to exit...')
@@ -172,7 +172,7 @@ with Swift() as viz:
 ```bash
 # Test connection (requires robot on network)
 python -c "
-from pib_ik import Robot
+from pib3 import Robot
 robot = Robot(host='172.26.34.149', timeout=5.0)
 try:
     robot.connect()
@@ -215,7 +215,7 @@ mkdocs serve
 If you modify the Webots proto file:
 
 ```bash
-python -m pib_ik.tools.proto_converter
+python -m pib3.tools.proto_converter
 ```
 
 ## Environment Variables

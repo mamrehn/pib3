@@ -6,7 +6,7 @@ Welcome to the pib-ik contribution guide. We appreciate your interest in improvi
 
 ### Report Issues
 
-Found a bug or have a feature request? [Open an issue](https://github.com/mamrehn/pib_ik/issues) with:
+Found a bug or have a feature request? [Open an issue](https://github.com/mamrehn/pib3/issues) with:
 
 - Clear description of the problem or feature
 - Steps to reproduce (for bugs)
@@ -43,8 +43,8 @@ Have an interesting use case? Consider:
 
 ```bash
 # Clone your fork
-git clone https://github.com/YOUR_USERNAME/pib_ik.git
-cd pib_ik
+git clone https://github.com/YOUR_USERNAME/pib3.git
+cd pib3
 
 # Create virtual environment
 python -m venv venv
@@ -90,9 +90,9 @@ test: Add tests for trajectory export
 
 ## Getting Help
 
-- Check existing [issues](https://github.com/mamrehn/pib_ik/issues)
+- Check existing [issues](https://github.com/mamrehn/pib3/issues)
 - Read the [documentation](../index.md)
-- Ask questions in [discussions](https://github.com/mamrehn/pib_ik/discussions)
+- Ask questions in [discussions](https://github.com/mamrehn/pib3/discussions)
 
 ## Code of Conduct
 

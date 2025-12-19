@@ -81,16 +81,16 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/mamrehn/pib_ik"
-Documentation = "https://github.com/mamrehn/pib_ik#readme"
-Repository = "https://github.com/mamrehn/pib_ik.git"
-Issues = "https://github.com/mamrehn/pib_ik/issues"
+Homepage = "https://github.com/mamrehn/pib3"
+Documentation = "https://github.com/mamrehn/pib3#readme"
+Repository = "https://github.com/mamrehn/pib3.git"
+Issues = "https://github.com/mamrehn/pib3/issues"
 
 [tool.setuptools]
-packages = ["pib_ik", "pib_ik.backends", "pib_ik.tools"]
+packages = ["pib3", "pib3.backends", "pib3.tools"]
 
 [tool.setuptools.package-data]
-pib_ik = ["resources/*.urdf", "resources/*.proto", "resources/*.yaml", "resources/stl/*.stl"]
+pib3 = ["resources/*.urdf", "resources/*.proto", "resources/*.yaml", "resources/stl/*.stl"]
 
 [tool.black]
 line-length = 88

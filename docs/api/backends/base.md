@@ -7,7 +7,7 @@ Abstract base class defining the common interface for all robot control backends
 All backends (Robot, Swift, Webots) inherit from `RobotBackend` and share a common API for joint control and trajectory execution.
 
 ```python
-from pib_ik import Robot, Swift
+from pib3 import Robot, Swift
 
 # All backends support the same methods
 with Swift() as backend:
@@ -20,7 +20,7 @@ with Swift() as backend:
 
 ## RobotBackend Class
 
-::: pib_ik.backends.base.RobotBackend
+::: pib3.backends.base.RobotBackend
     options:
       show_root_heading: true
       show_source: false
@@ -43,7 +43,7 @@ Must be called before using any other methods. Alternatively, use the context ma
 **Example:**
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 # Manual connection
 robot = Robot(host="172.26.34.149")
@@ -137,7 +137,7 @@ def get_joint(
 **Example:**
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Get position (waits up to 5s by default)
@@ -190,7 +190,7 @@ def get_joints(
 **Example:**
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Get all joints (waits up to 5s by default)
@@ -251,7 +251,7 @@ def set_joint(
 **Example:**
 
 ```python
-from pib_ik import Swift
+from pib3 import Swift
 import math
 
 with Swift() as viz:
@@ -312,7 +312,7 @@ def set_joints(
 **Example:**
 
 ```python
-from pib_ik import Robot
+from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
     # Set multiple joints with a dictionary
@@ -371,7 +371,7 @@ def run_trajectory(
 **Example:**
 
 ```python
-from pib_ik import Swift, Trajectory
+from pib3 import Swift, Trajectory
 
 with Swift() as viz:
     # From file path
@@ -400,7 +400,7 @@ with Swift() as viz:
 All 26 motors available on the PIB robot:
 
 ```python
-from pib_ik.backends.base import RobotBackend
+from pib3.backends.base import RobotBackend
 
 print(RobotBackend.MOTOR_NAMES)
 ```
@@ -489,6 +489,6 @@ backend.set_joint("elbow_left", math.pi / 4, unit="rad")  # 45 degrees
 
 | Backend | Class | Import | Use Case |
 |---------|-------|--------|----------|
-| [Real Robot](robot.md) | `RealRobotBackend` | `from pib_ik import Robot` | Control physical PIB robot |
-| [Swift](swift.md) | `SwiftBackend` | `from pib_ik import Swift` | Browser-based 3D visualization |
-| [Webots](webots.md) | `WebotsBackend` | `from pib_ik.backends import WebotsBackend` | Webots physics simulation |
+| [Real Robot](robot.md) | `RealRobotBackend` | `from pib3 import Robot` | Control physical PIB robot |
+| [Swift](swift.md) | `SwiftBackend` | `from pib3 import Swift` | Browser-based 3D visualization |
+| [Webots](webots.md) | `WebotsBackend` | `from pib3.backends import WebotsBackend` | Webots physics simulation |

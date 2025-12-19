@@ -19,7 +19,7 @@ graph LR
 
 ## Main Function
 
-::: pib_ik.image.image_to_sketch
+::: pib3.image.image_to_sketch
     options:
       show_root_heading: true
       show_source: true
@@ -27,19 +27,19 @@ graph LR
 ### Basic Usage
 
 ```python
-import pib_ik
+import pib3
 
 # From file path
-sketch = pib_ik.image_to_sketch("drawing.png")
+sketch = pib3.image_to_sketch("drawing.png")
 
 # From Path object
 from pathlib import Path
-sketch = pib_ik.image_to_sketch(Path("images/drawing.png"))
+sketch = pib3.image_to_sketch(Path("images/drawing.png"))
 
 # With custom config
-from pib_ik import ImageConfig
+from pib3 import ImageConfig
 config = ImageConfig(threshold=100, simplify_tolerance=3.0)
-sketch = pib_ik.image_to_sketch("sketch.jpg", config)
+sketch = pib3.image_to_sketch("sketch.jpg", config)
 ```
 
 ### Input Formats
@@ -47,27 +47,27 @@ sketch = pib_ik.image_to_sketch("sketch.jpg", config)
 ```python
 import numpy as np
 from PIL import Image
-import pib_ik
+import pib3
 
 # From file path (string or Path)
-sketch = pib_ik.image_to_sketch("drawing.png")
+sketch = pib3.image_to_sketch("drawing.png")
 
 # From NumPy array (grayscale)
 gray = np.zeros((100, 100), dtype=np.uint8)
 gray[25:75, 25:75] = 255
-sketch = pib_ik.image_to_sketch(gray)
+sketch = pib3.image_to_sketch(gray)
 
 # From NumPy array (RGB)
 rgb = np.zeros((100, 100, 3), dtype=np.uint8)
-sketch = pib_ik.image_to_sketch(rgb)
+sketch = pib3.image_to_sketch(rgb)
 
 # From NumPy array (RGBA with transparency)
 rgba = np.zeros((100, 100, 4), dtype=np.uint8)
-sketch = pib_ik.image_to_sketch(rgba)
+sketch = pib3.image_to_sketch(rgba)
 
 # From PIL Image
 pil_img = Image.open("drawing.png")
-sketch = pib_ik.image_to_sketch(pil_img)
+sketch = pib3.image_to_sketch(pil_img)
 ```
 
 ### Processing Steps
@@ -84,7 +84,7 @@ sketch = pib_ik.image_to_sketch(pil_img)
 ### Handling Different Images
 
 ```python
-from pib_ik import ImageConfig, image_to_sketch
+from pib3 import ImageConfig, image_to_sketch
 
 # Clean black-on-white
 config = ImageConfig(threshold=128, auto_foreground=True)
@@ -111,7 +111,7 @@ Returns a `Sketch` object containing:
 - Source image dimensions (if available)
 
 ```python
-sketch = pib_ik.image_to_sketch("drawing.png")
+sketch = pib3.image_to_sketch("drawing.png")
 
 print(f"Strokes extracted: {len(sketch)}")
 print(f"Total points: {sketch.total_points()}")
@@ -128,5 +128,5 @@ Image processing requires one of:
 Install with image extras:
 
 ```bash
-pip install "pib-ik[image] @ git+https://github.com/mamrehn/pib_ik.git"
+pip install "pib-ik[image] @ git+https://github.com/mamrehn/pib3.git"
 ```

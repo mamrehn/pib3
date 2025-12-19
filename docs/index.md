@@ -43,20 +43,20 @@
 ## Quick Example
 
 ```python
-import pib_ik
+import pib3
 
 # Convert image to trajectory
-trajectory = pib_ik.generate_trajectory("drawing.png")
+trajectory = pib3.generate_trajectory("drawing.png")
 
 # Execute on real robot
-with pib_ik.Robot(host="172.26.34.149") as robot:
+with pib3.Robot(host="172.26.34.149") as robot:
     robot.run_trajectory(trajectory)
 ```
 
 ## Installation
 
 ```bash
-pip install "pib-ik[all] @ git+https://github.com/mamrehn/pib_ik.git"
+pip install "pib-ik[all] @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 See the [Installation Guide](getting-started/installation.md) for detailed instructions.
@@ -105,10 +105,10 @@ Full documentation for all classes and functions:
 
 ## Project Links
 
-- [GitHub Repository](https://github.com/mamrehn/pib_ik)
+- [GitHub Repository](https://github.com/mamrehn/pib3)
 - [PIB Project](https://pib.rocks/)
-- [Report Issues](https://github.com/mamrehn/pib_ik/issues)
+- [Report Issues](https://github.com/mamrehn/pib3/issues)
 
 ## License
 
-MIT License - see [LICENSE](https://github.com/mamrehn/pib_ik/blob/main/LICENSE) for details.
+MIT License - see [LICENSE](https://github.com/mamrehn/pib3/blob/main/LICENSE) for details.

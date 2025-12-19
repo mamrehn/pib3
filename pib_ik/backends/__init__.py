@@ -1,4 +1,4 @@
-"""Robot control backends for pib_ik package."""
+"""Robot control backends for pib3 package."""
 
 from .base import RobotBackend
 from .webots import WebotsBackend

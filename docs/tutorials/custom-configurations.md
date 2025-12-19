@@ -14,7 +14,7 @@ By the end of this tutorial, you will:
 
 ## Prerequisites
 
-- pib-ik installed: `pip install git+https://github.com/mamrehn/pib_ik.git`
+- pib-ik installed: `pip install git+https://github.com/mamrehn/pib3.git`
 - Understanding of basic trajectory generation
 
 ---
@@ -46,7 +46,7 @@ graph TD
 The main configuration that combines everything:
 
 ```python
-from pib_ik import TrajectoryConfig, PaperConfig, IKConfig, ImageConfig
+from pib3 import TrajectoryConfig, PaperConfig, IKConfig, ImageConfig
 
 config = TrajectoryConfig(
     paper=PaperConfig(...),   # Paper settings
@@ -77,7 +77,7 @@ Lower values = smoother motion but more waypoints.
 Configure the drawing surface position and size:
 
 ```python
-from pib_ik import PaperConfig
+from pib3 import PaperConfig
 
 paper = PaperConfig(
     start_x=0.10,        # Paper front edge X position (meters)
@@ -129,7 +129,7 @@ paper = PaperConfig(
 Tune the inverse kinematics solver:
 
 ```python
-from pib_ik import IKConfig
+from pib3 import IKConfig
 
 ik = IKConfig(
     max_iterations=150,  # Max gradient descent iterations
@@ -181,7 +181,7 @@ ik = IKConfig(
 Control image processing and contour extraction:
 
 ```python
-from pib_ik import ImageConfig
+from pib3 import ImageConfig
 
 image = ImageConfig(
     threshold=128,            # Black/white threshold (0-255)
@@ -241,8 +241,8 @@ image = ImageConfig(
 Configure robot connection (for `Robot.from_config()`):
 
 ```python
-from pib_ik import RobotConfig
-from pib_ik.backends import RealRobotBackend
+from pib3 import RobotConfig
+from pib3.backends import RealRobotBackend
 
 robot_config = RobotConfig(
     host="172.26.34.149",
@@ -260,7 +260,7 @@ robot = RealRobotBackend.from_config(robot_config)
 ### Profile: High Quality
 
 ```python
-from pib_ik import TrajectoryConfig, PaperConfig, IKConfig, ImageConfig
+from pib3 import TrajectoryConfig, PaperConfig, IKConfig, ImageConfig
 
 HIGH_QUALITY = TrajectoryConfig(
     paper=PaperConfig(
@@ -327,7 +327,7 @@ SMALL_PAPER = TrajectoryConfig(
 ```python
 import json
 from dataclasses import asdict
-from pib_ik import TrajectoryConfig, PaperConfig
+from pib3 import TrajectoryConfig, PaperConfig
 
 # Create config
 config = TrajectoryConfig(
@@ -351,7 +351,7 @@ with open("my_config.json", "w") as f:
 
 ```python
 import json
-from pib_ik import TrajectoryConfig, PaperConfig, IKConfig, ImageConfig
+from pib3 import TrajectoryConfig, PaperConfig, IKConfig, ImageConfig
 
 with open("my_config.json") as f:
     data = json.load(f)
@@ -371,8 +371,8 @@ config = TrajectoryConfig(
 ### Check Effective Settings
 
 ```python
-import pib_ik
-from pib_ik import TrajectoryConfig
+import pib3
+from pib3 import TrajectoryConfig
 
 config = TrajectoryConfig()
 
@@ -395,15 +395,15 @@ print(f"  simplify_tolerance: {config.image.simplify_tolerance}")
 ### Test Configuration
 
 ```python
-import pib_ik
+import pib3
 
 # Quick test with your config
 config = TrajectoryConfig(...)
 
-sketch = pib_ik.image_to_sketch("test.png", config.image)
+sketch = pib3.image_to_sketch("test.png", config.image)
 print(f"Extracted {len(sketch)} strokes")
 
-trajectory = pib_ik.sketch_to_trajectory(sketch, config)
+trajectory = pib3.sketch_to_trajectory(sketch, config)
 print(f"Generated {len(trajectory)} waypoints")
 print(f"Success rate: {trajectory.metadata['success_rate']:.1%}")
 ```

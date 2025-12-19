@@ -38,7 +38,7 @@ graph TB
 ## Package Structure
 
 ```
-pib_ik/
+pib3/
 ├── __init__.py          # Public API exports
 ├── config.py            # Configuration dataclasses
 ├── types.py             # Core types (Stroke, Sketch)
@@ -173,7 +173,7 @@ base_link
 ### Configuration
 
 ```python
-from pib_ik import IKConfig
+from pib3 import IKConfig
 
 config = IKConfig(
     max_iterations=100,
@@ -221,7 +221,7 @@ def on_progress(current, total, success):
     status = "✓" if success else "✗"
     print(f"{status} Point {current}/{total}")
 
-trajectory = pib_ik.sketch_to_trajectory(
+trajectory = pib3.sketch_to_trajectory(
     sketch,
     progress_callback=on_progress,
 )

@@ -1,4 +1,4 @@
-"""Webots simulator backend for pib_ik package."""
+"""Webots simulator backend for pib3 package."""
 
 import time
 from typing import Callable, Dict, List, Optional
@@ -52,7 +52,7 @@ class WebotsBackend(RobotBackend):
 
     Example:
         # In your Webots controller file:
-        from pib_ik.backends import WebotsBackend
+        from pib3.backends import WebotsBackend
 
         with WebotsBackend() as backend:
             backend.run_trajectory("trajectory.json")

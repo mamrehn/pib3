@@ -14,7 +14,7 @@ By the end of this tutorial, you will:
 
 ## Prerequisites
 
-- pib-ik installed: `pip install git+https://github.com/mamrehn/pib_ik.git`
+- pib-ik installed: `pip install git+https://github.com/mamrehn/pib3.git`
 - Basic understanding of 2D coordinates
 
 ---
@@ -43,7 +43,7 @@ Coordinates are **normalized** to the range [0, 1]:
 
 ```python
 import numpy as np
-from pib_ik import Stroke
+from pib3 import Stroke
 
 # Create a stroke from a list of points
 points = [
@@ -65,7 +65,7 @@ print(f"End: {stroke.end()}")
 
 ```python
 import numpy as np
-from pib_ik import Stroke
+from pib3 import Stroke
 
 def create_rectangle(x, y, width, height):
     """Create a rectangle stroke."""
@@ -102,7 +102,7 @@ line = create_line(0.1, 0.9, 0.9, 0.9)
 ### From Strokes
 
 ```python
-from pib_ik import Sketch, Stroke
+from pib3 import Sketch, Stroke
 
 # Create individual strokes
 stroke1 = Stroke(points=[[0.1, 0.1], [0.9, 0.1]])
@@ -120,7 +120,7 @@ print(f"Total length: {sketch.total_length():.3f}")
 ### Adding Strokes Dynamically
 
 ```python
-from pib_ik import Sketch, Stroke
+from pib3 import Sketch, Stroke
 
 sketch = Sketch()
 
@@ -138,7 +138,7 @@ print(f"Now has {len(sketch)} strokes")
 ### Basic Properties
 
 ```python
-from pib_ik import image_to_sketch
+from pib3 import image_to_sketch
 
 sketch = image_to_sketch("drawing.png")
 
@@ -178,7 +178,7 @@ all_strokes = list(sketch)
 ### Reversing Stroke Direction
 
 ```python
-from pib_ik import Stroke
+from pib3 import Stroke
 
 stroke = Stroke(points=[[0, 0], [1, 0], [1, 1]])
 reversed_stroke = stroke.reverse()
@@ -190,7 +190,7 @@ print(f"Reversed end: {reversed_stroke.end()}")
 ### Filtering Strokes
 
 ```python
-from pib_ik import Sketch, image_to_sketch
+from pib3 import Sketch, image_to_sketch
 
 sketch = image_to_sketch("drawing.png")
 
@@ -208,7 +208,7 @@ print(f"Filtered: {len(filtered_sketch)} strokes")
 
 ```python
 import numpy as np
-from pib_ik import Stroke, Sketch
+from pib3 import Stroke, Sketch
 
 def scale_sketch(sketch, scale_x, scale_y):
     """Scale all strokes in a sketch."""
@@ -239,7 +239,7 @@ scaled = scale_sketch(centered, 0.8, 0.8)
 ## Combining Sketches
 
 ```python
-from pib_ik import Sketch, image_to_sketch
+from pib3 import Sketch, image_to_sketch
 
 # Load multiple images
 sketch1 = image_to_sketch("part1.png")
@@ -259,7 +259,7 @@ print(f"Combined: {len(combined)} strokes")
 Reorder strokes to minimize pen travel between them:
 
 ```python
-from pib_ik import image_to_sketch, ImageConfig
+from pib3 import image_to_sketch, ImageConfig
 
 # Enable path optimization during image processing
 config = ImageConfig(
@@ -271,7 +271,7 @@ sketch = image_to_sketch("drawing.png", config)
 ### Manual Reordering
 
 ```python
-from pib_ik import Sketch
+from pib3 import Sketch
 
 def optimize_order_greedy(sketch):
     """Reorder strokes using greedy nearest-neighbor."""
@@ -325,7 +325,7 @@ optimized = optimize_order_greedy(sketch)
 
 ```python
 import json
-from pib_ik import Sketch, image_to_sketch
+from pib3 import Sketch, image_to_sketch
 
 # Convert to dictionary
 sketch = image_to_sketch("drawing.png")
@@ -368,8 +368,8 @@ sketch = Sketch.from_dict(loaded_data)
 Generate a custom sketch programmatically and convert to trajectory.
 """
 import numpy as np
-import pib_ik
-from pib_ik import Sketch, Stroke
+import pib3
+from pib3 import Sketch, Stroke
 
 def create_star(cx, cy, outer_r, inner_r, points=5):
     """Create a star shape."""
@@ -415,7 +415,7 @@ print(f"Created sketch with {len(sketch)} strokes")
 print(f"Total points: {sketch.total_points()}")
 
 # Convert to trajectory
-trajectory = pib_ik.sketch_to_trajectory(sketch)
+trajectory = pib3.sketch_to_trajectory(sketch)
 trajectory.to_json("custom_drawing.json")
 print(f"Saved trajectory with {len(trajectory)} waypoints")
 ```
