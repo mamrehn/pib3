@@ -10,7 +10,7 @@ Repository statistics: 🐍 ![Python LOC](https://img.shields.io/endpoint?url=ht
 Use cases:
  - Set motors and read joint sensors in your python code.
  - Convert 2-D images to 3-D robot arm drawing trajectories.
- - Test code in Webots once, then run it on the real world pib.
+ - Test code in Webots or Swift once, then run it on the real world pib.
 
 ## Installation
 
