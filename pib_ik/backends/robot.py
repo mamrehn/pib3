@@ -349,12 +349,20 @@ class RealRobotBackend(RobotBackend):
                 }
             }
 
+            logger.debug(
+                f"Sending to {motor_name}: position={centidegrees} centideg "
+                f"({position:.4f} rad), velocity={velocity_centideg}"
+            )
+
             try:
                 request = roslibpy.ServiceRequest(message)
                 result = self._service.call(request, timeout=self.timeout)
-                if not result.get('successful', False):
+                success = result.get('successful', False)
+                logger.debug(f"  Result: {result}")
+                if not success:
                     all_successful = False
-            except Exception:
+            except Exception as e:
+                logger.debug(f"  Exception: {e}")
                 all_successful = False
 
         return all_successful
