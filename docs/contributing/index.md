@@ -1,6 +1,6 @@
 # Contributing
 
-Welcome to the pib-ik contribution guide. We appreciate your interest in improving the library.
+Welcome to the pib3 contribution guide. We appreciate your interest in improving the library.
 
 ## Ways to Contribute
 

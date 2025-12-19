@@ -14,14 +14,14 @@ By the end of this tutorial, you will:
 
 ## Prerequisites
 
-- pib-ik installed: `pip install git+https://github.com/mamrehn/pib3.git`
+- pib3 installed: `pip install git+https://github.com/mamrehn/pib3.git`
 - Understanding of basic trajectory generation
 
 ---
 
 ## Configuration Overview
 
-pib-ik uses four configuration classes:
+pib3 uses four configuration classes:
 
 ```mermaid
 graph TD

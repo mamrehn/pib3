@@ -14,7 +14,7 @@ By the end of this tutorial, you will:
 
 ## Prerequisites
 
-- pib-ik installed with visualization support: `pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib3.git"`
+- pib3 installed with visualization support: `pip install "pib3[viz] @ git+https://github.com/mamrehn/pib3.git"`
 - A modern web browser
 
 ---
@@ -328,7 +328,7 @@ with Swift() as viz:
     **Solution:**
 
     ```bash
-    pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib3.git"
+    pip install "pib3[viz] @ git+https://github.com/mamrehn/pib3.git"
     ```
 
 !!! warning "Robot model not loading"
@@ -337,8 +337,8 @@ with Swift() as viz:
     **Solution:** The package includes bundled resources. If issues persist, reinstall:
 
     ```bash
-    pip uninstall pib-ik
-    pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib3.git"
+    pip uninstall pib3
+    pip install "pib3[viz] @ git+https://github.com/mamrehn/pib3.git"
     ```
 
 !!! warning "Animation is jerky"

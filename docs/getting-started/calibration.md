@@ -4,7 +4,7 @@ Calibrate joint limits for accurate percentage-based control.
 
 ## Why Calibrate?
 
-The pib-ik library uses a **percentage-based unit system** by default:
+The pib3 library uses a **percentage-based unit system** by default:
 
 ```python
 robot.set_joint("elbow_left", 50.0)      # 50% of range
@@ -25,10 +25,10 @@ Before calibrating:
 1. **Robot connected and powered on**
 2. **Rosbridge running** on the robot (default port: 9090)
 3. **Cerebra** or another control interface to manually move joints
-4. **pib-ik installed** with robot support:
+4. **pib3 installed** with robot support:
 
 ```bash
-pip install "pib-ik[robot] @ git+https://github.com/mamrehn/pib3.git"
+pip install "pib3[robot] @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 ---

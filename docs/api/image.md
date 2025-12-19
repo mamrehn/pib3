@@ -128,5 +128,5 @@ Image processing requires one of:
 Install with image extras:
 
 ```bash
-pip install "pib-ik[image] @ git+https://github.com/mamrehn/pib3.git"
+pip install "pib3[image] @ git+https://github.com/mamrehn/pib3.git"
 ```

@@ -457,7 +457,7 @@ with Swift() as viz:
     **Solution:** Install with the viz extra:
 
     ```bash
-    pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib3.git"
+    pip install "pib3[viz] @ git+https://github.com/mamrehn/pib3.git"
     ```
 
 !!! warning "Robot Model Not Visible"
@@ -470,8 +470,8 @@ with Swift() as viz:
     3. Reinstall the package:
 
     ```bash
-    pip uninstall pib-ik
-    pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib3.git"
+    pip uninstall pib3
+    pip install "pib3[viz] @ git+https://github.com/mamrehn/pib3.git"
     ```
 
 !!! warning "Sliders Not Updating Visualization"

@@ -1,14 +1,14 @@
 # Quick Start
 
-Get up and running with pib-ik in 5 minutes.
+Get up and running with pib3 in 5 minutes.
 
 ## Prerequisites
 
-Make sure you have [installed pib-ik](installation.md) with the features you need:
+Make sure you have [installed pib3](installation.md) with the features you need:
 
 ```bash
 # Install with all features
-pip install "pib-ik[all] @ git+https://github.com/mamrehn/pib3.git"
+pip install "pib3[all] @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 ## Your First Trajectory
@@ -69,7 +69,7 @@ with pib3.Robot(host="172.26.34.149") as robot:
 
 ## Controlling Individual Joints
 
-pib-ik uses a percentage-based system for joint control:
+pib3 uses a percentage-based system for joint control:
 
 - **0%** = minimum position
 - **100%** = maximum position

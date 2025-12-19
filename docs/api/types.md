@@ -4,7 +4,7 @@ Data structures for representing 2D drawings.
 
 ## Overview
 
-pib-ik uses two main types to represent drawings:
+pib3 uses two main types to represent drawings:
 
 - **Stroke**: A single continuous line (pen-down motion)
 - **Sketch**: A collection of strokes forming a complete drawing

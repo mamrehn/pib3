@@ -1,6 +1,6 @@
 # Installation
 
-This guide provides detailed instructions for installing `pib-ik` on Linux and Windows.
+This guide provides detailed instructions for installing `pib3` on Linux and Windows.
 
 ## Requirements
 
@@ -13,7 +13,7 @@ This guide provides detailed instructions for installing `pib-ik` on Linux and W
 If you just want to get started quickly:
 
 ```bash
-pip install -U "pib-ik[all] @ git+https://github.com/mamrehn/pib3.git"
+pip install -U "pib3[all] @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 For a proper isolated installation, follow the detailed instructions below.
@@ -55,12 +55,12 @@ source venv/bin/activate
 !!! tip "Virtual Environment Active"
     Your prompt should now show `(venv)` at the beginning, indicating the virtual environment is active.
 
-### 4. Install pib-ik
+### 4. Install pib3
 
 === "All Features (Recommended)"
 
     ```bash
-    pip install "pib-ik[all] @ git+https://github.com/mamrehn/pib3.git"
+    pip install "pib3[all] @ git+https://github.com/mamrehn/pib3.git"
     ```
 
 === "Basic Only"
@@ -72,25 +72,25 @@ source venv/bin/activate
 === "Image Processing"
 
     ```bash
-    pip install "pib-ik[image] @ git+https://github.com/mamrehn/pib3.git"
+    pip install "pib3[image] @ git+https://github.com/mamrehn/pib3.git"
     ```
 
 === "Visualization"
 
     ```bash
-    pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib3.git"
+    pip install "pib3[viz] @ git+https://github.com/mamrehn/pib3.git"
     ```
 
 === "Real Robot"
 
     ```bash
-    pip install "pib-ik[robot] @ git+https://github.com/mamrehn/pib3.git"
+    pip install "pib3[robot] @ git+https://github.com/mamrehn/pib3.git"
     ```
 
 ### 5. Verify Installation
 
 ```bash
-python -c "import pib3; print(f'pib-ik version: {pib3.__version__}')"
+python -c "import pib3; print(f'pib3 version: {pib3.__version__}')"
 ```
 
 ### 6. Deactivate When Done
@@ -174,16 +174,16 @@ python -m venv venv
 !!! tip "Virtual Environment Active"
     Your prompt should now show `(venv)` at the beginning.
 
-### 5. Install pib-ik
+### 5. Install pib3
 
 ```powershell
-pip install "pib-ik[all] @ git+https://github.com/mamrehn/pib3.git"
+pip install "pib3[all] @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 ### 6. Verify Installation
 
 ```powershell
-python -c "import pib3; print(f'pib-ik version: {pib3.__version__}')"
+python -c "import pib3; print(f'pib3 version: {pib3.__version__}')"
 ```
 
 ### 7. Deactivate When Done
@@ -212,7 +212,7 @@ deactivate
 
 ## Development Installation
 
-For contributing to pib-ik or modifying the source code:
+For contributing to pib3 or modifying the source code:
 
 === "Linux"
 
@@ -261,7 +261,7 @@ The package provides several optional dependency groups:
 Install multiple options:
 
 ```bash
-pip install "pib-ik[image,viz] @ git+https://github.com/mamrehn/pib3.git"
+pip install "pib3[image,viz] @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 ---
@@ -319,14 +319,14 @@ pip install "pib-ik[image,viz] @ git+https://github.com/mamrehn/pib3.git"
     Install with visualization support:
 
     ```bash
-    pip install "pib-ik[viz] @ git+https://github.com/mamrehn/pib3.git"
+    pip install "pib3[viz] @ git+https://github.com/mamrehn/pib3.git"
     ```
 
 !!! warning "Cannot connect to robot"
     Install with robot support:
 
     ```bash
-    pip install "pib-ik[robot] @ git+https://github.com/mamrehn/pib3.git"
+    pip install "pib3[robot] @ git+https://github.com/mamrehn/pib3.git"
     ```
 
     Then ensure:
@@ -348,7 +348,7 @@ pip install --upgrade git+https://github.com/mamrehn/pib3.git
 ## Uninstalling
 
 ```bash
-pip uninstall pib-ik
+pip uninstall pib3
 ```
 
 ---

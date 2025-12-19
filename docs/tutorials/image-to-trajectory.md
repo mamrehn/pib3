@@ -14,7 +14,7 @@ By the end of this tutorial, you will:
 
 ## Prerequisites
 
-- pib-ik installed with image support: `pip install "pib-ik[image] @ git+https://github.com/mamrehn/pib3.git"`
+- pib3 installed with image support: `pip install "pib3[image] @ git+https://github.com/mamrehn/pib3.git"`
 - A sample image to convert
 
 ---

@@ -1,6 +1,6 @@
 # Coordinate Systems
 
-Understanding the coordinate frames used in pib-ik.
+Understanding the coordinate frames used in pib3.
 
 ## Robot Frame
 

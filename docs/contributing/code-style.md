@@ -1,6 +1,6 @@
 # Code Style Guide
 
-Coding conventions and standards for pib-ik.
+Coding conventions and standards for pib3.
 
 ## Python Style
 

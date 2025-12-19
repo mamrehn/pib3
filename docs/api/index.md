@@ -1,6 +1,6 @@
 # API Reference
 
-Complete API documentation for pib-ik.
+Complete API documentation for pib3.
 
 ## Module Overview
 

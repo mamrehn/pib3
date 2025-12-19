@@ -1,6 +1,6 @@
 # Configuration
 
-All configuration dataclasses for pib-ik.
+All configuration dataclasses for pib3.
 
 ## Overview
 

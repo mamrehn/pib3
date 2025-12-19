@@ -14,7 +14,7 @@ By the end of this tutorial, you will:
 
 ## Prerequisites
 
-- pib-ik installed: `pip install git+https://github.com/mamrehn/pib3.git`
+- pib3 installed: `pip install git+https://github.com/mamrehn/pib3.git`
 - Basic understanding of 2D coordinates
 
 ---

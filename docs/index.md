@@ -1,10 +1,10 @@
-# pib-ik
+# pib3
 
 **Inverse kinematics and trajectory generation for the PIB humanoid robot.**
 
 <div class="grid cards" markdown>
 
--   :material-robot:{ .lg .middle } **What is pib-ik?**
+-   :material-robot:{ .lg .middle } **What is pib3?**
 
     ---
 
@@ -56,7 +56,7 @@ with pib3.Robot(host="172.26.34.149") as robot:
 ## Installation
 
 ```bash
-pip install "pib-ik[all] @ git+https://github.com/mamrehn/pib3.git"
+pip install "pib3[all] @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 See the [Installation Guide](getting-started/installation.md) for detailed instructions.
@@ -69,7 +69,7 @@ See the [Installation Guide](getting-started/installation.md) for detailed instr
 
     ---
 
-    Set up pib-ik on Linux or Windows with virtual environments.
+    Set up pib3 on Linux or Windows with virtual environments.
 
 -   :material-rocket-launch:{ .lg .middle } **[Quick Start](getting-started/quickstart.md)**
 
@@ -87,7 +87,7 @@ See the [Installation Guide](getting-started/installation.md) for detailed instr
 
 ## Tutorials
 
-Learn how to use pib-ik effectively:
+Learn how to use pib3 effectively:
 
 - [Image to Trajectory](tutorials/image-to-trajectory.md) - Convert images to robot movements
 - [Controlling the Robot](tutorials/controlling-robot.md) - Master the joint control API

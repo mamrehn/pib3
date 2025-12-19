@@ -1,6 +1,6 @@
 # Architecture Overview
 
-High-level design of the pib-ik library.
+High-level design of the pib3 library.
 
 ## Design Goals
 

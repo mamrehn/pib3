@@ -1,6 +1,6 @@
 # Tutorials
 
-Learn how to use pib-ik effectively through step-by-step tutorials.
+Learn how to use pib3 effectively through step-by-step tutorials.
 
 ## Getting Started Tutorials
 
@@ -42,7 +42,7 @@ Each tutorial includes:
 
 Before starting the tutorials, ensure you have:
 
-1. [Installed pib-ik](../getting-started/installation.md) with the features you need
+1. [Installed pib3](../getting-started/installation.md) with the features you need
 2. A basic understanding of Python
 3. (For robot tutorials) Access to a PIB robot or willingness to use Swift visualization
 

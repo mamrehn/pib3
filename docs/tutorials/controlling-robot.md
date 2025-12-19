@@ -14,7 +14,7 @@ By the end of this tutorial, you will:
 
 ## Prerequisites
 
-- pib-ik installed with robot support: `pip install "pib-ik[robot] @ git+https://github.com/mamrehn/pib3.git"`
+- pib3 installed with robot support: `pip install "pib3[robot] @ git+https://github.com/mamrehn/pib3.git"`
 - A PIB robot connected to your network
 - Rosbridge running on the robot
 - [Calibrated joint limits](../getting-started/calibration.md) (recommended)
