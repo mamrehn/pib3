@@ -261,7 +261,7 @@ def run_calibration(
         from pib3.backends import RealRobotBackend
     except ImportError as e:
         print(f"Error: {e}")
-        print("Install with: pip install pib-ik[robot]")
+        print("Install with: pip install pib3[robot]")
         sys.exit(1)
 
     print("\n" + "=" * 60)

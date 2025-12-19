@@ -17,7 +17,7 @@ Use cases:
 ```bash
 python -m venv venv
 venv\Scripts\activate  # OR on Linux: source ./venv/bin/activate 
-pip install -U "pib-ik[all] @ git+https://github.com/mamrehn/pib3.git"
+pip install -U "pib3[all] @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 ## Quick Start
