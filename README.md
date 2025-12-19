@@ -1,10 +1,16 @@
 <h1 align="center">
-<img src="examples/pib3_logo.png" width="440">
+<a href="https://ghloc.vercel.app/mamrehn/pib3?branch=main"><img src="examples/pib3_logo.png" width="440"></a>
 </h1><br>
 
-**piB3**
+Repository statistics: 🐍 ![Python LOC](https://img.shields.io/endpoint?url=https://ghloc.vercel.app/api/mamrehn/pib3/badge?filter=.py$&format=human), 📜 ![Documentation LOC](https://img.shields.io/endpoint?url=https://ghloc.vercel.app/api/mamrehn/pib3/badge?filter=.md$&format=human), 🤖 ![Robot Config LOC](https://img.shields.io/endpoint?url=https://ghloc.vercel.app/api/mamrehn/pib3/badge?filter=.proto$,.urdf$,.yaml$,.stl$&format=human)
 
-Inverse kinematics and trajectory generation for the [pib](https://pib.rocks/) printable humanoid robot. Convert images to robot arm drawing trajectories. 
+
+**piB3** provides motor control, inverse kinematics, and code reuse from digital twin features for the [pib](https://pib.rocks/) printable humanoid robot.
+
+Use cases:
+ - Set motors and read joint sensors in your python code.
+ - Convert 2-D images to 3-D robot arm drawing trajectories.
+ - Test code in Webots once, then run it on the real world pib.
 
 ## Installation
 
