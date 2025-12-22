@@ -303,6 +303,12 @@ def _solve_ik_point(
     # Determine if we're doing position-only or position+orientation IK
     use_orientation = target_orientation is not None and orientation_weight > 0
 
+    # Adaptive step size control
+    current_step_size = config.step_size
+    prev_error = float('inf')
+    stagnant_count = 0
+    min_step_size = config.step_size * 0.01  # Minimum 1% of original
+
     try:
         for iteration in range(config.max_iterations):
             # Get current link frame position
@@ -355,6 +361,21 @@ def _solve_ik_point(
                             return q_init, False
                 return q_work, True
 
+            # Adaptive step size: reduce if error is not decreasing
+            if error_norm >= prev_error - 1e-6:
+                # Error not decreasing - reduce step size
+                stagnant_count += 1
+                if stagnant_count > 5 and current_step_size > min_step_size:
+                    current_step_size *= 0.7
+                    stagnant_count = 0
+            else:
+                # Error decreasing - reset counter, slowly increase step size
+                stagnant_count = 0
+                if current_step_size < config.step_size:
+                    current_step_size = min(current_step_size * 1.05, config.step_size)
+
+            prev_error = error_norm
+
             # Compute Jacobian
             J_full = robot.jacob0(q_work, end=end_link)
 
@@ -368,7 +389,7 @@ def _solve_ik_point(
 
                 # Damped least squares
                 JJT = J_weighted @ J_weighted.T + config.damping * np.eye(6)
-                dq_arm = J_weighted.T @ np.linalg.solve(JJT, error_weighted * config.step_size)
+                dq_arm = J_weighted.T @ np.linalg.solve(JJT, error_weighted * current_step_size)
             else:
                 # Position-only IK (3-DOF)
                 J_pos = J_full[:3, :]
@@ -376,7 +397,7 @@ def _solve_ik_point(
 
                 # Damped least squares
                 JJT = J_arm @ J_arm.T + config.damping * np.eye(3)
-                dq_arm = J_arm.T @ np.linalg.solve(JJT, pos_error * config.step_size)
+                dq_arm = J_arm.T @ np.linalg.solve(JJT, pos_error * current_step_size)
 
             # Update arm joints with limit clamping
             for i, col in enumerate(arm_cols):
@@ -508,10 +529,11 @@ def _set_initial_arm_pose(
     """
     arm_joints = LEFT_ARM_JOINTS if arm == "left" else RIGHT_ARM_JOINTS
 
+    # Neutral mid-range pose with all joints at ~1.0 rad for maximum flexibility
     q[arm_joints['shoulder_vertical']] = 1.0
     q[arm_joints['shoulder_horizontal']] = 0.0
-    q[arm_joints['upper_arm']] = -0.3
-    q[arm_joints['elbow']] = 1.5
+    q[arm_joints['upper_arm']] = 0.0
+    q[arm_joints['elbow']] = 1.0
     q[arm_joints['forearm']] = 0.0
     q[arm_joints['wrist']] = 1.0
 

@@ -16,9 +16,9 @@ class PaperConfig:
         drawing_scale: Scale factor for drawing within paper bounds (0.0-1.0).
         lift_height: Pen-up distance in meters when moving between strokes.
     """
-    start_x: float = 0.10
-    size: float = 0.12
-    height_z: float = 0.74
+    start_x: float = 0.25
+    size: float = 0.10
+    height_z: float = 0.85
     center_y: Optional[float] = None
     drawing_scale: float = 0.8
     lift_height: float = 0.03
@@ -38,12 +38,12 @@ class IKConfig:
             - "index_finger": Use extended index finger as drawing tool (default).
             - "pencil_grip": Clenched fist holding a pencil, tip near pinky base.
     """
-    max_iterations: int = 150
+    max_iterations: int = 300
     tolerance: float = 0.002
-    step_size: float = 0.4
-    damping: float = 0.01
+    step_size: float = 0.2
+    damping: float = 0.1
     arm: str = "left"
-    grip_style: Literal["index_finger", "pencil_grip"] = "pencil_grip"
+    grip_style: Literal["index_finger", "pencil_grip"] = "index_finger"
 
 
 @dataclass
