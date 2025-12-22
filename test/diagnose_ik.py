@@ -155,7 +155,7 @@ def analyze_image_trajectory():
     import cv2
     from PIL import Image
 
-    img_path = "examples/Icon_IT_hover.png"
+    img_path = Path(__file__).parent.parent.joinpath("examples/Icon_IT_hover.png")
     img = Image.open(img_path)
     print(f"\nImage: {img_path}")
     print(f"  Size: {img.size}")

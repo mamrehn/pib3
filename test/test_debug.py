@@ -37,7 +37,8 @@ print(f"  IK solver: max_iter={config.ik.max_iterations}, tol={config.ik.toleran
 # Try to generate trajectory
 print("\nGenerating trajectory...")
 try:
-    trajectory = pib3.generate_trajectory("../examples/Icon_IT_hover.png", config=config)
+    img_path = Path(__file__).parent.parent.joinpath("examples/Icon_IT_hover.png")
+    trajectory = pib3.generate_trajectory(img_path, config=config)
     print(f"✓ SUCCESS! Generated {len(trajectory.waypoints)} waypoints")
     print(f"  Metadata: {trajectory.metadata}")
 

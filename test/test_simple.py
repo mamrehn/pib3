@@ -7,7 +7,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pib3
 
 # Convert image to trajectory
-trajectory = pib3.generate_trajectory("../examples/Icon_IT_hover.png")
+img_path = Path(__file__).parent.parent.joinpath("examples/Icon_IT_hover.png")
+trajectory = pib3.generate_trajectory(img_path)
 trajectory.to_json("output.json")
 
 # Visualize in browser
