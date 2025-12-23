@@ -330,23 +330,20 @@ def _solve_ik_point(
                 R_current = T_tool.R
                 R_target = target_orientation
 
-                # Orientation error using angle-axis representation
-                # R_error = R_target @ R_current.T
-                R_error = R_target @ R_current.T
-                # Convert to axis-angle for error vector
-                angle = np.arccos(np.clip((np.trace(R_error) - 1) / 2, -1, 1))
-                if angle < 1e-6:
-                    orient_error = np.zeros(3)
-                else:
-                    # Extract axis from skew-symmetric part
-                    axis = np.array([
-                        R_error[2, 1] - R_error[1, 2],
-                        R_error[0, 2] - R_error[2, 0],
-                        R_error[1, 0] - R_error[0, 1]
-                    ]) / (2 * np.sin(angle))
-                    orient_error = axis * angle * orientation_weight
+                # Use 5-DOF constraint: position (3) + Z-axis direction (2)
+                # We only care that the pen points down, not rotation around its axis
+                # Extract Z-axis (pointing direction) from rotation matrices
+                z_current = R_current[:, 2]  # 3rd column = Z-axis direction
+                z_target = R_target[:, 2]
 
-                # Combined error
+                # Orientation error: cross product gives rotation axis needed
+                # This naturally represents 2-DOF (tilt angles), ignoring roll
+                orient_error_3d = np.cross(z_target, z_current)
+
+                # Scale by orientation weight
+                orient_error = orient_error_3d * orientation_weight
+
+                # Combined error (still 6D for Jacobian, but orient only has 2 effective DOF)
                 error_6d = np.concatenate([pos_error, orient_error])
                 error_norm = pos_error_norm  # Use position error for convergence check
             else:
@@ -534,8 +531,14 @@ def _set_initial_arm_pose(
     q[arm_joints['shoulder_horizontal']] = 0.0
     q[arm_joints['upper_arm']] = 0.0
     q[arm_joints['elbow']] = 1.0
-    q[arm_joints['forearm']] = 0.0
     q[arm_joints['wrist']] = 1.0
+
+    # Adjust forearm rotation for pencil grip to compensate for different TCP
+    if grip_style == "pencil_grip":
+        # Rotate forearm ~90° to bring palm TCP closer to index finger TCP position
+        q[arm_joints['forearm']] = -1.57  # -90° in radians
+    else:
+        q[arm_joints['forearm']] = 0.0
 
     if grip_style == "pencil_grip":
         # Pencil grip: all fingers curled in power grip (thumb over fingers)
@@ -696,7 +699,9 @@ def sketch_to_trajectory(
     # Adjust paper position based on TCP position
     paper = config.paper
     if paper.center_y is None:
-        paper.center_y = float(start_pos[1])
+        # Use consistent center_y regardless of grip style
+        # This allows both grip styles to use the same paper position
+        paper.center_y = -0.34
     paper.start_x = float(start_pos[0] - paper.size / 2.0)
 
     # Optional visualization setup
@@ -751,7 +756,9 @@ def sketch_to_trajectory(
             [0.0, -1.0,  0.0],
             [0.0,  0.0, -1.0]
         ])
-        orientation_weight = 0.3  # Soft constraint, position is more important
+        # 5-DOF constraint: Only Z-axis direction matters (rotation around pen ignored)
+        # Can use higher weight since we're only constraining 2 DOF instead of 3
+        orientation_weight = 0.5
     else:
         target_orientation = None
         orientation_weight = 0.0
