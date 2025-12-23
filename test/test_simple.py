@@ -12,6 +12,6 @@ trajectory = pib3.generate_trajectory(img_path)
 trajectory.to_json("output.json")
 
 # Visualize in browser
-with pib3.Swift() as viz:
-    viz.run_trajectory("output.json")
+with pib3.Swift() as robot:
+    robot.run_trajectory("output.json")
 
