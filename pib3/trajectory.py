@@ -533,12 +533,9 @@ def _set_initial_arm_pose(
     q[arm_joints['elbow']] = 1.0
     q[arm_joints['wrist']] = 1.0
 
-    # Adjust forearm rotation for pencil grip to compensate for different TCP
-    if grip_style == "pencil_grip":
-        # Rotate forearm ~90° to bring palm TCP closer to index finger TCP position
-        q[arm_joints['forearm']] = -1.57  # -90° in radians
-    else:
-        q[arm_joints['forearm']] = 0.0
+    # Same forearm position for both grip styles
+    # Let IK solver find the right configuration
+    q[arm_joints['forearm']] = 0.0
 
     if grip_style == "pencil_grip":
         # Pencil grip: all fingers curled in power grip (thumb over fingers)
@@ -747,21 +744,11 @@ def sketch_to_trajectory(
     fail_count = 0
     total_points = len(trajectory_3d)
 
-    # Target orientation for pencil grip: palm vertical, pencil pointing down
-    # Rotation matrix where tool Z points down (-Z world), X points forward (+X world)
-    # This is a 180° rotation about the X-axis
-    if grip_style == "pencil_grip":
-        target_orientation = np.array([
-            [1.0,  0.0,  0.0],
-            [0.0, -1.0,  0.0],
-            [0.0,  0.0, -1.0]
-        ])
-        # 5-DOF constraint: Only Z-axis direction matters (rotation around pen ignored)
-        # Can use higher weight since we're only constraining 2 DOF instead of 3
-        orientation_weight = 0.5
-    else:
-        target_orientation = None
-        orientation_weight = 0.0
+    # Orientation constraints
+    # For drawing on paper, position accuracy is most important
+    # Both grip styles use position-only IK for maximum robustness
+    target_orientation = None
+    orientation_weight = 0.0
 
     for i, (x, y, z, is_lift) in enumerate(trajectory_3d):
         q_sol, success = _solve_ik_point(
