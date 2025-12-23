@@ -5,12 +5,12 @@
 Repository statistics: 🐍 ![Python LOC](https://img.shields.io/endpoint?url=https://ghloc.vercel.app/api/mamrehn/pib3/badge?filter=.py$&format=human), 📜 ![Documentation LOC](https://img.shields.io/endpoint?url=https://ghloc.vercel.app/api/mamrehn/pib3/badge?filter=.md$&format=human), 🤖 ![Robot Config LOC](https://img.shields.io/endpoint?url=https://ghloc.vercel.app/api/mamrehn/pib3/badge?filter=.proto$,.urdf$,.yaml$,.stl$&format=human)
 
 
-**piB3** provides motor control, inverse kinematics, and code reuse from digital twin features for the [pib](https://pib.rocks/) printable humanoid robot.
+**piB3** provides motor control, inverse kinematics, and same code for digital twin and the [pib](https://pib.rocks/) printable humanoid robot.
 
 Use cases:
- - Set motors and read joint sensors in your python code.
+ - Set motors and read joint sensors within your python code.
  - Convert 2-D images to 3-D robot arm drawing trajectories.
- - Test code in Webots or Swift once, then run it on the real world pib.
+ - Test code in Webots or Swift simulations once, then run it on the real world pib.
 
 ## Installation
 
