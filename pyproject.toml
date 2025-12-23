@@ -42,35 +42,14 @@ dependencies = [
     "PyYAML>=5.0.0",
     "roboticstoolbox-python>=1.0.0",
     "spatialmath-python>=1.0.0",
+    "scikit-image>=0.18.0",
+    "swift-sim>=1.0.0",
+    "spatialgeometry>=1.0.0",
+    "websockets>=10.0,<11.0",  # swift-sim 1.x requires websockets 10.x
+    "roslibpy>=1.0.0",
 ]
 
 [project.optional-dependencies]
-# Image processing with scikit-image (recommended)
-image = [
-    "scikit-image>=0.18.0",
-]
-
-# Visualization with Swift
-viz = [
-    "swift-sim>=1.0.0",
-    "spatialgeometry>=1.0.0",
-    "websockets<12.0",  # swift-sim incompatible with websockets>=12
-]
-
-# Real robot connection via rosbridge
-robot = [
-    "roslibpy>=1.0.0",
-]
-
-# All optional dependencies
-all = [
-    "scikit-image>=0.18.0",
-    "swift-sim>=1.0.0",
-    "spatialgeometry>=1.0.0",
-    "websockets<12.0",  # swift-sim incompatible with websockets>=12
-    "roslibpy>=1.0.0",
-]
-
 # Development dependencies
 dev = [
     "pytest>=7.0.0",
