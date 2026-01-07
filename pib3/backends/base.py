@@ -12,7 +12,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 # Type alias for unit parameter
-UnitType = Literal["percent", "rad"]
+UnitType = Literal["percent", "rad", "deg"]
 
 # Cache for loaded joint limits files (filename -> limits dict)
 _JOINT_LIMITS_CACHE: Dict[str, Dict[str, Dict[str, float]]] = {}
@@ -66,7 +66,11 @@ class RobotBackend(ABC):
     different backends (Webots simulation, real robot, Swift visualization).
 
     Position values use percentage (0-100%) by default, which maps to the
-    joint's configured min/max range. Use unit="rad" for raw radians.
+    joint's calibrated range:
+    - 0% = calibrated minimum angle
+    - 100% = calibrated maximum angle
+
+    Use unit="deg" for degrees or unit="rad" for radians.
 
     Implementations:
         - WebotsBackend: Webots simulator
@@ -75,11 +79,14 @@ class RobotBackend(ABC):
 
     Example:
         >>> with backend as robot:
-        ...     # Set a single joint (percentage by default)
-        ...     robot.set_joint("elbow_left", 50.0)  # 50% of range
+        ...     # Set a single joint (percentage: 0%=min, 100%=max of calibrated range)
+        ...     robot.set_joint("elbow_left", 0.0)    # 0% = min angle
+        ...     robot.set_joint("elbow_left", 50.0)   # 50% = middle of range
+        ...     robot.set_joint("elbow_left", 100.0)  # 100% = max angle
         ...
-        ...     # Get current position in percentage
-        ...     angle = robot.get_joint("elbow_left")  # Returns 0-100
+        ...     # Use degrees directly
+        ...     robot.set_joint("elbow_left", -30.0, unit="deg")  # -30 degrees
+        ...     angle_deg = robot.get_joint("elbow_left", unit="deg")
         ...
         ...     # Use radians if needed
         ...     robot.set_joint("elbow_left", 0.5, unit="rad")
@@ -89,8 +96,8 @@ class RobotBackend(ABC):
         ...     saved_pose = robot.get_joints()
         ...     robot.set_joints(saved_pose)
         ...
-        ...     # Set with verification
-        ...     success = robot.set_joint("elbow_left", 50.0, verify=True)
+        ...     # Set and wait for completion
+        ...     success = robot.set_joint("elbow_left", 50.0, async_=False)
     """
 
     # Motor names available on PIB robot
@@ -114,6 +121,8 @@ class RobotBackend(ABC):
     DEFAULT_VERIFY_TOLERANCE = 0.05  # ~2.9 degrees
     # Default tolerance for verification (percentage)
     DEFAULT_VERIFY_TOLERANCE_PERCENT = 2.0  # 2%
+    # Default tolerance for verification (degrees)
+    DEFAULT_VERIFY_TOLERANCE_DEG = 3.0  # 3 degrees
 
     # Joint limits file for this backend (override in subclasses)
     # - "joint_limits_webots.yaml" for simulation (Webots, Swift)
@@ -128,7 +137,11 @@ class RobotBackend(ABC):
 
     def _percent_to_radians(self, motor_name: str, percent: float) -> float:
         """
-        Convert percentage (0-100) to radians based on joint limits.
+        Convert percentage (0-100) to radians using calibrated joint limits.
+
+        The percentage maps linearly to the joint's calibrated range:
+        - 0% = calibrated min angle
+        - 100% = calibrated max angle
 
         Args:
             motor_name: Name of the motor.
@@ -138,13 +151,13 @@ class RobotBackend(ABC):
             Position in radians.
 
         Raises:
-            ValueError: If joint limits are not calibrated (min/max is None).
+            ValueError: If joint limits are not calibrated.
         """
         limits = self._get_joint_limits().get(motor_name)
         if limits is None:
             raise ValueError(
                 f"No limits configured for joint '{motor_name}' in {self.JOINT_LIMITS_FILE}. "
-                f"Run calibration or use unit='rad'."
+                f"Run calibration or use unit='rad' or unit='deg'."
             )
 
         min_rad = limits.get("min")
@@ -156,7 +169,7 @@ class RobotBackend(ABC):
                 f"Run: python -m pib3.tools.calibrate_joints --joints {motor_name}"
             )
 
-        # Warn if out of range
+        # Warn if out of 0-100% range
         if percent < 0.0 or percent > 100.0:
             logger.warning(
                 f"Joint '{motor_name}' position {percent:.1f}% is outside "
@@ -169,7 +182,11 @@ class RobotBackend(ABC):
 
     def _radians_to_percent(self, motor_name: str, radians: float) -> float:
         """
-        Convert radians to percentage (0-100) based on joint limits.
+        Convert radians to percentage (0-100) using calibrated joint limits.
+
+        The percentage maps linearly from the joint's calibrated range:
+        - calibrated min = 0%
+        - calibrated max = 100%
 
         Args:
             motor_name: Name of the motor.
@@ -179,13 +196,13 @@ class RobotBackend(ABC):
             Position as percentage (0 = min, 100 = max).
 
         Raises:
-            ValueError: If joint limits are not calibrated (min/max is None).
+            ValueError: If joint limits are not calibrated.
         """
         limits = self._get_joint_limits().get(motor_name)
         if limits is None:
             raise ValueError(
                 f"No limits configured for joint '{motor_name}' in {self.JOINT_LIMITS_FILE}. "
-                f"Run calibration or use unit='rad'."
+                f"Run calibration or use unit='rad' or unit='deg'."
             )
 
         min_rad = limits.get("min")
@@ -204,13 +221,6 @@ class RobotBackend(ABC):
 
         # Linear interpolation: min -> 0%, max -> 100%
         percent = ((radians - min_rad) / range_rad) * 100.0
-
-        # Warn if out of range
-        if percent < 0.0 or percent > 100.0:
-            logger.warning(
-                f"Joint '{motor_name}' position {percent:.1f}% is outside "
-                f"0-100% range"
-            )
 
         return percent
 
@@ -262,8 +272,8 @@ class RobotBackend(ABC):
 
         Args:
             motor_name: Name of motor (e.g., "elbow_left").
-            unit: Unit for the returned value ("percent" or "rad").
-                  Default is "percent" (0-100% of joint range).
+            unit: Unit for the returned value ("percent", "deg", or "rad").
+                  Default is "percent" (0%=min, 100%=max of calibrated range).
             timeout: Max time to wait for joint data (seconds). Behavior varies
                     by backend:
                     - RealRobotBackend: Waits for ROS messages to arrive.
@@ -279,6 +289,9 @@ class RobotBackend(ABC):
             >>> angle = backend.get_joint("elbow_left")  # Returns percentage
             >>> print(f"Elbow is at {angle:.1f}%")
             >>>
+            >>> angle_deg = backend.get_joint("elbow_left", unit="deg")
+            >>> print(f"Elbow is at {angle_deg:.1f} degrees")
+            >>>
             >>> angle_rad = backend.get_joint("elbow_left", unit="rad")
             >>> print(f"Elbow is at {angle_rad:.2f} radians")
         """
@@ -288,6 +301,8 @@ class RobotBackend(ABC):
 
         if unit == "rad":
             return radians
+        elif unit == "deg":
+            return math.degrees(radians)
         else:  # percent
             return self._radians_to_percent(motor_name, radians)
 
@@ -322,8 +337,8 @@ class RobotBackend(ABC):
         Args:
             motor_names: List of motor names to query. If None, returns all
                         available joints.
-            unit: Unit for the returned values ("percent" or "rad").
-                  Default is "percent" (0-100% of joint range).
+            unit: Unit for the returned values ("percent", "deg", or "rad").
+                  Default is "percent" (0%=min, 100%=max of calibrated range).
             timeout: Max time to wait for joint data (seconds). Behavior varies
                     by backend:
                     - RealRobotBackend: Waits for ROS messages to arrive.
@@ -349,6 +364,11 @@ class RobotBackend(ABC):
 
         if unit == "rad":
             return radians_dict
+        elif unit == "deg":
+            return {
+                name: math.degrees(rad)
+                for name, rad in radians_dict.items()
+            }
         else:  # percent
             return {
                 name: self._radians_to_percent(name, rad)
@@ -382,9 +402,9 @@ class RobotBackend(ABC):
         motor_name: str,
         position: float,
         unit: UnitType = "percent",
-        verify: bool = False,
-        verify_timeout: float = 1.0,
-        verify_tolerance: Optional[float] = None,
+        async_: bool = True,
+        timeout: float = 1.0,
+        tolerance: Optional[float] = None,
     ) -> bool:
         """
         Set position of a single joint.
@@ -392,36 +412,40 @@ class RobotBackend(ABC):
         Args:
             motor_name: Name of motor (e.g., "elbow_left").
             position: Target position in specified unit.
-            unit: Unit for position ("percent" or "rad").
-                  Default is "percent" (0 = min, 100 = max).
-            verify: If True, verify the joint reached the target position.
-            verify_timeout: Max time to wait for verification (seconds).
-            verify_tolerance: Position tolerance for verification.
-                            In same unit as position. Defaults to 2% or 0.05 rad.
+            unit: Unit for position ("percent", "deg", or "rad").
+                  Default is "percent" (0%=min, 100%=max of calibrated range).
+            async_: If True (default), return immediately after sending command.
+                   If False, wait until joint reaches target position.
+            timeout: Max time to wait for joint to reach position (seconds).
+                    Only used when async_=False.
+            tolerance: Position tolerance for completion check.
+                      In same unit as position. Defaults to 2%, 3°, or 0.05 rad.
 
         Returns:
-            True if successful (and verified if verify=True).
+            True if successful (and position reached if async_=False).
 
         Example:
-            >>> backend.set_joint("elbow_left", 50.0)  # 50% of range
+            >>> backend.set_joint("elbow_left", 0.0)   # 0% = min angle
+            >>> backend.set_joint("elbow_left", 50.0)  # 50% = middle of range
+            >>> backend.set_joint("elbow_left", -30.0, unit="deg")  # -30 degrees
             >>> backend.set_joint("elbow_left", 0.5, unit="rad")  # radians
-            >>> backend.set_joint("elbow_left", 50.0, verify=True)
+            >>> backend.set_joint("elbow_left", 50.0, async_=False)  # wait
         """
         return self.set_joints(
             {motor_name: position},
             unit=unit,
-            verify=verify,
-            verify_timeout=verify_timeout,
-            verify_tolerance=verify_tolerance,
+            async_=async_,
+            timeout=timeout,
+            tolerance=tolerance,
         )
 
     def set_joints(
         self,
         positions: Union[Dict[str, float], Sequence[float]],
         unit: UnitType = "percent",
-        verify: bool = False,
-        verify_timeout: float = 1.0,
-        verify_tolerance: Optional[float] = None,
+        async_: bool = True,
+        timeout: float = 1.0,
+        tolerance: Optional[float] = None,
     ) -> bool:
         """
         Set positions of multiple joints simultaneously.
@@ -429,22 +453,27 @@ class RobotBackend(ABC):
         Args:
             positions: Either a dict mapping motor names to positions,
                       or a sequence of positions for all motors in MOTOR_NAMES order.
-            unit: Unit for positions ("percent" or "rad").
-                  Default is "percent" (0 = min, 100 = max).
-            verify: If True, verify joints reached target positions.
-            verify_timeout: Max time to wait for verification (seconds).
-            verify_tolerance: Position tolerance for verification.
-                            In same unit as positions. Defaults to 2% or 0.05 rad.
+            unit: Unit for positions ("percent", "deg", or "rad").
+                  Default is "percent" (0%=min, 100%=max of calibrated range).
+            async_: If True (default), return immediately after sending command.
+                   If False, wait until joints reach target positions.
+            timeout: Max time to wait for joints to reach positions (seconds).
+                    Only used when async_=False.
+            tolerance: Position tolerance for completion check.
+                      In same unit as positions. Defaults to 2%, 3°, or 0.05 rad.
 
         Returns:
-            True if successful (and verified if verify=True).
+            True if successful (and positions reached if async_=False).
 
         Example:
-            >>> # Using dict with percentage (default)
+            >>> # Using dict with percentage (0%=min, 100%=max of calibrated range)
             >>> backend.set_joints({
-            ...     "shoulder_vertical_left": 30.0,  # 30%
-            ...     "elbow_left": 80.0,              # 80%
+            ...     "shoulder_vertical_left": 50.0,  # 50% = middle of range
+            ...     "elbow_left": 0.0,               # 0% = min angle
             ... })
+            >>>
+            >>> # Using degrees
+            >>> backend.set_joints({"elbow_left": -30.0}, unit="deg")
             >>>
             >>> # Using radians
             >>> backend.set_joints({"elbow_left": 0.5}, unit="rad")
@@ -454,8 +483,8 @@ class RobotBackend(ABC):
             >>> # ... do something ...
             >>> backend.set_joints(saved_pose)  # Restore
             >>>
-            >>> # With verification
-            >>> success = backend.set_joints({"elbow_left": 50.0}, verify=True)
+            >>> # Wait for completion
+            >>> success = backend.set_joints({"elbow_left": 50.0}, async_=False)
         """
         # Convert sequence to dict if needed
         if not isinstance(positions, dict):
@@ -473,6 +502,11 @@ class RobotBackend(ABC):
                 name: self._percent_to_radians(name, pos)
                 for name, pos in positions.items()
             }
+        elif unit == "deg":
+            positions_radians = {
+                name: math.radians(pos)
+                for name, pos in positions.items()
+            }
         else:  # rad
             positions_radians = dict(positions)
 
@@ -482,20 +516,22 @@ class RobotBackend(ABC):
         if not success:
             return False
 
-        # Optionally verify
-        if verify:
+        # Wait for completion if not async
+        if not async_:
             # Use appropriate default tolerance based on unit
-            if verify_tolerance is None:
+            if tolerance is None:
                 if unit == "percent":
-                    verify_tolerance = self.DEFAULT_VERIFY_TOLERANCE_PERCENT
-                else:
-                    verify_tolerance = self.DEFAULT_VERIFY_TOLERANCE
+                    tolerance = self.DEFAULT_VERIFY_TOLERANCE_PERCENT
+                elif unit == "deg":
+                    tolerance = self.DEFAULT_VERIFY_TOLERANCE_DEG
+                else:  # rad
+                    tolerance = self.DEFAULT_VERIFY_TOLERANCE
 
             return self._verify_positions(
                 positions,  # Original positions in user's unit
                 unit=unit,
-                timeout=verify_timeout,
-                tolerance=verify_tolerance,
+                timeout=timeout,
+                tolerance=tolerance,
             )
 
         return True

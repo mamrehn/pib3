@@ -83,8 +83,8 @@ class RealRobotBackend(RobotBackend):
         ...     # Read with custom timeout
         ...     joints = robot.get_joints(timeout=2.0, unit="rad")
         ...
-        ...     # Set with verification
-        ...     success = robot.set_joint("elbow_left", 0.5, unit="rad", verify=True)
+        ...     # Set and wait for completion
+        ...     success = robot.set_joint("elbow_left", 0.5, unit="rad", async_=False)
     """
 
     # Use robot-specific joint limits (requires calibration for percentage mode)
@@ -148,7 +148,19 @@ class RealRobotBackend(RobotBackend):
             )
 
         self._client = roslibpy.Ros(host=self.host, port=self.port)
-        self._client.run()
+
+        try:
+            self._client.run(timeout=self.timeout)
+        except Exception as e:
+            # Handle Twisted reactor issues (ReactorNotRestartable)
+            # This commonly happens in Jupyter notebooks
+            if "ReactorNotRestartable" in str(type(e).__name__) or "ReactorNotRestartable" in str(e):
+                raise ConnectionError(
+                    "Cannot reconnect: Twisted reactor cannot be restarted. "
+                    "In Jupyter notebooks, you must restart the kernel to reconnect. "
+                    "Alternatively, keep a single Robot connection open for the session."
+                ) from e
+            raise
 
         # Wait for connection
         start = time.time()
