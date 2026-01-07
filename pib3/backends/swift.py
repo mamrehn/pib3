@@ -1,5 +1,6 @@
 """Swift visualization backend for pib3 package."""
 
+import logging
 import http.server
 import json
 import threading
@@ -8,6 +9,8 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from .base import RobotBackend
 

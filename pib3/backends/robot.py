@@ -1,11 +1,14 @@
 """Real robot backend via rosbridge for pib3 package."""
 
+import logging
 import math
 import threading
 import time
 from typing import Callable, Dict, List, Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from .base import RobotBackend
 from ..config import RobotConfig
