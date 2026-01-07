@@ -54,9 +54,8 @@ class RealRobotBackend(RobotBackend):
 
     Position values are converted from radians to centidegrees.
 
-    Joint positions are received asynchronously via ROS messages on the
-    /motor_current topic. Use the `timeout` parameter in get_joints() to
-    wait for data to arrive.
+    Position feedback is received via subscription to /joint_trajectory topic.
+    The robot publishes current positions when motors move.
 
     Note:
         Uses joint_limits_robot.yaml for percentage <-> radians conversion.
@@ -67,24 +66,18 @@ class RealRobotBackend(RobotBackend):
         >>> with RealRobotBackend(host="172.26.34.149") as robot:
         ...     robot.run_trajectory("trajectory.json")
         ...
-        ...     # Control individual joints (use radians until calibrated)
-        ...     robot.set_joint("elbow_left", 0.5, unit="rad")
+        ...     # Control individual joints
+        ...     robot.set_joint("elbow_left", 50.0)  # 50% of calibrated range
+        ...     robot.set_joint("elbow_left", 45.0, unit="deg")  # 45 degrees
+        ...     robot.set_joint("elbow_left", 0.5, unit="rad")  # 0.5 radians
         ...
-        ...     # Read joint positions (waits up to 5s by default)
-        ...     angle = robot.get_joint("elbow_left", unit="rad")
-        ...
-        ...     # After calibration, use percentage
-        ...     robot.set_joint("elbow_left", 50.0)  # 50% of range
+        ...     # Read current position
+        ...     angle = robot.get_joint("elbow_left")  # Returns percentage
+        ...     angle_deg = robot.get_joint("elbow_left", unit="deg")
         ...
         ...     # Save and restore pose
-        ...     saved_pose = robot.get_joints(unit="rad")
-        ...     robot.set_joints(saved_pose, unit="rad")
-        ...
-        ...     # Read with custom timeout
-        ...     joints = robot.get_joints(timeout=2.0, unit="rad")
-        ...
-        ...     # Set and wait for completion
-        ...     success = robot.set_joint("elbow_left", 0.5, unit="rad", async_=False)
+        ...     saved_pose = robot.get_joints()
+        ...     robot.set_joints(saved_pose)
     """
 
     # Use robot-specific joint limits (requires calibration for percentage mode)
@@ -112,9 +105,10 @@ class RealRobotBackend(RobotBackend):
         self.timeout = timeout
         self._client = None
         self._service = None
-        self._joint_states_subscriber = None
-        self._joint_states: Dict[str, float] = {}
-        self._joint_states_lock = threading.Lock()
+        self._position_subscriber = None
+        # Joint positions received from robot via /joint_trajectory topic
+        self._joint_positions: Dict[str, float] = {}
+        self._joint_positions_lock = threading.Lock()
 
     @classmethod
     def from_config(cls, config: RobotConfig) -> "RealRobotBackend":
@@ -181,41 +175,44 @@ class RealRobotBackend(RobotBackend):
             'datatypes/ApplyJointTrajectory'
         )
 
-        # Subscribe to motor_current for reading positions
-        # PIB robot publishes motor positions as DiagnosticStatus messages
-        self._joint_states_subscriber = roslibpy.Topic(
+        # Subscribe to /joint_trajectory for position feedback
+        # Robot publishes current positions when motors move
+        self._position_subscriber = roslibpy.Topic(
             self._client,
-            '/motor_current',
-            'diagnostic_msgs/msg/DiagnosticStatus'
+            '/joint_trajectory',
+            'trajectory_msgs/msg/JointTrajectory'
         )
-        self._joint_states_subscriber.subscribe(self._on_motor_current)
+        self._position_subscriber.subscribe(self._on_joint_trajectory)
 
-    def _on_motor_current(self, message: dict) -> None:
-        """Callback for motor current/position updates from ROS.
+    def _on_joint_trajectory(self, message: dict) -> None:
+        """Callback for position updates from /joint_trajectory topic.
 
-        PIB robot publishes motor positions via /motor_current topic as
-        DiagnosticStatus messages with position in centidegrees.
+        The robot publishes current positions when motors move.
+        Message format: trajectory_msgs/msg/JointTrajectory
         """
-        name = message.get('name', '')
-        values = message.get('values', [])
+        joint_names = message.get('joint_names', [])
+        points = message.get('points', [])
 
-        if name and values:
+        if joint_names and points:
             try:
-                # Position is stored as string in the first value
-                centidegrees = float(values[0].get('value', 0))
-                with self._joint_states_lock:
-                    self._joint_states[name] = self._centidegrees_to_radians(centidegrees)
+                positions = points[0].get('positions', [])
+                with self._joint_positions_lock:
+                    for i, name in enumerate(joint_names):
+                        if i < len(positions):
+                            # Convert centidegrees to radians
+                            centidegrees = float(positions[i])
+                            self._joint_positions[name] = self._centidegrees_to_radians(centidegrees)
             except (ValueError, IndexError, TypeError):
                 pass
 
     def disconnect(self) -> None:
         """Close connection to robot."""
-        if self._joint_states_subscriber is not None:
+        if self._position_subscriber is not None:
             try:
-                self._joint_states_subscriber.unsubscribe()
+                self._position_subscriber.unsubscribe()
             except Exception:
                 pass
-            self._joint_states_subscriber = None
+            self._position_subscriber = None
 
         if self._client is not None:
             try:
@@ -225,8 +222,8 @@ class RealRobotBackend(RobotBackend):
             self._client = None
             self._service = None
 
-        with self._joint_states_lock:
-            self._joint_states.clear()
+        with self._joint_positions_lock:
+            self._joint_positions.clear()
 
     @property
     def is_connected(self) -> bool:
@@ -241,9 +238,11 @@ class RealRobotBackend(RobotBackend):
         """
         Get current position of a single joint in radians.
 
+        Position is received via subscription to /joint_trajectory topic.
+
         Args:
             motor_name: Name of motor (e.g., "elbow_left").
-            timeout: Max time to wait for joint data (seconds).
+            timeout: Max time to wait for position data (seconds).
                     If None, uses DEFAULT_GET_JOINTS_TIMEOUT (5.0s).
 
         Returns:
@@ -254,13 +253,13 @@ class RealRobotBackend(RobotBackend):
 
         start = time.time()
         while (time.time() - start) < timeout:
-            with self._joint_states_lock:
-                if motor_name in self._joint_states:
-                    return self._joint_states[motor_name]
+            with self._joint_positions_lock:
+                if motor_name in self._joint_positions:
+                    return self._joint_positions[motor_name]
             time.sleep(0.05)  # Poll every 50ms
 
-        with self._joint_states_lock:
-            return self._joint_states.get(motor_name)
+        with self._joint_positions_lock:
+            return self._joint_positions.get(motor_name)
 
     def _get_joints_radians(
         self,
@@ -270,12 +269,12 @@ class RealRobotBackend(RobotBackend):
         """
         Get current positions of multiple joints in radians.
 
-        Waits until all requested joints have data, or timeout expires.
+        Positions are received via subscription to /joint_trajectory topic.
 
         Args:
-            motor_names: List of motor names to query. If None, waits for all
-                        motors in MOTOR_NAMES to have data.
-            timeout: Max time to wait for joint data (seconds).
+            motor_names: List of motor names to query. If None, returns all
+                        available positions.
+            timeout: Max time to wait for position data (seconds).
                     If None, uses DEFAULT_GET_JOINTS_TIMEOUT (5.0s).
 
         Returns:
@@ -286,29 +285,34 @@ class RealRobotBackend(RobotBackend):
             timeout = self.DEFAULT_GET_JOINTS_TIMEOUT
 
         # Determine which joints we're waiting for
-        expected_joints = set(motor_names) if motor_names else set(self.MOTOR_NAMES)
+        expected_joints = set(motor_names) if motor_names else None
 
-        # Wait for all expected joints to have data
+        # Wait for requested joints to have data
         start = time.time()
         while (time.time() - start) < timeout:
-            with self._joint_states_lock:
-                available_joints = set(self._joint_states.keys())
-                if expected_joints <= available_joints:
-                    # All expected joints are available
-                    return {
-                        name: self._joint_states[name]
-                        for name in expected_joints
-                    }
+            with self._joint_positions_lock:
+                if expected_joints is None:
+                    # Return all available if we have any
+                    if self._joint_positions:
+                        return dict(self._joint_positions)
+                else:
+                    available_joints = set(self._joint_positions.keys())
+                    if expected_joints <= available_joints:
+                        # All expected joints are available
+                        return {
+                            name: self._joint_positions[name]
+                            for name in expected_joints
+                        }
             time.sleep(0.05)  # Poll every 50ms
 
         # Timeout expired - return whatever we have
-        with self._joint_states_lock:
+        with self._joint_positions_lock:
             if motor_names is None:
-                return dict(self._joint_states)
+                return dict(self._joint_positions)
             return {
-                name: self._joint_states[name]
+                name: self._joint_positions[name]
                 for name in motor_names
-                if name in self._joint_states
+                if name in self._joint_positions
             }
 
     # Default velocity for motor movements (centidegrees per second)
