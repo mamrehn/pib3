@@ -226,9 +226,9 @@ def set_joint(
     motor_name: str,
     position: float,
     unit: Literal["percent", "rad"] = "percent",
-    verify: bool = False,
-    verify_timeout: float = 1.0,
-    verify_tolerance: Optional[float] = None,
+    async_: bool = True,
+    timeout: float = 1.0,
+    tolerance: Optional[float] = None,
 ) -> bool
 ```
 
@@ -239,13 +239,13 @@ def set_joint(
 | `motor_name` | `str` | *required* | Name of the motor to control. |
 | `position` | `float` | *required* | Target position. For `"percent"`: 0.0 to 100.0. For `"rad"`: angle in radians. |
 | `unit` | `"percent"` or `"rad"` | `"percent"` | Unit for the position value. |
-| `verify` | `bool` | `False` | If `True`, wait and confirm the joint reached the target. |
-| `verify_timeout` | `float` | `1.0` | Maximum seconds to wait for verification. |
-| `verify_tolerance` | `float` or `None` | `None` | Acceptable error for verification. Default: 2.0% or 0.05 rad. |
+| `async_` | `bool` | `True` | If `True`, return immediately. If `False`, wait until joint reaches target. |
+| `timeout` | `float` | `1.0` | Maximum seconds to wait (only used when `async_=False`). |
+| `tolerance` | `float` or `None` | `None` | Acceptable error for completion. Default: 2.0% or 0.05 rad. |
 
 **Returns:** `bool`
 
-- `True` if the command was sent successfully (and position verified if `verify=True`)
+- `True` if the command was sent successfully (and position reached if `async_=False`)
 - `False` if failed
 
 **Example:**
@@ -263,13 +263,13 @@ with Swift() as viz:
     # Set using radians
     viz.set_joint("elbow_left", math.pi / 4, unit="rad")  # 45 degrees
 
-    # Set with verification (waits until joint reaches position)
+    # Wait for completion
     success = viz.set_joint(
         "elbow_left",
         75.0,
-        verify=True,
-        verify_timeout=2.0,
-        verify_tolerance=3.0,  # Accept within 3%
+        async_=False,
+        timeout=2.0,
+        tolerance=3.0,  # Accept within 3%
     )
     if success:
         print("Joint reached target position")
@@ -288,9 +288,9 @@ def set_joints(
     self,
     positions: Union[Dict[str, float], Sequence[float]],
     unit: Literal["percent", "rad"] = "percent",
-    verify: bool = False,
-    verify_timeout: float = 1.0,
-    verify_tolerance: Optional[float] = None,
+    async_: bool = True,
+    timeout: float = 1.0,
+    tolerance: Optional[float] = None,
 ) -> bool
 ```
 
@@ -300,9 +300,9 @@ def set_joints(
 |-----------|------|---------|-------------|
 | `positions` | `Dict[str, float]` or `Sequence[float]` | *required* | Target positions. Either a dict mapping motor names to positions, or a sequence of 26 values in `MOTOR_NAMES` order. |
 | `unit` | `"percent"` or `"rad"` | `"percent"` | Unit for position values. |
-| `verify` | `bool` | `False` | If `True`, wait and confirm all joints reached their targets. |
-| `verify_timeout` | `float` | `1.0` | Maximum seconds to wait for verification. |
-| `verify_tolerance` | `float` or `None` | `None` | Acceptable error for verification. |
+| `async_` | `bool` | `True` | If `True`, return immediately. If `False`, wait until joints reach targets. |
+| `timeout` | `float` | `1.0` | Maximum seconds to wait (only used when `async_=False`). |
+| `tolerance` | `float` or `None` | `None` | Acceptable error for completion. |
 
 **Returns:** `bool`
 
@@ -330,11 +330,11 @@ with Robot(host="172.26.34.149") as robot:
 
     robot.set_joints(saved_pose)  # Restore saved pose
 
-    # With verification
+    # Wait for completion
     success = robot.set_joints(
         {"elbow_left": 50.0, "wrist_left": 50.0},
-        verify=True,
-        verify_timeout=2.0,
+        async_=False,
+        timeout=2.0,
     )
 ```
 

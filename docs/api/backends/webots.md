@@ -114,9 +114,9 @@ def set_joint(
     motor_name: str,
     position: float,
     unit: Literal["percent", "rad"] = "percent",
-    verify: bool = False,
-    verify_timeout: float = 1.0,
-    verify_tolerance: Optional[float] = None,
+    async_: bool = True,
+    timeout: float = 1.0,
+    tolerance: Optional[float] = None,
 ) -> bool
 ```
 
@@ -127,9 +127,9 @@ def set_joint(
 | `motor_name` | `str` | *required* | Motor name (e.g., `"elbow_left"`). |
 | `position` | `float` | *required* | Target position (0-100 for percent, radians for rad). |
 | `unit` | `"percent"` or `"rad"` | `"percent"` | Position unit. |
-| `verify` | `bool` | `False` | Wait for joint to reach target. |
-| `verify_timeout` | `float` | `1.0` | Max wait time for verification (seconds). |
-| `verify_tolerance` | `float` or `None` | `None` | Acceptable error (2.0% or 0.05 rad default). |
+| `async_` | `bool` | `True` | If `True`, return immediately. If `False`, wait for joint to reach target. |
+| `timeout` | `float` | `1.0` | Max wait time (only used when `async_=False`). |
+| `tolerance` | `float` or `None` | `None` | Acceptable error (2.0% or 0.05 rad default). |
 
 **Returns:** `bool` - `True` if successful.
 
@@ -153,9 +153,9 @@ def set_joints(
     self,
     positions: Union[Dict[str, float], Sequence[float]],
     unit: Literal["percent", "rad"] = "percent",
-    verify: bool = False,
-    verify_timeout: float = 1.0,
-    verify_tolerance: Optional[float] = None,
+    async_: bool = True,
+    timeout: float = 1.0,
+    tolerance: Optional[float] = None,
 ) -> bool
 ```
 
@@ -165,9 +165,9 @@ def set_joints(
 |-----------|------|---------|-------------|
 | `positions` | `Dict[str, float]` or `Sequence[float]` | *required* | Target positions as dict or sequence. |
 | `unit` | `"percent"` or `"rad"` | `"percent"` | Position unit. |
-| `verify` | `bool` | `False` | Wait for joints to reach targets. |
-| `verify_timeout` | `float` | `1.0` | Max wait time (seconds). |
-| `verify_tolerance` | `float` or `None` | `None` | Acceptable error. |
+| `async_` | `bool` | `True` | If `True`, return immediately. If `False`, wait for joints to reach targets. |
+| `timeout` | `float` | `1.0` | Max wait time (only used when `async_=False`). |
+| `tolerance` | `float` or `None` | `None` | Acceptable error. |
 
 **Example:**
 

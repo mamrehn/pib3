@@ -2,7 +2,7 @@
 
 from .base import RobotBackend
 from .webots import WebotsBackend
-from .robot import RealRobotBackend
+from .robot import RealRobotBackend, rle_decode
 from .swift import SwiftBackend
 
 __all__ = [
@@ -10,4 +10,5 @@ __all__ = [
     "WebotsBackend",
     "RealRobotBackend",
     "SwiftBackend",
+    "rle_decode",
 ]

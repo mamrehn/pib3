@@ -106,6 +106,7 @@ nav:
     - Overview: tutorials/index.md
     - Image to Trajectory: tutorials/image-to-trajectory.md
     - Controlling the Robot: tutorials/controlling-robot.md
+    - Camera, AI & IMU: tutorials/camera-ai-imu.md
     - Swift Visualization: tutorials/swift-visualization.md
     - Working with Sketches: tutorials/working-with-sketches.md
     - Custom Configurations: tutorials/custom-configurations.md

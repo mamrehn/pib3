@@ -132,9 +132,9 @@ def set_joint(
     motor_name: str,
     position: float,
     unit: Literal["percent", "rad"] = "percent",
-    verify: bool = False,
-    verify_timeout: float = 1.0,
-    verify_tolerance: Optional[float] = None,
+    async_: bool = True,
+    timeout: float = 1.0,
+    tolerance: Optional[float] = None,
 ) -> bool
 ```
 
@@ -145,9 +145,9 @@ def set_joint(
 | `motor_name` | `str` | *required* | Motor name (e.g., `"elbow_left"`). |
 | `position` | `float` | *required* | Target position (0-100 for percent, radians for rad). |
 | `unit` | `"percent"` or `"rad"` | `"percent"` | Position unit. |
-| `verify` | `bool` | `False` | Wait for joint to reach target. |
-| `verify_timeout` | `float` | `1.0` | Max wait time for verification (seconds). |
-| `verify_tolerance` | `float` or `None` | `None` | Acceptable error (2.0% or 0.05 rad default). |
+| `async_` | `bool` | `True` | If `True`, return immediately. If `False`, wait for joint to reach target. |
+| `timeout` | `float` | `1.0` | Max wait time (only used when `async_=False`). |
+| `tolerance` | `float` or `None` | `None` | Acceptable error (2.0% or 0.05 rad default). |
 
 **Returns:** `bool` - `True` if successful.
 
@@ -161,13 +161,13 @@ with Robot(host="172.26.34.149") as robot:
     # Radians
     robot.set_joint("elbow_left", 1.25, unit="rad")
 
-    # With verification
+    # Wait for completion
     success = robot.set_joint(
         "elbow_left",
         50.0,
-        verify=True,
-        verify_timeout=2.0,
-        verify_tolerance=2.0,
+        async_=False,
+        timeout=2.0,
+        tolerance=2.0,
     )
     if success:
         print("Joint reached target!")
@@ -184,9 +184,9 @@ def set_joints(
     self,
     positions: Union[Dict[str, float], Sequence[float]],
     unit: Literal["percent", "rad"] = "percent",
-    verify: bool = False,
-    verify_timeout: float = 1.0,
-    verify_tolerance: Optional[float] = None,
+    async_: bool = True,
+    timeout: float = 1.0,
+    tolerance: Optional[float] = None,
 ) -> bool
 ```
 
@@ -196,9 +196,9 @@ def set_joints(
 |-----------|------|---------|-------------|
 | `positions` | `Dict[str, float]` or `Sequence[float]` | *required* | Target positions as dict or sequence. |
 | `unit` | `"percent"` or `"rad"` | `"percent"` | Position unit. |
-| `verify` | `bool` | `False` | Wait for joints to reach targets. |
-| `verify_timeout` | `float` | `1.0` | Max wait time (seconds). |
-| `verify_tolerance` | `float` or `None` | `None` | Acceptable error. |
+| `async_` | `bool` | `True` | If `True`, return immediately. If `False`, wait for joints to reach targets. |
+| `timeout` | `float` | `1.0` | Max wait time (only used when `async_=False`). |
+| `tolerance` | `float` or `None` | `None` | Acceptable error. |
 
 **Example:**
 
@@ -355,6 +355,287 @@ with Robot(host="172.26.34.149") as robot:
     with open("saved_pose.json") as f:
         saved = json.load(f)
     robot.set_joints(saved)
+```
+
+---
+
+## Camera Streaming
+
+Access the OAK-D Lite camera via efficient binary streaming.
+
+### subscribe_camera_image()
+
+Subscribe to camera images with CBOR compression (recommended).
+
+```python
+def subscribe_camera_image(
+    self,
+    callback: Callable[[bytes], None],
+    compression: str = "cbor",
+) -> roslibpy.Topic
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `callback` | `Callable[[bytes], None]` | *required* | Called with raw JPEG bytes for each frame. |
+| `compression` | `str` | `"cbor"` | Compression type: `"cbor"` (recommended) or `"none"`. |
+
+**Returns:** `roslibpy.Topic` - Call `.unsubscribe()` when done to stop streaming.
+
+**Example:**
+
+```python
+import cv2
+import numpy as np
+
+def on_frame(jpeg_bytes):
+    img = np.frombuffer(jpeg_bytes, dtype=np.uint8)
+    frame = cv2.imdecode(img, cv2.IMREAD_COLOR)
+    cv2.imshow("Camera", frame)
+    cv2.waitKey(1)
+
+with Robot(host="172.26.34.149") as robot:
+    sub = robot.subscribe_camera_image(on_frame)
+    time.sleep(10)
+    sub.unsubscribe()
+```
+
+### subscribe_camera_legacy()
+
+Subscribe to base64-encoded camera stream (backward compatibility).
+
+```python
+def subscribe_camera_legacy(
+    self,
+    callback: Callable[[str], None],
+) -> roslibpy.Topic
+```
+
+### set_camera_config()
+
+Configure camera settings.
+
+```python
+def set_camera_config(
+    self,
+    fps: Optional[int] = None,
+    quality: Optional[int] = None,
+    resolution: Optional[tuple] = None,
+) -> None
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `fps` | `int` or `None` | `None` | Frames per second (e.g., 30). |
+| `quality` | `int` or `None` | `None` | JPEG quality 1-100. |
+| `resolution` | `tuple` or `None` | `None` | (width, height) tuple. |
+
+!!! note "Pipeline Rebuild"
+    Changing camera settings causes a brief stream interruption (~100-200ms).
+
+---
+
+## AI Detection
+
+Access AI inference from the OAK-D Lite's neural compute engine.
+
+!!! tip "On-Demand Pattern"
+    AI inference only runs while you have active subscribers. Unsubscribe to stop inference and save resources.
+
+### subscribe_ai_detections()
+
+Subscribe to AI detection results.
+
+```python
+def subscribe_ai_detections(
+    self,
+    callback: Callable[[dict], None],
+) -> roslibpy.Topic
+```
+
+**Callback data format:**
+
+```python
+{
+    "model": "mobilenet-ssd",
+    "type": "detection",  # or "classification", "segmentation", "pose"
+    "frame_id": 42,
+    "timestamp_ns": 1234567890123456789,
+    "latency_ms": 12.5,
+    "result": {
+        "detections": [
+            {"label": 15, "confidence": 0.92, "bbox": {...}}
+        ]
+    }
+}
+```
+
+**Example:**
+
+```python
+def on_detection(data):
+    if data['type'] == 'detection':
+        for det in data['result']['detections']:
+            print(f"Class {det['label']} at {det['bbox']}")
+
+with Robot(host="172.26.34.149") as robot:
+    sub = robot.subscribe_ai_detections(on_detection)
+    time.sleep(10)
+    sub.unsubscribe()  # Inference stops
+```
+
+### get_available_ai_models()
+
+Get list of available AI models.
+
+```python
+def get_available_ai_models(
+    self,
+    timeout: float = 5.0,
+) -> dict
+```
+
+**Returns:** Dict mapping model names to their info.
+
+**Example:**
+
+```python
+models = robot.get_available_ai_models()
+for name, info in models.items():
+    print(f"{name}: {info['type']}")
+```
+
+### set_ai_model()
+
+Switch the active AI model.
+
+```python
+def set_ai_model(self, model_name: str) -> None
+```
+
+!!! note "Pipeline Rebuild"
+    Model switching causes ~200-500ms interruption.
+
+### set_ai_config()
+
+Configure AI inference settings.
+
+```python
+def set_ai_config(
+    self,
+    model: Optional[str] = None,
+    confidence: Optional[float] = None,
+    segmentation_mode: Optional[str] = None,
+    segmentation_target_class: Optional[int] = None,
+) -> None
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `model` | `str` | Model name to switch to. |
+| `confidence` | `float` | Detection threshold (0.0-1.0). |
+| `segmentation_mode` | `str` | `"bbox"` (lightweight) or `"mask"` (detailed RLE). |
+| `segmentation_target_class` | `int` | Class ID for mask mode. |
+
+### subscribe_current_ai_model()
+
+Subscribe to model change notifications.
+
+```python
+def subscribe_current_ai_model(
+    self,
+    callback: Callable[[dict], None],
+) -> roslibpy.Topic
+```
+
+---
+
+## IMU Sensor
+
+Access IMU data from the OAK-D Lite's BMI270 sensor.
+
+### subscribe_imu()
+
+Subscribe to IMU data.
+
+```python
+def subscribe_imu(
+    self,
+    callback: Callable[[dict], None],
+    data_type: str = "full",
+) -> roslibpy.Topic
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `callback` | `Callable[[dict], None]` | *required* | Called with IMU data. |
+| `data_type` | `str` | `"full"` | `"full"`, `"accelerometer"`, or `"gyroscope"`. |
+
+**Example:**
+
+```python
+def on_imu(data):
+    accel = data['linear_acceleration']
+    gyro = data['angular_velocity']
+    print(f"Accel: {accel['x']:.2f}, {accel['y']:.2f}, {accel['z']:.2f}")
+
+with Robot(host="172.26.34.149") as robot:
+    sub = robot.subscribe_imu(on_imu, data_type="full")
+    time.sleep(5)
+    sub.unsubscribe()
+```
+
+### set_imu_frequency()
+
+Set IMU sampling frequency.
+
+```python
+def set_imu_frequency(self, frequency: int) -> None
+```
+
+Valid frequencies: 25, 50, 100, 200, 250 Hz. BMI270 rounds down to nearest valid frequency.
+
+---
+
+## Helper Functions
+
+### rle_decode()
+
+Decode RLE-encoded segmentation masks.
+
+```python
+from pib3.backends import rle_decode
+
+def rle_decode(rle: dict) -> np.ndarray
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `rle` | `dict` | Dict with `'size'` [height, width] and `'counts'` list. |
+
+**Returns:** Binary mask as numpy array of shape (height, width).
+
+**Example:**
+
+```python
+from pib3.backends import rle_decode
+
+def on_segmentation(data):
+    if data['type'] == 'segmentation':
+        result = data['result']
+        if result.get('mode') == 'mask':
+            mask = rle_decode(result['mask_rle'])
+            print(f"Mask shape: {mask.shape}")
 ```
 
 ---

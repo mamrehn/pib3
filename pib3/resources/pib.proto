@@ -629,7 +629,7 @@ PROTO pib [
                                                           name "index_left_distal_sensor"
                                                         }
                                                       ]
-                                                      endPoint Solid {
+                                                      endPoint DEF INDEX_TIP Solid {
                                                         translation -0.000000 0.048000 -0.000000
                                                         children [
                                                           Transform {

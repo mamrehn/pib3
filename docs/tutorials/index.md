@@ -12,6 +12,10 @@ Learn how to convert images to robot drawing trajectories. Covers image processi
 
 Master the joint control API. Learn percentage-based control, pose saving/restoring, and verification.
 
+### [Camera, AI Detection, and IMU](camera-ai-imu.md)
+
+Access OAK-D Lite camera streaming, AI object detection, and IMU sensor data. Includes on-demand activation patterns.
+
 ### [Swift Visualization](swift-visualization.md)
 
 Use browser-based 3D visualization. Run trajectories, use interactive mode, and add visual elements.
@@ -54,11 +58,13 @@ graph LR
     B --> C[Image to Trajectory]
     C --> D[Swift Visualization]
     D --> E[Controlling Robot]
-    E --> F[Calibration]
-    F --> G[Custom Configurations]
+    E --> F[Camera, AI & IMU]
+    F --> G[Calibration]
+    G --> H[Custom Configurations]
 ```
 
 1. **Start here**: [Image to Trajectory](image-to-trajectory.md) - Core functionality
 2. **Visualization**: [Swift Visualization](swift-visualization.md) - Test without hardware
 3. **Robot Control**: [Controlling the Robot](controlling-robot.md) - When you have access
-4. **Advanced**: [Custom Configurations](custom-configurations.md) - Fine-tune behavior
+4. **Sensors**: [Camera, AI & IMU](camera-ai-imu.md) - Vision and sensors
+5. **Advanced**: [Custom Configurations](custom-configurations.md) - Fine-tune behavior

@@ -234,9 +234,9 @@ with Robot(host="172.26.34.149") as robot:
     success = robot.set_joint(
         "elbow_left",
         50.0,
-        verify=True,           # Enable verification
-        verify_timeout=2.0,    # Max wait time (seconds)
-        verify_tolerance=2.0,  # Acceptable error (percentage)
+        async_=False,        # Wait for completion
+        timeout=2.0,         # Max wait time (seconds)
+        tolerance=2.0,       # Acceptable error (percentage)
     )
 
     if success:
@@ -245,7 +245,7 @@ with Robot(host="172.26.34.149") as robot:
         print("Joint did not reach target in time")
 ```
 
-### Verifying Multiple Joints
+### Waiting for Multiple Joints
 
 ```python
 from pib3 import Robot
@@ -256,8 +256,8 @@ with Robot(host="172.26.34.149") as robot:
             "shoulder_vertical_left": 30.0,
             "elbow_left": 60.0,
         },
-        verify=True,
-        verify_timeout=3.0,
+        async_=False,
+        timeout=3.0,
     )
 
     if success:
@@ -365,7 +365,7 @@ def main():
         robot.set_joints({
             "shoulder_vertical_left": 50.0,
             "elbow_left": 50.0,
-        }, verify=True)
+        }, async_=False)
 
         # Execute drawing
         print("Drawing...")
@@ -452,7 +452,7 @@ Same as left, replace `_left` with `_right`.
     1. [Calibrate joint limits](../getting-started/calibration.md)
     2. Try using radians directly: `robot.set_joint("elbow_left", 1.0, unit="rad")`
 
-!!! warning "Verification always fails"
+!!! warning "Waiting for completion always fails"
     **Cause:** Timeout too short or tolerance too tight.
 
     **Solution:**
@@ -461,9 +461,9 @@ Same as left, replace `_left` with `_right`.
     robot.set_joint(
         "elbow_left",
         50.0,
-        verify=True,
-        verify_timeout=5.0,   # Increase timeout
-        verify_tolerance=5.0, # Increase tolerance
+        async_=False,
+        timeout=5.0,      # Increase timeout
+        tolerance=5.0,    # Increase tolerance
     )
     ```
 

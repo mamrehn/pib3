@@ -67,7 +67,7 @@ def set_joint(
     name: str,
     position: float,
     unit: str = "percent",
-    verify: bool = False,
+    async_: bool = True,
 ) -> bool:
     """Set a joint position."""
     ...

@@ -1,5 +1,6 @@
 """Real robot backend via rosbridge for pib3 package."""
 
+import json
 import logging
 import math
 import threading
@@ -439,3 +440,443 @@ class RealRobotBackend(RobotBackend):
             time.sleep(period)
 
         return True
+
+    # ==================== CAMERA METHODS ====================
+
+    def subscribe_camera_image(
+        self,
+        callback: Callable[[bytes], None],
+        compression: str = "cbor",
+    ) -> "roslibpy.Topic":
+        """
+        Subscribe to camera image stream from OAK-D Lite.
+
+        Uses CBOR compression by default for efficient binary transfer
+        (no base64 overhead). The callback receives raw JPEG bytes.
+
+        Streaming only runs while subscribed (on-demand activation).
+
+        Args:
+            callback: Called with raw JPEG bytes for each frame.
+            compression: "cbor" (recommended) or "none" for JSON/base64.
+
+        Returns:
+            Topic object (call .unsubscribe() when done to stop streaming).
+
+        Example:
+            >>> def on_frame(jpeg_bytes):
+            ...     with open("frame.jpg", "wb") as f:
+            ...         f.write(jpeg_bytes)
+            >>> sub = robot.subscribe_camera_image(on_frame)
+            >>> # ... later ...
+            >>> sub.unsubscribe()
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        import roslibpy
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/camera/image',
+            'sensor_msgs/CompressedImage',
+            compression=compression
+        )
+
+        def parse_and_forward(msg):
+            # With CBOR, msg['data'] is already bytes/list of ints
+            data = msg.get('data', [])
+            if isinstance(data, list):
+                jpeg_bytes = bytes(data)
+            else:
+                jpeg_bytes = data
+            callback(jpeg_bytes)
+
+        topic.subscribe(parse_and_forward)
+        return topic
+
+    def subscribe_camera_legacy(
+        self,
+        callback: Callable[[str], None],
+    ) -> "roslibpy.Topic":
+        """
+        Subscribe to legacy base64-encoded camera stream.
+
+        This is the backward-compatible endpoint. For new code,
+        use subscribe_camera_image() with CBOR for better performance.
+
+        Args:
+            callback: Called with base64-encoded JPEG string.
+
+        Returns:
+            Topic object (call .unsubscribe() when done).
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        import roslibpy
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/camera_topic',
+            'std_msgs/msg/String'
+        )
+
+        def parse_and_forward(msg):
+            callback(msg.get('data', ''))
+
+        topic.subscribe(parse_and_forward)
+        return topic
+
+    def set_camera_config(
+        self,
+        fps: Optional[int] = None,
+        quality: Optional[int] = None,
+        resolution: Optional[tuple] = None,
+    ) -> None:
+        """
+        Configure camera settings.
+
+        Note: Changes may cause brief stream interruption (~100-200ms)
+        as the pipeline rebuilds.
+
+        Args:
+            fps: Frames per second (e.g., 30).
+            quality: JPEG quality 1-100 (e.g., 80).
+            resolution: (width, height) tuple (e.g., (1280, 720)).
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        import roslibpy
+
+        config = {}
+        if fps is not None:
+            config['fps'] = fps
+        if quality is not None:
+            config['quality'] = quality
+        if resolution is not None:
+            config['resolution'] = list(resolution)
+
+        if not config:
+            return
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/camera/config',
+            'std_msgs/msg/String'
+        )
+        topic.publish({'data': json.dumps(config)})
+
+    # ==================== AI DETECTION METHODS ====================
+
+    def subscribe_ai_detections(
+        self,
+        callback: Callable[[dict], None],
+    ) -> "roslibpy.Topic":
+        """
+        Subscribe to AI detection results from OAK-D Lite.
+
+        Inference only runs while subscribed (on-demand activation).
+        Results format depends on the currently loaded model type
+        (detection, classification, segmentation, or pose).
+
+        Args:
+            callback: Called with detection dict containing:
+                - model: str - Model name (e.g., "mobilenet-ssd")
+                - type: str - "detection", "classification", "segmentation", "pose"
+                - frame_id: int - Frame sequence number
+                - timestamp_ns: int - Timestamp in nanoseconds
+                - latency_ms: float - Inference latency
+                - result: dict - Model-specific results
+
+        Returns:
+            Topic object (call .unsubscribe() when done to stop inference).
+
+        Example:
+            >>> def on_detection(data):
+            ...     if data['type'] == 'detection':
+            ...         for det in data['result']['detections']:
+            ...             print(f"Found class {det['label']} at {det['bbox']}")
+            >>> sub = robot.subscribe_ai_detections(on_detection)
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        import roslibpy
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/ai/detections',
+            'std_msgs/msg/String'
+        )
+
+        def parse_and_forward(msg):
+            data = json.loads(msg.get('data', '{}'))
+            callback(data)
+
+        topic.subscribe(parse_and_forward)
+        return topic
+
+    def get_available_ai_models(self, timeout: float = 5.0) -> dict:
+        """
+        Get list of available AI models on the robot.
+
+        Args:
+            timeout: Max time to wait for response in seconds.
+
+        Returns:
+            Dict mapping model names to their info:
+            {
+                "mobilenet-ssd": {
+                    "type": "detection",
+                    "input_size": [300, 300],
+                    "fps": 30,
+                    "description": "Fast object detection"
+                },
+                ...
+            }
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        import roslibpy
+
+        result = {}
+        event = threading.Event()
+
+        def on_models(msg):
+            nonlocal result
+            result = json.loads(msg.get('data', '{}'))
+            event.set()
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/ai/available_models',
+            'std_msgs/msg/String'
+        )
+        topic.subscribe(on_models)
+        event.wait(timeout=timeout)
+        topic.unsubscribe()
+        return result
+
+    def set_ai_model(self, model_name: str) -> None:
+        """
+        Switch AI model on the OAK-D Lite camera.
+
+        Note: Model switching causes brief interruption (~200-500ms)
+        as the pipeline rebuilds with the new neural network.
+
+        Args:
+            model_name: One of the available model names
+                (e.g., "mobilenet-ssd", "yolov8n", "deeplabv3").
+
+        Example:
+            >>> models = robot.get_available_ai_models()
+            >>> print(list(models.keys()))
+            ['mobilenet-ssd', 'yolov8n', 'yolo11s', ...]
+            >>> robot.set_ai_model("yolov8n")
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        import roslibpy
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/ai/config',
+            'std_msgs/msg/String'
+        )
+        topic.publish({'data': json.dumps({'model': model_name})})
+
+    def set_ai_config(
+        self,
+        model: Optional[str] = None,
+        confidence: Optional[float] = None,
+        segmentation_mode: Optional[str] = None,
+        segmentation_target_class: Optional[int] = None,
+    ) -> None:
+        """
+        Configure AI inference settings.
+
+        Args:
+            model: Model name to switch to.
+            confidence: Detection confidence threshold (0.0-1.0).
+            segmentation_mode: "bbox" (lightweight) or "mask" (detailed RLE).
+            segmentation_target_class: Class ID for mask mode segmentation.
+
+        Note: Model/confidence changes cause pipeline rebuild (~200-500ms).
+              Segmentation mode changes are instant (output format only).
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        import roslibpy
+
+        config = {}
+        if model is not None:
+            config['model'] = model
+        if confidence is not None:
+            config['confidence'] = confidence
+        if segmentation_mode is not None:
+            config['segmentation_mode'] = segmentation_mode
+        if segmentation_target_class is not None:
+            config['segmentation_target_class'] = segmentation_target_class
+
+        if not config:
+            return
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/ai/config',
+            'std_msgs/msg/String'
+        )
+        topic.publish({'data': json.dumps(config)})
+
+    def subscribe_current_ai_model(
+        self,
+        callback: Callable[[dict], None],
+    ) -> "roslibpy.Topic":
+        """
+        Subscribe to current AI model info updates.
+
+        Args:
+            callback: Called with model info dict when model changes:
+                {
+                    "name": "mobilenet-ssd",
+                    "type": "detection",
+                    "input_size": [300, 300],
+                    "fps": 30,
+                    "description": "..."
+                }
+
+        Returns:
+            Topic object (call .unsubscribe() when done).
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        import roslibpy
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/ai/current_model',
+            'std_msgs/msg/String'
+        )
+
+        def parse_and_forward(msg):
+            data = json.loads(msg.get('data', '{}'))
+            callback(data)
+
+        topic.subscribe(parse_and_forward)
+        return topic
+
+    # ==================== IMU METHODS ====================
+
+    def subscribe_imu(
+        self,
+        callback: Callable[[dict], None],
+        data_type: str = "full",
+    ) -> "roslibpy.Topic":
+        """
+        Subscribe to IMU data from OAK-D Lite BMI270.
+
+        Streaming only runs while subscribed (on-demand activation).
+
+        Args:
+            callback: Called with IMU data dict.
+            data_type: One of:
+                - "full": Complete IMU (accel + gyro), sensor_msgs/Imu
+                - "accelerometer": Accelerometer only, lighter weight
+                - "gyroscope": Gyroscope only, lighter weight
+
+        Returns:
+            Topic object (call .unsubscribe() when done to stop streaming).
+
+        Example:
+            >>> def on_imu(data):
+            ...     accel = data['linear_acceleration']
+            ...     print(f"Accel: x={accel['x']:.2f} m/s²")
+            >>> sub = robot.subscribe_imu(on_imu, data_type="full")
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        import roslibpy
+
+        topic_map = {
+            "full": ('/imu/data', 'sensor_msgs/msg/Imu'),
+            "accelerometer": ('/imu/accelerometer', 'geometry_msgs/msg/Vector3Stamped'),
+            "gyroscope": ('/imu/gyroscope', 'geometry_msgs/msg/Vector3Stamped'),
+        }
+
+        if data_type not in topic_map:
+            raise ValueError(f"data_type must be one of: {list(topic_map.keys())}")
+
+        topic_name, msg_type = topic_map[data_type]
+
+        topic = roslibpy.Topic(self._client, topic_name, msg_type)
+        topic.subscribe(callback)
+        return topic
+
+    def set_imu_frequency(self, frequency: int) -> None:
+        """
+        Set IMU sampling frequency.
+
+        Note: BMI270 rounds down to nearest valid frequency.
+        Valid frequencies: 25, 50, 100, 200, 250 Hz
+
+        Examples:
+            - Request 99Hz → Get 50Hz
+            - Request 150Hz → Get 100Hz
+            - Request 400Hz → Get 250Hz (max)
+
+        Args:
+            frequency: Desired frequency in Hz.
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        import roslibpy
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/imu/config',
+            'std_msgs/msg/String'
+        )
+        topic.publish({'data': json.dumps({'frequency': frequency})})
+
+
+# ==================== RLE DECODER HELPER ====================
+
+def rle_decode(rle: dict) -> np.ndarray:
+    """
+    Decode RLE-encoded segmentation mask to numpy array.
+
+    The mask is encoded in COCO RLE format (column-major order).
+
+    Args:
+        rle: Dict with 'size' [height, width] and 'counts' list.
+
+    Returns:
+        Binary mask as numpy array of shape (height, width).
+
+    Example:
+        >>> def on_detection(data):
+        ...     if data['type'] == 'segmentation':
+        ...         result = data['result']
+        ...         if result.get('mode') == 'mask':
+        ...             mask = rle_decode(result['mask_rle'])
+        ...             print(f"Mask shape: {mask.shape}")
+    """
+    h, w = rle["size"]
+    counts = rle["counts"]
+
+    pixels = []
+    val = 0
+    for count in counts:
+        pixels.extend([val] * count)
+        val = 1 - val
+
+    # Column-major reshape (Fortran order) for COCO compatibility
+    return np.array(pixels, dtype=np.uint8).reshape((h, w), order='F')
