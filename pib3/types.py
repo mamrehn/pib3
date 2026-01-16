@@ -3,8 +3,22 @@
 from dataclasses import dataclass, field
 from typing import List, Tuple
 import numpy as np
+from enum import Enum
 
 
+class ImuType(str, Enum):
+    """Types of IMU data streams available."""
+    FULL = "full"
+    ACCELEROMETER = "accelerometer"
+    GYROSCOPE = "gyroscope"
+
+
+class AiTaskType(str, Enum):
+    """Types of AI tasks/results."""
+    DETECTION = "detection"
+    CLASSIFICATION = "classification"
+    SEGMENTATION = "segmentation"
+    POSE = "pose"
 @dataclass
 class Stroke:
     """A single continuous drawing stroke (pen-down motion).

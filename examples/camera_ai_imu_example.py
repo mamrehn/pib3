@@ -175,7 +175,7 @@ def demo_imu_data(robot, duration: float = 5.0):
                   f"z={gyro.get('z', 0):7.4f} rad/s")
 
     # Subscribe to full IMU data
-    sub = robot.subscribe_imu(on_imu, data_type="full")
+    sub = robot.subscribe_imu(on_imu, data_type=ImuType.FULL)
 
     try:
         time.sleep(duration)
@@ -289,6 +289,7 @@ Examples:
     # Import Robot here to give better error messages
     try:
         from pib3 import Robot
+        from pib3.types import ImuType
     except ImportError:
         print("Error: pib3 not installed.")
         print("Install with: pip install 'pib3[robot] @ git+https://github.com/mamrehn/pib3.git'")

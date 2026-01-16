@@ -5,7 +5,8 @@ import logging
 import math
 import threading
 import time
-from typing import Callable, Dict, List, Optional
+import time
+from typing import Callable, Dict, List, Optional, Union
 
 import numpy as np
 
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 from .base import RobotBackend
 from ..config import RobotConfig
+from ..types import ImuType, AiTaskType
 
 
 # Mapping from trajectory joint names to real robot motor names (for apply_joint_trajectory)
@@ -776,7 +778,7 @@ class RealRobotBackend(RobotBackend):
     def subscribe_imu(
         self,
         callback: Callable[[dict], None],
-        data_type: str = "full",
+        data_type: Union[str, ImuType] = "full",
     ) -> "roslibpy.Topic":
         """
         Subscribe to IMU data from OAK-D Lite BMI270.
@@ -789,6 +791,7 @@ class RealRobotBackend(RobotBackend):
                 - "full": Complete IMU (accel + gyro), sensor_msgs/Imu
                 - "accelerometer": Accelerometer only, lighter weight
                 - "gyroscope": Gyroscope only, lighter weight
+                Also accepts ImuType enum members.
 
         Returns:
             Topic object (call .unsubscribe() when done to stop streaming).
@@ -797,23 +800,26 @@ class RealRobotBackend(RobotBackend):
             >>> def on_imu(data):
             ...     accel = data['linear_acceleration']
             ...     print(f"Accel: x={accel['x']:.2f} m/s²")
-            >>> sub = robot.subscribe_imu(on_imu, data_type="full")
+            >>> sub = robot.subscribe_imu(on_imu, data_type=ImuType.FULL)
         """
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
         import roslibpy
 
+        # Handle Enum or string
+        dtype_str = data_type.value if isinstance(data_type, ImuType) else data_type
+
         topic_map = {
-            "full": ('/imu/data', 'sensor_msgs/msg/Imu'),
-            "accelerometer": ('/imu/accelerometer', 'geometry_msgs/msg/Vector3Stamped'),
-            "gyroscope": ('/imu/gyroscope', 'geometry_msgs/msg/Vector3Stamped'),
+            ImuType.FULL.value: ('/imu/data', 'sensor_msgs/msg/Imu'),
+            ImuType.ACCELEROMETER.value: ('/imu/accelerometer', 'geometry_msgs/msg/Vector3Stamped'),
+            ImuType.GYROSCOPE.value: ('/imu/gyroscope', 'geometry_msgs/msg/Vector3Stamped'),
         }
 
-        if data_type not in topic_map:
+        if dtype_str not in topic_map:
             raise ValueError(f"data_type must be one of: {list(topic_map.keys())}")
 
-        topic_name, msg_type = topic_map[data_type]
+        topic_name, msg_type = topic_map[dtype_str]
 
         topic = roslibpy.Topic(self._client, topic_name, msg_type)
         topic.subscribe(callback)
@@ -834,6 +840,13 @@ class RealRobotBackend(RobotBackend):
         Args:
             frequency: Desired frequency in Hz.
         """
+        valid_frequencies = [25, 50, 100, 200, 250]
+        if frequency not in valid_frequencies:
+            raise ValueError(
+                f"Invalid frequency {frequency} Hz. "
+                f"Supported frequencies are: {', '.join(map(str, valid_frequencies))}"
+            )
+
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
