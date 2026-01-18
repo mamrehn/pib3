@@ -669,9 +669,12 @@ class RealRobotBackend(RobotBackend):
         topic.unsubscribe()
         return result
 
-    def set_ai_model(self, model_name: str) -> None:
+    def set_ai_model(self, model_name: str, timeout: float = 5.0) -> bool:
         """
-        Switch AI model on the OAK-D Lite camera.
+        Switch AI model on the OAK-D Lite camera (synchronous).
+
+        This method waits for confirmation that the model has been
+        successfully loaded before returning.
 
         Note: Model switching causes brief interruption (~200-500ms)
         as the pipeline rebuilds with the new neural network.
@@ -679,24 +682,58 @@ class RealRobotBackend(RobotBackend):
         Args:
             model_name: One of the available model names
                 (e.g., "mobilenet-ssd", "yolov8n", "deeplabv3").
+            timeout: Maximum time to wait for model switch confirmation
+                (default: 5.0 seconds).
+
+        Returns:
+            True if model switch confirmed, False if timeout occurred.
 
         Example:
             >>> models = robot.get_available_ai_models()
             >>> print(list(models.keys()))
             ['mobilenet-ssd', 'yolov8n', 'yolo11s', ...]
             >>> robot.set_ai_model("yolov8n")
+            True
         """
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
+        import threading
         import roslibpy
 
-        topic = roslibpy.Topic(
+        model_ready = threading.Event()
+
+        # Subscribe to current model updates first
+        model_topic = roslibpy.Topic(
+            self._client,
+            '/ai/current_model',
+            'std_msgs/msg/String'
+        )
+
+        def on_model_update(msg):
+            data = json.loads(msg.get('data', '{}'))
+            current_model = data.get('name', data.get('model', ''))
+            # Check if the target model is now active
+            if model_name in current_model or current_model in model_name:
+                model_ready.set()
+
+        model_topic.subscribe(on_model_update)
+
+        # Publish the model change request
+        config_topic = roslibpy.Topic(
             self._client,
             '/ai/config',
             'std_msgs/msg/String'
         )
-        topic.publish({'data': json.dumps({'model': model_name})})
+        config_topic.publish({'data': json.dumps({'model': model_name})})
+
+        # Wait for confirmation
+        success = model_ready.wait(timeout=timeout)
+
+        # Clean up subscription
+        model_topic.unsubscribe()
+
+        return success
 
     def set_ai_config(
         self,
