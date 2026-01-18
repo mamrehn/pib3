@@ -6,8 +6,9 @@ Access the OAK-D Lite camera, AI inference, and IMU sensors through the pib3 API
 
 By the end of this tutorial, you will:
 
-- Stream camera images with efficient CBOR compression
-- Use on-demand AI object detection and segmentation
+- Stream camera images from the OAK-D Lite
+- Use on-demand AI object detection, pose estimation, and segmentation
+- Switch between AI models at runtime
 - Access IMU accelerometer and gyroscope data
 - Understand the on-demand activation pattern
 
@@ -15,7 +16,7 @@ By the end of this tutorial, you will:
 
 - pib3 installed with robot support: `pip install "pib3[robot] @ git+https://github.com/mamrehn/pib3.git"`
 - A PIB robot with OAK-D Lite camera connected
-- Rosbridge running on the robot
+- Rosbridge running on the robot (port 9090)
 
 ---
 
@@ -42,9 +43,9 @@ sub.unsubscribe()
 
 ## Camera Streaming
 
-### Efficient Binary Streaming (Recommended)
+### Basic Camera Streaming
 
-Use CBOR compression for efficient binary transfer without base64 overhead:
+The camera publishes hardware-encoded MJPEG frames. The callback receives raw JPEG bytes:
 
 ```python
 from pib3 import Robot
@@ -64,9 +65,9 @@ def on_frame(jpeg_bytes):
     cv2.imshow("Camera", frame)
     cv2.waitKey(1)
 
-with Robot(host="172.26.34.149") as robot:
+with Robot(host="192.168.178.71") as robot:
     # Subscribe to camera (streaming starts)
-    sub = robot.subscribe_camera_image(on_frame, compression="cbor")
+    sub = robot.subscribe_camera_image(on_frame)
 
     # Keep running for 10 seconds
     import time
@@ -77,21 +78,23 @@ with Robot(host="172.26.34.149") as robot:
     cv2.destroyAllWindows()
 ```
 
-### Legacy Base64 Streaming
-
-For backward compatibility or when CBOR is not available:
+### Using PIL for Image Processing
 
 ```python
-import base64
+from PIL import Image
+import io
 
-def on_base64_frame(base64_str):
-    """Callback receives base64-encoded JPEG string."""
-    jpeg_bytes = base64.b64decode(base64_str)
-    # ... process as above
+def on_frame(jpeg_bytes):
+    """Process frames with PIL."""
+    img = Image.open(io.BytesIO(jpeg_bytes))
+    print(f"Image size: {img.size[0]}x{img.size[1]} pixels")
 
-with Robot(host="172.26.34.149") as robot:
-    sub = robot.subscribe_camera_legacy(on_base64_frame)
-    # ...
+    # Save frame
+    img.save("captured_frame.jpg")
+
+with Robot(host="192.168.178.71") as robot:
+    sub = robot.subscribe_camera_image(on_frame)
+    time.sleep(5)
     sub.unsubscribe()
 ```
 
@@ -100,7 +103,7 @@ with Robot(host="172.26.34.149") as robot:
 Adjust FPS, quality, and resolution:
 
 ```python
-with Robot(host="172.26.34.149") as robot:
+with Robot(host="192.168.178.71") as robot:
     # Set individual parameters
     robot.set_camera_config(fps=30)
     robot.set_camera_config(quality=80)
@@ -122,7 +125,34 @@ with Robot(host="172.26.34.149") as robot:
 
 ## AI Object Detection
 
-### Subscribing to Detections
+### Available AI Models
+
+The OAK-D Lite supports multiple AI model types:
+
+| Model Type | Example Models | Output |
+|------------|----------------|--------|
+| **Detection** | `mobilenet-ssd`, `yolov8n`, `yolov6n`, `face-detection-retail-0004` | Bounding boxes with class labels |
+| **Classification** | `resnet50` | Top-K class predictions |
+| **Segmentation** | `deeplabv3`, `deeplabv3-person`, `selfie-segmentation` | Pixel-wise masks |
+| **Instance Segmentation** | `yolov8n-seg` | Per-object masks |
+| **Pose Estimation** | `human-pose-estimation`, `openpose`, `yolov8n-pose` | Body keypoints |
+| **Age/Gender** | `age-gender` | Age and gender estimation |
+| **Emotion** | `emotion-recognition` | Facial emotion detection |
+
+Query available models at runtime:
+
+```python
+with Robot(host="192.168.178.71") as robot:
+    models = robot.get_available_ai_models()
+
+    for name, info in models.items():
+        print(f"{name}:")
+        print(f"  Type: {info['type']}")
+        print(f"  Input size: {info.get('input_size', 'N/A')}")
+        print(f"  Description: {info.get('description', '')}")
+```
+
+### Subscribing to AI Detections
 
 AI inference only runs while you're subscribed:
 
@@ -144,7 +174,7 @@ def on_detection(data):
             bbox = det['bbox']
             print(f"  Found class {label} ({conf:.2f}) at {bbox}")
 
-with Robot(host="172.26.34.149") as robot:
+with Robot(host="192.168.178.71") as robot:
     # Subscribe to AI detections (inference starts)
     sub = robot.subscribe_ai_detections(on_detection)
 
@@ -170,14 +200,14 @@ All detection messages include common metadata:
 }
 ```
 
-#### Detection Models
+#### Detection Models (YOLO, MobileNet-SSD, etc.)
 
 ```python
 {
     "result": {
         "detections": [
             {
-                "label": 15,        # Class ID
+                "label": 15,        # Class ID (15 = person in COCO)
                 "confidence": 0.92,
                 "bbox": {
                     "xmin": 0.1, "ymin": 0.05,
@@ -186,6 +216,21 @@ All detection messages include common metadata:
             }
         ],
         "count": 1
+    }
+}
+```
+
+#### Pose Estimation Models
+
+```python
+{
+    "result": {
+        "keypoints": [
+            {"id": 0, "x": 0.45, "y": 0.12, "confidence": 0.95},  # nose
+            {"id": 1, "x": 0.47, "y": 0.10, "confidence": 0.92},  # left_eye
+            # ... 18 keypoints for human-pose-estimation
+        ],
+        "detected_count": 17
     }
 }
 ```
@@ -203,44 +248,65 @@ All detection messages include common metadata:
 }
 ```
 
-### Available AI Models
+### Switching AI Models (Synchronous)
 
-Query what models are available on the robot:
-
-```python
-with Robot(host="172.26.34.149") as robot:
-    models = robot.get_available_ai_models()
-
-    for name, info in models.items():
-        print(f"{name}:")
-        print(f"  Type: {info['type']}")
-        print(f"  Input size: {info['input_size']}")
-        print(f"  FPS: {info['fps']}")
-```
-
-### Switching AI Models
-
-Change the active AI model at runtime:
+The `set_ai_model()` method is **synchronous** - it waits for confirmation that the model has loaded before returning:
 
 ```python
-with Robot(host="172.26.34.149") as robot:
+with Robot(host="192.168.178.71") as robot:
     # List available models
     models = robot.get_available_ai_models()
     print(f"Available: {list(models.keys())}")
 
-    # Switch to YOLO
-    robot.set_ai_model("yolov8n")
+    # Switch to YOLO (waits for confirmation)
+    if robot.set_ai_model("yolov8n"):
+        print("Model switched to yolov8n")
+    else:
+        print("Model switch timed out")
 
-    # Or use full config
+    # Subscribe to get detections
+    sub = robot.subscribe_ai_detections(on_detection)
+    time.sleep(5)
+    sub.unsubscribe()
+
+    # Switch to pose estimation
+    if robot.set_ai_model("human-pose-estimation", timeout=5.0):
+        print("Model switched to pose estimation")
+
+    sub = robot.subscribe_ai_detections(on_pose)
+    time.sleep(5)
+    sub.unsubscribe()
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `model_name` | `str` | *required* | Name of the model to switch to |
+| `timeout` | `float` | `5.0` | Maximum time to wait for confirmation |
+
+**Returns:** `bool` - `True` if model switch confirmed, `False` if timeout.
+
+!!! note "Model Switch Delay"
+    Switching models causes a brief interruption (~200-500ms)
+    as the neural network pipeline rebuilds on the OAK-D Lite.
+
+### Advanced AI Configuration
+
+For more control, use `set_ai_config()`:
+
+```python
+with Robot(host="192.168.178.71") as robot:
     robot.set_ai_config(
         model="yolov8n",
-        confidence=0.5,  # Detection threshold
+        confidence=0.5,  # Detection threshold (0.0-1.0)
     )
 ```
 
-!!! warning "Model Switch Delay"
-    Switching models causes a brief interruption (~200-500ms)
-    as the neural network pipeline rebuilds.
+!!! warning "Not Synchronous"
+    Unlike `set_ai_model()`, the `set_ai_config()` method does not wait
+    for confirmation. Use `set_ai_model()` when you need to ensure the
+    model is loaded before proceeding.
 
 ### Track Current Model
 
@@ -250,9 +316,13 @@ Subscribe to model change notifications:
 def on_model_change(info):
     print(f"Now using: {info['name']} ({info['type']})")
 
-with Robot(host="172.26.34.149") as robot:
+with Robot(host="192.168.178.71") as robot:
     sub = robot.subscribe_current_ai_model(on_model_change)
-    # ... model changes will trigger callback
+
+    # Switch models - callback will fire when switch completes
+    robot.set_ai_model("yolov8n")
+    robot.set_ai_model("human-pose-estimation")
+
     sub.unsubscribe()
 ```
 
@@ -319,6 +389,11 @@ sub = robot.subscribe_ai_detections(on_segmentation)
 
 Access accelerometer and gyroscope from the OAK-D Lite's BMI270 IMU.
 
+!!! info "Data Source"
+    All IMU data types (`full`, `accelerometer`, `gyroscope`) subscribe to the
+    same `/imu/data` ROS topic. The `accelerometer` and `gyroscope` options
+    filter the data client-side for convenience.
+
 ### Full IMU Data
 
 Get both accelerometer and gyroscope:
@@ -334,7 +409,10 @@ def on_imu(data):
     gyro = data['angular_velocity']
     print(f"Gyro: x={gyro['x']:.4f}, y={gyro['y']:.4f}, z={gyro['z']:.4f}")
 
-with Robot(host="172.26.34.149") as robot:
+with Robot(host="192.168.178.71") as robot:
+    # Set frequency first (optional)
+    robot.set_imu_frequency(100)  # 100 Hz
+
     sub = robot.subscribe_imu(on_imu, data_type="full")
 
     import time
@@ -345,16 +423,19 @@ with Robot(host="172.26.34.149") as robot:
 
 ### Accelerometer Only
 
-Lighter weight if you only need acceleration:
+Get just acceleration data in a simplified format:
 
 ```python
 def on_accel(data):
+    """Callback receives accelerometer data."""
+    # Data is in Vector3Stamped-like format
     vec = data['vector']
+    header = data['header']
     print(f"Accel: {vec['x']:.2f}, {vec['y']:.2f}, {vec['z']:.2f} m/s²")
 
-with Robot(host="172.26.34.149") as robot:
+with Robot(host="192.168.178.71") as robot:
     sub = robot.subscribe_imu(on_accel, data_type="accelerometer")
-    # ...
+    time.sleep(3)
     sub.unsubscribe()
 ```
 
@@ -362,12 +443,13 @@ with Robot(host="172.26.34.149") as robot:
 
 ```python
 def on_gyro(data):
+    """Callback receives gyroscope data."""
     vec = data['vector']
     print(f"Gyro: {vec['x']:.4f}, {vec['y']:.4f}, {vec['z']:.4f} rad/s")
 
-with Robot(host="172.26.34.149") as robot:
+with Robot(host="192.168.178.71") as robot:
     sub = robot.subscribe_imu(on_gyro, data_type="gyroscope")
-    # ...
+    time.sleep(3)
     sub.unsubscribe()
 ```
 
@@ -376,13 +458,125 @@ with Robot(host="172.26.34.149") as robot:
 The BMI270 supports specific frequencies:
 
 ```python
-with Robot(host="172.26.34.149") as robot:
+with Robot(host="192.168.178.71") as robot:
     # Valid frequencies: 25, 50, 100, 200, 250 Hz
     robot.set_imu_frequency(100)
 
     # Note: BMI270 rounds DOWN to nearest valid frequency
     # Request 99Hz → Get 50Hz
     # Request 150Hz → Get 100Hz
+```
+
+### IMU Data Format
+
+**Full IMU (`data_type="full"`):**
+
+```python
+{
+    "header": {
+        "stamp": {"sec": 1234567890, "nanosec": 123456789},
+        "frame_id": "imu_frame"
+    },
+    "linear_acceleration": {"x": 0.05, "y": -0.02, "z": 9.81},
+    "angular_velocity": {"x": 0.001, "y": -0.002, "z": 0.0005},
+    "orientation": {"x": 0, "y": 0, "z": 0, "w": 1},
+    "linear_acceleration_covariance": [...],
+    "angular_velocity_covariance": [...],
+    "orientation_covariance": [...]
+}
+```
+
+**Accelerometer only (`data_type="accelerometer"`):**
+
+```python
+{
+    "header": {...},
+    "vector": {"x": 0.05, "y": -0.02, "z": 9.81}
+}
+```
+
+**Gyroscope only (`data_type="gyroscope"`):**
+
+```python
+{
+    "header": {...},
+    "vector": {"x": 0.001, "y": -0.002, "z": 0.0005}
+}
+```
+
+---
+
+## Complete Example: Multi-Model AI Demo
+
+Demonstrates switching between detection and pose estimation:
+
+```python
+from pib3 import Robot
+import time
+
+def test_ai_models(robot):
+    """Test multiple AI models in sequence."""
+
+    # ===== Object Detection =====
+    print("=" * 50)
+    print("Testing OBJECT DETECTION (yolov8n)")
+    print("=" * 50)
+
+    detection_count = 0
+
+    def on_detection(data):
+        nonlocal detection_count
+        detection_count += 1
+        if detection_count <= 3:
+            detections = data.get('result', {}).get('detections', [])
+            print(f"  Frame {detection_count}: {len(detections)} objects detected")
+            for det in detections[:2]:
+                print(f"    - Class {det['label']} (conf: {det['confidence']:.2f})")
+
+    # Switch model (synchronous - waits for confirmation)
+    if robot.set_ai_model("yolov8n", timeout=3.0):
+        print("Model switched to yolov8n")
+    else:
+        print("Model switch timeout")
+        return
+
+    # Run detection
+    sub = robot.subscribe_ai_detections(on_detection)
+    time.sleep(5)
+    sub.unsubscribe()
+    print(f"Total frames: {detection_count}")
+
+    # ===== Pose Estimation =====
+    print("\n" + "=" * 50)
+    print("Testing POSE ESTIMATION (human-pose-estimation)")
+    print("=" * 50)
+
+    pose_count = 0
+
+    def on_pose(data):
+        nonlocal pose_count
+        pose_count += 1
+        if pose_count <= 3:
+            keypoints = data.get('result', {}).get('keypoints', [])
+            detected = data.get('result', {}).get('detected_count', len(keypoints))
+            print(f"  Frame {pose_count}: {detected} keypoints detected")
+
+    # Switch to pose model
+    if robot.set_ai_model("human-pose-estimation", timeout=3.0):
+        print("Model switched to pose estimation")
+    else:
+        print("Model switch timeout")
+        return
+
+    # Run pose estimation
+    sub = robot.subscribe_ai_detections(on_pose)
+    time.sleep(5)
+    sub.unsubscribe()
+    print(f"Total frames: {pose_count}")
+
+# Run the demo
+with Robot(host="192.168.178.71") as robot:
+    test_ai_models(robot)
 ```
 
 ---
@@ -407,13 +601,18 @@ class VisionController:
             return
 
         for det in data['result']['detections']:
-            if det['label'] == 15 and det['confidence'] > 0.7:  # Person
+            if det['label'] == 0 and det['confidence'] > 0.7:  # Person (COCO class 0)
                 self.person_detected = True
                 self.last_bbox = det['bbox']
                 print(f"Person at: {det['bbox']}")
 
     def run(self, duration=30):
         """Run vision-based control loop."""
+        # Switch to YOLO model for person detection
+        if not self.robot.set_ai_model("yolov8n"):
+            print("Failed to switch model")
+            return
+
         # Subscribe to detections
         sub = self.robot.subscribe_ai_detections(self.on_detection)
 
@@ -441,7 +640,7 @@ class VisionController:
             sub.unsubscribe()
 
 # Usage
-with Robot(host="172.26.34.149") as robot:
+with Robot(host="192.168.178.71") as robot:
     controller = VisionController(robot)
     controller.run(duration=30)
 ```
@@ -454,26 +653,25 @@ with Robot(host="172.26.34.149") as robot:
 
 | Method | Description |
 |--------|-------------|
-| `subscribe_camera_image(callback, compression="cbor")` | Stream camera with CBOR binary |
-| `subscribe_camera_legacy(callback)` | Stream camera with base64 (legacy) |
+| `subscribe_camera_image(callback)` | Stream camera images (JPEG bytes) |
 | `set_camera_config(fps, quality, resolution)` | Configure camera settings |
 
 ### AI Detection Methods
 
 | Method | Description |
 |--------|-------------|
-| `subscribe_ai_detections(callback)` | Subscribe to AI results |
-| `get_available_ai_models(timeout)` | List available models |
-| `set_ai_model(model_name)` | Switch AI model |
-| `set_ai_config(model, confidence, ...)` | Full AI configuration |
+| `subscribe_ai_detections(callback)` | Subscribe to AI inference results |
+| `get_available_ai_models(timeout)` | List available models on the robot |
+| `set_ai_model(model_name, timeout)` | Switch AI model (synchronous, returns `bool`) |
+| `set_ai_config(model, confidence, ...)` | Configure AI settings (not synchronous) |
 | `subscribe_current_ai_model(callback)` | Track model changes |
 
 ### IMU Methods
 
 | Method | Description |
 |--------|-------------|
-| `subscribe_imu(callback, data_type)` | Subscribe to IMU data |
-| `set_imu_frequency(frequency)` | Set sampling rate (25-250 Hz) |
+| `subscribe_imu(callback, data_type)` | Subscribe to IMU data (`full`, `accelerometer`, `gyroscope`) |
+| `set_imu_frequency(frequency)` | Set sampling rate (25, 50, 100, 200, 250 Hz) |
 
 ### Helper Functions
 
@@ -488,20 +686,35 @@ with Robot(host="172.26.34.149") as robot:
 ### No Camera Data
 
 1. Check OAK-D Lite is connected to the robot
-2. Verify the ROS camera node is running
-3. Check network connectivity
+2. Verify the ROS camera node is running: `ros2 topic list | grep camera`
+3. Check network connectivity to the robot
+4. Verify rosbridge is running on port 9090
 
 ### AI Inference Slow
 
 1. Some models are more demanding - try `mobilenet-ssd` for speed
 2. Check robot CPU/NPU usage
 3. Reduce camera resolution
+4. YOLOv8 models are fast; ResNet/DeepLab are slower
 
-### IMU Data Noisy
+### Model Switch Timeout
 
-1. IMU needs calibration at startup
-2. Keep robot stationary for first few seconds
-3. Use lower frequency for more stable readings
+1. Increase timeout: `robot.set_ai_model("model", timeout=10.0)`
+2. Check that the model exists: `robot.get_available_ai_models()`
+3. Verify `/ai/current_model` topic is publishing: `ros2 topic echo /ai/current_model`
+
+### IMU Data Issues
+
+1. IMU needs calibration at startup - keep robot stationary for first few seconds
+2. Use `data_type="full"` to verify data is coming through
+3. Check `/imu/data` topic: `ros2 topic echo /imu/data`
+4. Valid frequencies are 25, 50, 100, 200, 250 Hz only
+
+### Connection Issues
+
+1. Verify robot IP: `ping 192.168.178.71`
+2. Check rosbridge port: `nc -zv 192.168.178.71 9090`
+3. Increase connection timeout: `Robot(host="...", timeout=10.0)`
 
 ---
 

@@ -361,17 +361,16 @@ with Robot(host="172.26.34.149") as robot:
 
 ## Camera Streaming
 
-Access the OAK-D Lite camera via efficient binary streaming.
+Access the OAK-D Lite camera via streaming.
 
 ### subscribe_camera_image()
 
-Subscribe to camera images with CBOR compression (recommended).
+Subscribe to camera images. The callback receives raw JPEG bytes.
 
 ```python
 def subscribe_camera_image(
     self,
     callback: Callable[[bytes], None],
-    compression: str = "cbor",
 ) -> roslibpy.Topic
 ```
 
@@ -380,9 +379,13 @@ def subscribe_camera_image(
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `callback` | `Callable[[bytes], None]` | *required* | Called with raw JPEG bytes for each frame. |
-| `compression` | `str` | `"cbor"` | Compression type: `"cbor"` (recommended) or `"none"`. |
 
 **Returns:** `roslibpy.Topic` - Call `.unsubscribe()` when done to stop streaming.
+
+!!! note "Data Transport"
+    Data is transmitted as base64-encoded JSON over the WebSocket connection.
+    The pib3 library automatically decodes this to raw JPEG bytes before
+    calling your callback.
 
 **Example:**
 
@@ -396,21 +399,10 @@ def on_frame(jpeg_bytes):
     cv2.imshow("Camera", frame)
     cv2.waitKey(1)
 
-with Robot(host="172.26.34.149") as robot:
+with Robot(host="192.168.178.71") as robot:
     sub = robot.subscribe_camera_image(on_frame)
     time.sleep(10)
     sub.unsubscribe()
-```
-
-### subscribe_camera_legacy()
-
-Subscribe to base64-encoded camera stream (backward compatibility).
-
-```python
-def subscribe_camera_legacy(
-    self,
-    callback: Callable[[str], None],
-) -> roslibpy.Topic
 ```
 
 ### set_camera_config()
@@ -511,14 +503,47 @@ for name, info in models.items():
 
 ### set_ai_model()
 
-Switch the active AI model.
+Switch the active AI model (synchronous).
 
 ```python
-def set_ai_model(self, model_name: str) -> None
+def set_ai_model(
+    self,
+    model_name: str,
+    timeout: float = 5.0,
+) -> bool
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `model_name` | `str` | *required* | Name of the model to switch to. |
+| `timeout` | `float` | `5.0` | Maximum time to wait for confirmation (seconds). |
+
+**Returns:** `bool` - `True` if model switch confirmed, `False` if timeout.
+
+This method is **synchronous** - it waits for the robot to confirm that the model
+has been loaded before returning. This ensures the model is ready to use immediately
+after the call returns.
+
+**Example:**
+
+```python
+with Robot(host="192.168.178.71") as robot:
+    # Switch model and check success
+    if robot.set_ai_model("yolov8n"):
+        print("Model ready!")
+    else:
+        print("Model switch timed out")
+
+    # With custom timeout
+    if robot.set_ai_model("human-pose-estimation", timeout=10.0):
+        print("Pose model ready!")
 ```
 
 !!! note "Pipeline Rebuild"
-    Model switching causes ~200-500ms interruption.
+    Model switching causes ~200-500ms interruption as the neural network
+    pipeline rebuilds on the OAK-D Lite.
 
 ### set_ai_config()
 
@@ -579,17 +604,41 @@ def subscribe_imu(
 | `callback` | `Callable[[dict], None]` | *required* | Called with IMU data. |
 | `data_type` | `str` | `"full"` | `"full"`, `"accelerometer"`, or `"gyroscope"`. |
 
+!!! info "Data Source"
+    All data types subscribe to the same `/imu/data` ROS topic. The `accelerometer`
+    and `gyroscope` options filter the data client-side for convenience, providing
+    a simplified data format.
+
+**Callback data formats:**
+
+| `data_type` | Callback receives |
+|-------------|-------------------|
+| `"full"` | `{"linear_acceleration": {x, y, z}, "angular_velocity": {x, y, z}, "header": {...}}` |
+| `"accelerometer"` | `{"vector": {x, y, z}, "header": {...}}` |
+| `"gyroscope"` | `{"vector": {x, y, z}, "header": {...}}` |
+
 **Example:**
 
 ```python
+# Full IMU data
 def on_imu(data):
     accel = data['linear_acceleration']
     gyro = data['angular_velocity']
     print(f"Accel: {accel['x']:.2f}, {accel['y']:.2f}, {accel['z']:.2f}")
 
-with Robot(host="172.26.34.149") as robot:
+with Robot(host="192.168.178.71") as robot:
     sub = robot.subscribe_imu(on_imu, data_type="full")
     time.sleep(5)
+    sub.unsubscribe()
+
+# Accelerometer only
+def on_accel(data):
+    vec = data['vector']
+    print(f"Accel: {vec['x']:.2f}, {vec['y']:.2f}, {vec['z']:.2f} m/s²")
+
+with Robot(host="192.168.178.71") as robot:
+    sub = robot.subscribe_imu(on_accel, data_type="accelerometer")
+    time.sleep(3)
     sub.unsubscribe()
 ```
 
