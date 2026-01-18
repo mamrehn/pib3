@@ -19,6 +19,54 @@ class AiTaskType(str, Enum):
     CLASSIFICATION = "classification"
     SEGMENTATION = "segmentation"
     POSE = "pose"
+
+
+class Joint(str, Enum):
+    """PIB robot joint names for IDE tab completion.
+
+    Use these enum values instead of strings for better IDE support:
+        >>> robot.set_joint(Joint.ELBOW_LEFT, 50.0)
+        >>> robot.get_joint(Joint.SHOULDER_VERTICAL_RIGHT)
+
+    String values still work for backward compatibility:
+        >>> robot.set_joint("elbow_left", 50.0)  # Also valid
+    """
+
+    # Head
+    TURN_HEAD = "turn_head_motor"
+    TILT_HEAD = "tilt_forward_motor"
+
+    # Left arm
+    SHOULDER_VERTICAL_LEFT = "shoulder_vertical_left"
+    SHOULDER_HORIZONTAL_LEFT = "shoulder_horizontal_left"
+    UPPER_ARM_LEFT_ROTATION = "upper_arm_left_rotation"
+    ELBOW_LEFT = "elbow_left"
+    LOWER_ARM_LEFT_ROTATION = "lower_arm_left_rotation"
+    WRIST_LEFT = "wrist_left"
+
+    # Left hand
+    THUMB_LEFT_OPPOSITION = "thumb_left_opposition"
+    THUMB_LEFT_STRETCH = "thumb_left_stretch"
+    INDEX_LEFT = "index_left_stretch"
+    MIDDLE_LEFT = "middle_left_stretch"
+    RING_LEFT = "ring_left_stretch"
+    PINKY_LEFT = "pinky_left_stretch"
+
+    # Right arm
+    SHOULDER_VERTICAL_RIGHT = "shoulder_vertical_right"
+    SHOULDER_HORIZONTAL_RIGHT = "shoulder_horizontal_right"
+    UPPER_ARM_RIGHT_ROTATION = "upper_arm_right_rotation"
+    ELBOW_RIGHT = "elbow_right"
+    LOWER_ARM_RIGHT_ROTATION = "lower_arm_right_rotation"
+    WRIST_RIGHT = "wrist_right"
+
+    # Right hand
+    THUMB_RIGHT_OPPOSITION = "thumb_right_opposition"
+    THUMB_RIGHT_STRETCH = "thumb_right_stretch"
+    INDEX_RIGHT = "index_right_stretch"
+    MIDDLE_RIGHT = "middle_right_stretch"
+    RING_RIGHT = "ring_right_stretch"
+    PINKY_RIGHT = "pinky_right_stretch"
 @dataclass
 class Stroke:
     """A single continuous drawing stroke (pen-down motion).

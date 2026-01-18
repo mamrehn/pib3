@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 # Core types
-from .types import Sketch, Stroke
+from .types import Joint, Sketch, Stroke
 
 # Configuration
 from .config import (
@@ -77,6 +77,7 @@ __all__ = [
     # Version
     "__version__",
     # Types
+    "Joint",
     "Stroke",
     "Sketch",
     "Trajectory",

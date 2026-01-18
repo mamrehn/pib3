@@ -9,10 +9,15 @@ from typing import Callable, Dict, List, Literal, Optional, Sequence, Union
 import numpy as np
 import yaml
 
+from ..types import Joint
+
 logger = logging.getLogger(__name__)
 
 # Type alias for unit parameter
 UnitType = Literal["percent", "rad", "deg"]
+
+# Type alias for motor name (accepts both str and Joint enum)
+MotorNameType = Union[str, Joint]
 
 # Cache for loaded joint limits files (filename -> limits dict)
 _JOINT_LIMITS_CACHE: Dict[str, Dict[str, Dict[str, float]]] = {}
@@ -263,7 +268,7 @@ class RobotBackend(ABC):
 
     def get_joint(
         self,
-        motor_name: str,
+        motor_name: MotorNameType,
         unit: UnitType = "percent",
         timeout: Optional[float] = None,
     ) -> Optional[float]:
@@ -271,7 +276,7 @@ class RobotBackend(ABC):
         Get current position of a single joint.
 
         Args:
-            motor_name: Name of motor (e.g., "elbow_left").
+            motor_name: Motor name as string or Joint enum (e.g., Joint.ELBOW_LEFT).
             unit: Unit for the returned value ("percent", "deg", or "rad").
                   Default is "percent" (0%=min, 100%=max of calibrated range).
             timeout: Max time to wait for joint data (seconds). Behavior varies
@@ -286,16 +291,16 @@ class RobotBackend(ABC):
             Current position in specified unit, or None if unavailable.
 
         Example:
-            >>> angle = backend.get_joint("elbow_left")  # Returns percentage
+            >>> from pib3 import Joint
+            >>> angle = backend.get_joint(Joint.ELBOW_LEFT)  # Returns percentage
             >>> print(f"Elbow is at {angle:.1f}%")
             >>>
-            >>> angle_deg = backend.get_joint("elbow_left", unit="deg")
+            >>> angle_deg = backend.get_joint(Joint.ELBOW_LEFT, unit="deg")
             >>> print(f"Elbow is at {angle_deg:.1f} degrees")
-            >>>
-            >>> angle_rad = backend.get_joint("elbow_left", unit="rad")
-            >>> print(f"Elbow is at {angle_rad:.2f} radians")
         """
-        radians = self._get_joint_radians(motor_name, timeout=timeout)
+        # Normalize motor_name to string (Joint enum values are already strings)
+        motor_str = str(motor_name.value if isinstance(motor_name, Joint) else motor_name)
+        radians = self._get_joint_radians(motor_str, timeout=timeout)
         if radians is None:
             return None
 
@@ -304,7 +309,7 @@ class RobotBackend(ABC):
         elif unit == "deg":
             return math.degrees(radians)
         else:  # percent
-            return self._radians_to_percent(motor_name, radians)
+            return self._radians_to_percent(motor_str, radians)
 
     @abstractmethod
     def _get_joint_radians(
@@ -327,7 +332,7 @@ class RobotBackend(ABC):
 
     def get_joints(
         self,
-        motor_names: Optional[List[str]] = None,
+        motor_names: Optional[List[MotorNameType]] = None,
         unit: UnitType = "percent",
         timeout: Optional[float] = None,
     ) -> Dict[str, float]:
@@ -335,32 +340,27 @@ class RobotBackend(ABC):
         Get current positions of multiple joints.
 
         Args:
-            motor_names: List of motor names to query. If None, returns all
-                        available joints.
-            unit: Unit for the returned values ("percent", "deg", or "rad").
-                  Default is "percent" (0%=min, 100%=max of calibrated range).
-            timeout: Max time to wait for joint data (seconds). Behavior varies
-                    by backend:
-                    - RealRobotBackend: Waits for ROS messages to arrive.
-                      Default: 5.0 seconds.
-                    - WebotsBackend: Waits for motor readings to stabilize
-                      (same value twice). Default: 5.0 seconds.
-                    - SwiftBackend: Ignored (synchronous access).
+            motor_names: List of motor names (str or Joint enum). If None, returns all.
+            unit: Unit for values ("percent", "deg", or "rad"). Default: "percent".
+            timeout: Max wait time for joint data (seconds). Backend-specific.
 
         Returns:
-            Dict mapping motor names to positions in specified unit.
+            Dict mapping motor names (str) to positions in specified unit.
 
         Example:
-            >>> # Get all joints in percentage (can be used to save pose)
-            >>> saved_pose = backend.get_joints()
-            >>>
-            >>> # Get specific joints in radians
-            >>> arm = backend.get_joints(["elbow_left", "wrist_left"], unit="rad")
-            >>>
-            >>> # Custom timeout
-            >>> joints = robot.get_joints(timeout=2.0)
+            >>> from pib3 import Joint
+            >>> saved_pose = backend.get_joints()  # All joints
+            >>> arm = backend.get_joints([Joint.ELBOW_LEFT, Joint.WRIST_LEFT], unit="rad")
         """
-        radians_dict = self._get_joints_radians(motor_names, timeout=timeout)
+        # Normalize motor names to strings
+        if motor_names is not None:
+            motor_names_str = [
+                str(m.value if isinstance(m, Joint) else m) for m in motor_names
+            ]
+        else:
+            motor_names_str = None
+
+        radians_dict = self._get_joints_radians(motor_names_str, timeout=timeout)
 
         if unit == "rad":
             return radians_dict
@@ -399,7 +399,7 @@ class RobotBackend(ABC):
 
     def set_joint(
         self,
-        motor_name: str,
+        motor_name: MotorNameType,
         position: float,
         unit: UnitType = "percent",
         async_: bool = True,
@@ -410,29 +410,25 @@ class RobotBackend(ABC):
         Set position of a single joint.
 
         Args:
-            motor_name: Name of motor (e.g., "elbow_left").
+            motor_name: Motor name as string or Joint enum (e.g., Joint.ELBOW_LEFT).
             position: Target position in specified unit.
-            unit: Unit for position ("percent", "deg", or "rad").
-                  Default is "percent" (0%=min, 100%=max of calibrated range).
-            async_: If True (default), return immediately after sending command.
-                   If False, wait until joint reaches target position.
-            timeout: Max time to wait for joint to reach position (seconds).
-                    Only used when async_=False.
-            tolerance: Position tolerance for completion check.
-                      In same unit as position. Defaults to 2%, 3°, or 0.05 rad.
+            unit: Unit for position ("percent", "deg", or "rad"). Default: "percent".
+            async_: If True, return immediately. If False, wait for completion.
+            timeout: Max wait time when async_=False (seconds).
+            tolerance: Position tolerance. Defaults to 2%, 3°, or 0.05 rad.
 
         Returns:
             True if successful (and position reached if async_=False).
 
         Example:
-            >>> backend.set_joint("elbow_left", 0.0)   # 0% = min angle
-            >>> backend.set_joint("elbow_left", 50.0)  # 50% = middle of range
-            >>> backend.set_joint("elbow_left", -30.0, unit="deg")  # -30 degrees
-            >>> backend.set_joint("elbow_left", 0.5, unit="rad")  # radians
-            >>> backend.set_joint("elbow_left", 50.0, async_=False)  # wait
+            >>> from pib3 import Joint
+            >>> backend.set_joint(Joint.ELBOW_LEFT, 50.0)  # 50% of range
+            >>> backend.set_joint(Joint.ELBOW_LEFT, -30.0, unit="deg")
+            >>> backend.set_joint(Joint.ELBOW_LEFT, 50.0, async_=False)  # wait
         """
+        motor_str = str(motor_name.value if isinstance(motor_name, Joint) else motor_name)
         return self.set_joints(
-            {motor_name: position},
+            {motor_str: position},
             unit=unit,
             async_=async_,
             timeout=timeout,
@@ -441,7 +437,7 @@ class RobotBackend(ABC):
 
     def set_joints(
         self,
-        positions: Union[Dict[str, float], Sequence[float]],
+        positions: Union[Dict[MotorNameType, float], Sequence[float]],
         unit: UnitType = "percent",
         async_: bool = True,
         timeout: float = 1.0,
@@ -451,40 +447,23 @@ class RobotBackend(ABC):
         Set positions of multiple joints simultaneously.
 
         Args:
-            positions: Either a dict mapping motor names to positions,
-                      or a sequence of positions for all motors in MOTOR_NAMES order.
-            unit: Unit for positions ("percent", "deg", or "rad").
-                  Default is "percent" (0%=min, 100%=max of calibrated range).
-            async_: If True (default), return immediately after sending command.
-                   If False, wait until joints reach target positions.
-            timeout: Max time to wait for joints to reach positions (seconds).
-                    Only used when async_=False.
-            tolerance: Position tolerance for completion check.
-                      In same unit as positions. Defaults to 2%, 3°, or 0.05 rad.
+            positions: Dict mapping motor names (str or Joint) to positions,
+                      or sequence of positions for all MOTOR_NAMES in order.
+            unit: Unit for positions ("percent", "deg", or "rad"). Default: "percent".
+            async_: If True, return immediately. If False, wait for completion.
+            timeout: Max wait time when async_=False (seconds).
+            tolerance: Position tolerance. Defaults to 2%, 3°, or 0.05 rad.
 
         Returns:
             True if successful (and positions reached if async_=False).
 
         Example:
-            >>> # Using dict with percentage (0%=min, 100%=max of calibrated range)
+            >>> from pib3 import Joint
             >>> backend.set_joints({
-            ...     "shoulder_vertical_left": 50.0,  # 50% = middle of range
-            ...     "elbow_left": 0.0,               # 0% = min angle
+            ...     Joint.SHOULDER_VERTICAL_LEFT: 50.0,
+            ...     Joint.ELBOW_LEFT: 0.0,
             ... })
-            >>>
-            >>> # Using degrees
-            >>> backend.set_joints({"elbow_left": -30.0}, unit="deg")
-            >>>
-            >>> # Using radians
-            >>> backend.set_joints({"elbow_left": 0.5}, unit="rad")
-            >>>
-            >>> # Save and restore pose
-            >>> saved_pose = backend.get_joints()  # Returns percentages
-            >>> # ... do something ...
-            >>> backend.set_joints(saved_pose)  # Restore
-            >>>
-            >>> # Wait for completion
-            >>> success = backend.set_joints({"elbow_left": 50.0}, async_=False)
+            >>> backend.set_joints({Joint.ELBOW_LEFT: -30.0}, unit="deg")
         """
         # Convert sequence to dict if needed
         if not isinstance(positions, dict):
@@ -496,19 +475,25 @@ class RobotBackend(ABC):
                 )
             positions = dict(zip(self.MOTOR_NAMES, positions_list))
 
+        # Normalize Joint enum keys to strings
+        positions_str: Dict[str, float] = {
+            str(k.value if isinstance(k, Joint) else k): v
+            for k, v in positions.items()
+        }
+
         # Convert to radians if needed
         if unit == "percent":
             positions_radians = {
                 name: self._percent_to_radians(name, pos)
-                for name, pos in positions.items()
+                for name, pos in positions_str.items()
             }
         elif unit == "deg":
             positions_radians = {
                 name: math.radians(pos)
-                for name, pos in positions.items()
+                for name, pos in positions_str.items()
             }
         else:  # rad
-            positions_radians = dict(positions)
+            positions_radians = dict(positions_str)
 
         # Send command
         success = self._set_joints_impl(positions_radians)
@@ -528,7 +513,7 @@ class RobotBackend(ABC):
                     tolerance = self.DEFAULT_VERIFY_TOLERANCE
 
             return self._verify_positions(
-                positions,  # Original positions in user's unit
+                positions_str,  # Original positions in user's unit
                 unit=unit,
                 timeout=timeout,
                 tolerance=tolerance,
