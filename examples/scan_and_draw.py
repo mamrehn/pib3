@@ -10,6 +10,10 @@ This script demonstrates a full "Sense-Plan-Act" loop:
 Requirements:
     pip install "pib3[robot] @ git+https://github.com/mamrehn/pib3.git"
     pip install Pillow numpy
+
+Note:
+    This example requires the physical robot with OAK-D Lite camera.
+    Camera/AI features are not available in Webots simulation yet.
 """
 
 import argparse

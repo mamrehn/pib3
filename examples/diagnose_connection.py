@@ -10,6 +10,10 @@ This script diagnoses connection issues to the PIB robot by checking:
 Usage:
     python diagnose_connection.py --host 172.26.34.149
     python diagnose_connection.py --host 172.26.34.149 --port 9090
+
+Note:
+    This tool works with both the physical robot and Webots simulation.
+    For local Webots, no IP is needed.
 """
 
 import argparse

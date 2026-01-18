@@ -20,6 +20,10 @@ Usage:
     python camera_ai_imu_example.py --demo ai
     python camera_ai_imu_example.py --demo imu
     python camera_ai_imu_example.py --demo tracking
+
+Note:
+    This example requires the physical robot with OAK-D Lite camera.
+    Camera/AI/IMU features are not available in Webots simulation yet.
 """
 
 import argparse
