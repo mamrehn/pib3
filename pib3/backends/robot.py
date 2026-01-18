@@ -448,19 +448,22 @@ class RealRobotBackend(RobotBackend):
     def subscribe_camera_image(
         self,
         callback: Callable[[bytes], None],
-        compression: str = "cbor",
     ) -> "roslibpy.Topic":
         """
         Subscribe to camera image stream from OAK-D Lite.
 
-        Uses CBOR compression by default for efficient binary transfer
-        (no base64 overhead). The callback receives raw JPEG bytes.
+        The camera publishes hardware-encoded MJPEG frames. The callback
+        receives raw JPEG bytes after base64 decoding.
 
         Streaming only runs while subscribed (on-demand activation).
 
+        Note:
+            Data is transmitted as base64-encoded JSON. Binary CBOR transfer
+            is not currently supported by roslibpy. For high-performance
+            applications, consider using rosbridge directly with CBOR encoding.
+
         Args:
             callback: Called with raw JPEG bytes for each frame.
-            compression: "cbor" (recommended) or "none" for JSON/base64.
 
         Returns:
             Topic object (call .unsubscribe() when done to stop streaming).
@@ -476,19 +479,23 @@ class RealRobotBackend(RobotBackend):
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
+        import base64
         import roslibpy
 
         topic = roslibpy.Topic(
             self._client,
             '/camera/image',
             'sensor_msgs/CompressedImage',
-            compression=compression
         )
 
         def parse_and_forward(msg):
-            # With CBOR, msg['data'] is already bytes/list of ints
-            data = msg.get('data', [])
-            if isinstance(data, list):
+            # Data is base64-encoded when using JSON transport
+            data = msg.get('data', '')
+            if isinstance(data, str):
+                # Base64-encoded string from JSON transport
+                jpeg_bytes = base64.b64decode(data)
+            elif isinstance(data, list):
+                # List of byte values
                 jpeg_bytes = bytes(data)
             else:
                 jpeg_bytes = data
@@ -785,12 +792,15 @@ class RealRobotBackend(RobotBackend):
 
         Streaming only runs while subscribed (on-demand activation).
 
+        All data types subscribe to the same /imu/data topic but filter
+        the data before passing it to your callback:
+        - "full": Complete IMU message (linear_acceleration + angular_velocity)
+        - "accelerometer": Only linear_acceleration in Vector3Stamped format
+        - "gyroscope": Only angular_velocity in Vector3Stamped format
+
         Args:
             callback: Called with IMU data dict.
-            data_type: One of:
-                - "full": Complete IMU (accel + gyro), sensor_msgs/Imu
-                - "accelerometer": Accelerometer only, lighter weight
-                - "gyroscope": Gyroscope only, lighter weight
+            data_type: One of "full", "accelerometer", "gyroscope".
                 Also accepts ImuType enum members.
 
         Returns:
@@ -801,6 +811,11 @@ class RealRobotBackend(RobotBackend):
             ...     accel = data['linear_acceleration']
             ...     print(f"Accel: x={accel['x']:.2f} m/s²")
             >>> sub = robot.subscribe_imu(on_imu, data_type=ImuType.FULL)
+            >>>
+            >>> # Or for accelerometer only:
+            >>> def on_accel(data):
+            ...     print(f"Accel: x={data['vector']['x']:.2f} m/s²")
+            >>> sub = robot.subscribe_imu(on_accel, data_type="accelerometer")
         """
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
@@ -810,19 +825,33 @@ class RealRobotBackend(RobotBackend):
         # Handle Enum or string
         dtype_str = data_type.value if isinstance(data_type, ImuType) else data_type
 
-        topic_map = {
-            ImuType.FULL.value: ('/imu/data', 'sensor_msgs/msg/Imu'),
-            ImuType.ACCELEROMETER.value: ('/imu/accelerometer', 'geometry_msgs/msg/Vector3Stamped'),
-            ImuType.GYROSCOPE.value: ('/imu/gyroscope', 'geometry_msgs/msg/Vector3Stamped'),
-        }
+        valid_types = [ImuType.FULL.value, ImuType.ACCELEROMETER.value, ImuType.GYROSCOPE.value]
+        if dtype_str not in valid_types:
+            raise ValueError(f"data_type must be one of: {valid_types}")
 
-        if dtype_str not in topic_map:
-            raise ValueError(f"data_type must be one of: {list(topic_map.keys())}")
+        # All IMU data comes from /imu/data - individual topics are not published
+        topic = roslibpy.Topic(self._client, '/imu/data', 'sensor_msgs/msg/Imu')
 
-        topic_name, msg_type = topic_map[dtype_str]
+        if dtype_str == ImuType.FULL.value:
+            # Pass through the full IMU message
+            topic.subscribe(callback)
+        elif dtype_str == ImuType.ACCELEROMETER.value:
+            # Extract only accelerometer data in Vector3Stamped-like format
+            def extract_accel(msg):
+                callback({
+                    'header': msg.get('header', {}),
+                    'vector': msg.get('linear_acceleration', {}),
+                })
+            topic.subscribe(extract_accel)
+        elif dtype_str == ImuType.GYROSCOPE.value:
+            # Extract only gyroscope data in Vector3Stamped-like format
+            def extract_gyro(msg):
+                callback({
+                    'header': msg.get('header', {}),
+                    'vector': msg.get('angular_velocity', {}),
+                })
+            topic.subscribe(extract_gyro)
 
-        topic = roslibpy.Topic(self._client, topic_name, msg_type)
-        topic.subscribe(callback)
         return topic
 
     def set_imu_frequency(self, frequency: int) -> None:
