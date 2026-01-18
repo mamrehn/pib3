@@ -3,8 +3,8 @@
 Example: Camera, AI Detection, and IMU usage with pib3.
 
 This script demonstrates:
-1. Camera streaming with CBOR compression
-2. AI object detection (on-demand)
+1. Camera streaming
+2. AI object detection with model switching (on-demand)
 3. IMU sensor data access
 4. Vision-based head tracking
 
@@ -37,9 +37,16 @@ except ImportError:
     print("Note: OpenCV not installed. Display features disabled.")
     print("Install with: pip install opencv-python")
 
+# Import pib3 - will fail gracefully if not installed
+try:
+    from pib3 import Robot
+    HAS_PIB3 = True
+except ImportError:
+    HAS_PIB3 = False
+
 
 def demo_camera_streaming(robot, duration: float = 10.0):
-    """Demonstrate camera streaming with CBOR compression."""
+    """Demonstrate camera streaming."""
     print("\n=== Camera Streaming Demo ===")
     print("Streaming camera for", duration, "seconds...")
 
@@ -73,7 +80,7 @@ def demo_camera_streaming(robot, duration: float = 10.0):
                 print(f"  Received frame {frame_count}, size: {len(jpeg_bytes)} bytes")
 
     # Subscribe to camera (streaming starts automatically)
-    sub = robot.subscribe_camera_image(on_frame, compression="cbor")
+    sub = robot.subscribe_camera_image(on_frame)
 
     try:
         time.sleep(duration)
@@ -175,7 +182,7 @@ def demo_imu_data(robot, duration: float = 5.0):
                   f"z={gyro.get('z', 0):7.4f} rad/s")
 
     # Subscribe to full IMU data
-    sub = robot.subscribe_imu(on_imu, data_type=ImuType.FULL)
+    sub = robot.subscribe_imu(on_imu, data_type="full")
 
     try:
         time.sleep(duration)
@@ -192,7 +199,14 @@ def demo_person_tracking(robot, duration: float = 30.0):
     print("The robot will turn its head to follow detected persons.")
 
     # Use MobileNet-SSD for fast detection (class 15 = person in COCO)
-    robot.set_ai_config(model="mobilenet-ssd", confidence=0.5)
+    print("Switching to mobilenet-ssd model...")
+    if robot.set_ai_model("mobilenet-ssd", timeout=5.0):
+        print("Model ready!")
+    else:
+        print("Model switch timed out, using current model")
+
+    # Set confidence threshold
+    robot.set_ai_config(confidence=0.5)
 
     last_update = 0
     update_interval = 0.1  # Update head position every 100ms
@@ -286,11 +300,8 @@ Examples:
     )
     args = parser.parse_args()
 
-    # Import Robot here to give better error messages
-    try:
-        from pib3 import Robot
-        from pib3.types import ImuType
-    except ImportError:
+    # Check pib3 is installed
+    if not HAS_PIB3:
         print("Error: pib3 not installed.")
         print("Install with: pip install 'pib3[robot] @ git+https://github.com/mamrehn/pib3.git'")
         return
