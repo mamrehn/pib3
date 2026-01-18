@@ -106,14 +106,14 @@ Robot joint angles.
 
 ```python
 # Joint space
-from pib3 import Robot
+from pib3 import Robot, Joint
 
 with Robot() as robot:
     # Percentage (requires calibration)
-    robot.set_joint("elbow_left", 50.0)
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0)
 
     # Radians (direct control)
-    robot.set_joint("elbow_left", 1.25, unit="rad")
+    robot.set_joint(Joint.ELBOW_LEFT, 1.25, unit="rad")
 ```
 
 ## Coordinate Transformations

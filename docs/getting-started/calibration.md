@@ -7,8 +7,10 @@ Calibrate joint limits for accurate percentage-based control.
 The pib3 library uses a **percentage-based unit system** by default:
 
 ```python
-robot.set_joint("elbow_left", 50.0)      # 50% of range
-robot.set_joint("turn_head_motor", 50.0)  # Center position
+from pib3 import Joint
+
+robot.set_joint(Joint.ELBOW_LEFT, 50.0)     # 50% of range
+robot.set_joint(Joint.TURN_HEAD, 50.0)      # Center position
 ```
 
 For this to work correctly, the library needs to know the actual minimum and maximum positions (in radians) for each joint on your specific robot. These limits may vary between robots due to hardware differences.
@@ -240,13 +242,13 @@ joints:
 After calibration, test with simple percentage commands:
 
 ```python
-from pib3 import Robot
+from pib3 import Robot, Joint
 
 with Robot(host="172.26.34.149") as robot:
     # Test min, max, and center
-    robot.set_joint("elbow_left", 0)    # Should go to minimum
-    robot.set_joint("elbow_left", 100)  # Should go to maximum
-    robot.set_joint("elbow_left", 50)   # Should be in middle
+    robot.set_joint(Joint.ELBOW_LEFT, 0)    # Should go to minimum
+    robot.set_joint(Joint.ELBOW_LEFT, 100)  # Should go to maximum
+    robot.set_joint(Joint.ELBOW_LEFT, 50)   # Should be in middle
 ```
 
 ---
@@ -256,21 +258,22 @@ with Robot(host="172.26.34.149") as robot:
 After calibration, use the percentage-based API:
 
 ```python
-from pib3 import Robot
+from pib3 import Robot, Joint
 
 with Robot(host="172.26.34.149") as robot:
     # Percentage (default) - works across all backends
-    robot.set_joint("turn_head_motor", 50.0)   # Center
-    robot.set_joint("turn_head_motor", 0.0)    # Full left
-    robot.set_joint("turn_head_motor", 100.0)  # Full right
+    robot.set_joint(Joint.TURN_HEAD, 50.0)   # Center
+    robot.set_joint(Joint.TURN_HEAD, 0.0)    # Full left
+    robot.set_joint(Joint.TURN_HEAD, 100.0)  # Full right
 
     # Read position in percentage
-    pos = robot.get_joint("turn_head_motor")
+    pos = robot.get_joint(Joint.TURN_HEAD)
     print(f"Head at {pos:.1f}%")
 
     # Still supports radians if needed
-    robot.set_joint("elbow_left", 1.25, unit="rad")
-    pos_rad = robot.get_joint("elbow_left", unit="rad")
+    robot.set_joint(Joint.ELBOW_LEFT, 1.25, unit="rad")
+    pos_rad = robot.get_joint(Joint.ELBOW_LEFT, unit="rad")
+```
 ```
 
 ---

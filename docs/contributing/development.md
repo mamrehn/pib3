@@ -154,9 +154,9 @@ mkdocs serve
 ```bash
 # Test visualization (opens browser)
 python -c "
-from pib3 import Swift
+from pib3 import Swift, Joint
 with Swift() as viz:
-    viz.set_joint('elbow_left', 50.0)
+    viz.set_joint(Joint.ELBOW_LEFT, 50.0)
     input('Press Enter to exit...')
 "
 ```

@@ -20,17 +20,17 @@ The percentage system provides an intuitive interface for joint control:
 - **100%**: Joint at maximum limit (fully open/forward)
 
 ```python
-from pib3 import Robot
+from pib3 import Robot, Joint
 
 with Robot() as robot:
     # Move to middle position
-    robot.set_joint("elbow_left", 50.0)
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0)
 
     # Fully extend
-    robot.set_joint("elbow_left", 100.0)
+    robot.set_joint(Joint.ELBOW_LEFT, 100.0)
 
     # Fully retract
-    robot.set_joint("elbow_left", 0.0)
+    robot.set_joint(Joint.ELBOW_LEFT, 0.0)
 ```
 
 !!! note "Calibration Required"
@@ -53,15 +53,15 @@ def radians_to_percent(radians, min_rad, max_rad):
 Direct angular control in radians:
 
 ```python
-from pib3 import Robot
+from pib3 import Robot, Joint
 import math
 
 with Robot() as robot:
     # Set exact angle
-    robot.set_joint("elbow_left", math.pi / 4, unit="rad")  # 45 degrees
+    robot.set_joint(Joint.ELBOW_LEFT, math.pi / 4, unit="rad")  # 45 degrees
 
     # Read in radians
-    pos = robot.get_joint("elbow_left", unit="rad")
+    pos = robot.get_joint(Joint.ELBOW_LEFT, unit="rad")
     print(f"Elbow at {math.degrees(pos):.1f} degrees")
 ```
 
@@ -180,19 +180,19 @@ Backends convert to their native format when executing:
 ### Working with Different Units
 
 ```python
-from pib3 import Robot, Swift
+from pib3 import Robot, Swift, Joint
 import math
 
 # Both backends support the same API
 def demonstrate_units(backend):
     # Percentage (recommended for most uses)
-    backend.set_joint("elbow_left", 50.0)
-    pos_pct = backend.get_joint("elbow_left")
+    backend.set_joint(Joint.ELBOW_LEFT, 50.0)
+    pos_pct = backend.get_joint(Joint.ELBOW_LEFT)
     print(f"Percentage: {pos_pct:.1f}%")
 
     # Radians (for precise control)
-    backend.set_joint("elbow_left", math.pi / 3, unit="rad")
-    pos_rad = backend.get_joint("elbow_left", unit="rad")
+    backend.set_joint(Joint.ELBOW_LEFT, math.pi / 3, unit="rad")
+    pos_rad = backend.get_joint(Joint.ELBOW_LEFT, unit="rad")
     print(f"Radians: {pos_rad:.3f}")
 
 # Works the same with both backends

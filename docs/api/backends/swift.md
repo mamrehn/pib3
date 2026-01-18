@@ -87,11 +87,11 @@ viz.disconnect()
 The recommended way to use Swift:
 
 ```python
-from pib3 import Swift
+from pib3 import Swift, Joint
 
 with Swift() as viz:
     # Browser opens automatically
-    viz.set_joint("elbow_left", 50.0)
+    viz.set_joint(Joint.ELBOW_LEFT, 50.0)
 # Browser closes on exit
 ```
 
@@ -133,16 +133,16 @@ def set_joint(
 **Example:**
 
 ```python
-from pib3 import Swift
+from pib3 import Swift, Joint
 import time
 
 with Swift() as viz:
     # Set positions
-    viz.set_joint("turn_head_motor", 0.0)    # Look left
+    viz.set_joint(Joint.TURN_HEAD, 0.0)    # Look left
     time.sleep(0.5)
-    viz.set_joint("turn_head_motor", 100.0)  # Look right
+    viz.set_joint(Joint.TURN_HEAD, 100.0)  # Look right
     time.sleep(0.5)
-    viz.set_joint("turn_head_motor", 50.0)   # Center
+    viz.set_joint(Joint.TURN_HEAD, 50.0)   # Center
 ```
 
 ### set_joints()
@@ -204,8 +204,10 @@ def get_joint(
 **Example:**
 
 ```python
+from pib3 import Joint
+
 with Swift() as viz:
-    pos = viz.get_joint("turn_head_motor")
+    pos = viz.get_joint(Joint.TURN_HEAD)
     print(f"Head at {pos:.1f}%")
 ```
 
@@ -401,19 +403,19 @@ trajectory = pib3.sketch_to_trajectory(
 ### Animation Sequence
 
 ```python
-from pib3 import Swift
+from pib3 import Swift, Joint
 import time
 
 with Swift() as viz:
     # Wave animation
     for i in range(3):
-        viz.set_joint("elbow_left", 20.0)
+        viz.set_joint(Joint.ELBOW_LEFT, 20.0)
         time.sleep(0.3)
-        viz.set_joint("elbow_left", 80.0)
+        viz.set_joint(Joint.ELBOW_LEFT, 80.0)
         time.sleep(0.3)
 
     # Return to neutral
-    viz.set_joint("elbow_left", 50.0)
+    viz.set_joint(Joint.ELBOW_LEFT, 50.0)
 ```
 
 ### Pose Comparison

@@ -48,23 +48,23 @@ with Robot(host="172.26.34.149") as robot:
 pib3 uses percentage-based control: **0%** = min, **100%** = max, **50%** = middle.
 
 ```python
-from pib3 import Robot
+from pib3 import Robot, Joint
 
 with Robot(host="172.26.34.149") as robot:
     # Move single joint
-    robot.set_joint("turn_head_motor", 50.0)
+    robot.set_joint(Joint.TURN_HEAD, 50.0)
 
     # Read position
-    pos = robot.get_joint("elbow_left")
+    pos = robot.get_joint(Joint.ELBOW_LEFT)
     print(f"Elbow at {pos:.1f}%")
 
     # Save and restore pose
     saved_pose = robot.get_joints()
-    robot.set_joint("elbow_left", 25.0)
+    robot.set_joint(Joint.ELBOW_LEFT, 25.0)
     robot.set_joints(saved_pose)  # Restore
 
     # Using radians
-    robot.set_joint("elbow_left", 1.25, unit="rad")
+    robot.set_joint(Joint.ELBOW_LEFT, 1.25, unit="rad")
 ```
 
 ---

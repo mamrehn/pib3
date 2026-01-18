@@ -90,11 +90,12 @@ backend.disconnect()
 The recommended way to use the Webots backend:
 
 ```python
+from pib3 import Joint
 from pib3.backends import WebotsBackend
 
 with WebotsBackend() as backend:
     # Robot automatically initialized
-    backend.set_joint("elbow_left", 50.0)
+    backend.set_joint(Joint.ELBOW_LEFT, 50.0)
 # Cleanup handled automatically
 ```
 
@@ -136,12 +137,14 @@ def set_joint(
 **Example:**
 
 ```python
+from pib3 import Joint
+
 with WebotsBackend() as robot:
     # Set individual joints
-    robot.set_joint("elbow_left", 50.0)  # 50%
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0)  # 50%
 
     # Using radians
-    robot.set_joint("elbow_left", 1.25, unit="rad")
+    robot.set_joint(Joint.ELBOW_LEFT, 1.25, unit="rad")
 ```
 
 ### set_joints()
@@ -206,13 +209,15 @@ def get_joint(
 **Example:**
 
 ```python
+from pib3 import Joint
+
 with WebotsBackend() as robot:
     # Uses default 5s timeout for stabilization
-    pos = robot.get_joint("elbow_left")
+    pos = robot.get_joint(Joint.ELBOW_LEFT)
     print(f"Elbow at {pos:.1f}%")
 
     # Shorter timeout
-    pos = robot.get_joint("elbow_left", timeout=1.0)
+    pos = robot.get_joint(Joint.ELBOW_LEFT, timeout=1.0)
 ```
 
 ### get_joints()
@@ -370,23 +375,24 @@ Robot {
 ### Wave Animation
 
 ```python
+from pib3 import Joint
 from pib3.backends import WebotsBackend
 import time
 
 with WebotsBackend(step_ms=50) as robot:
     # Raise arm
-    robot.set_joint("shoulder_vertical_left", 30.0)
+    robot.set_joint(Joint.SHOULDER_VERTICAL_LEFT, 30.0)
 
     # Wave back and forth
     for _ in range(5):
-        robot.set_joint("wrist_left", 20.0)
+        robot.set_joint(Joint.WRIST_LEFT, 20.0)
         time.sleep(0.3)
-        robot.set_joint("wrist_left", 80.0)
+        robot.set_joint(Joint.WRIST_LEFT, 80.0)
         time.sleep(0.3)
 
     # Return to neutral
-    robot.set_joint("wrist_left", 50.0)
-    robot.set_joint("shoulder_vertical_left", 50.0)
+    robot.set_joint(Joint.WRIST_LEFT, 50.0)
+    robot.set_joint(Joint.SHOULDER_VERTICAL_LEFT, 50.0)
 ```
 
 ### Complete Drawing Session

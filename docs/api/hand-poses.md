@@ -33,20 +33,20 @@ The PIB robot has 12 finger joints (6 per hand), allowing for various hand poses
 ## Basic Control
 
 ```python
-from pib3 import Robot, Swift
+from pib3 import Robot, Swift, Joint
 
 # Works with any backend
 with Swift() as viz:
     # Individual finger control
-    viz.set_joint("index_left_stretch", 100.0)  # Fully extended
-    viz.set_joint("index_left_stretch", 0.0)    # Fully bent
+    viz.set_joint(Joint.INDEX_LEFT_STRETCH, 100.0)  # Fully extended
+    viz.set_joint(Joint.INDEX_LEFT_STRETCH, 0.0)    # Fully bent
 
     # Multiple fingers at once
     viz.set_joints({
-        "index_left_stretch": 50.0,
-        "middle_left_stretch": 50.0,
-        "ring_left_stretch": 50.0,
-        "pinky_left_stretch": 50.0,
+        Joint.INDEX_LEFT_STRETCH: 50.0,
+        Joint.MIDDLE_LEFT_STRETCH: 50.0,
+        Joint.RING_LEFT_STRETCH: 50.0,
+        Joint.PINKY_LEFT_STRETCH: 50.0,
     })
 ```
 
@@ -55,15 +55,17 @@ with Swift() as viz:
 ### Open Hand (Flat)
 
 ```python
+from pib3 import Joint
+
 def open_hand_left(backend):
     """Fully open left hand."""
     backend.set_joints({
-        "thumb_left_opposition": 0.0,
-        "thumb_left_stretch": 100.0,
-        "index_left_stretch": 100.0,
-        "middle_left_stretch": 100.0,
-        "ring_left_stretch": 100.0,
-        "pinky_left_stretch": 100.0,
+        Joint.THUMB_LEFT_OPPOSITION: 0.0,
+        Joint.THUMB_LEFT_STRETCH: 100.0,
+        Joint.INDEX_LEFT_STRETCH: 100.0,
+        Joint.MIDDLE_LEFT_STRETCH: 100.0,
+        Joint.RING_LEFT_STRETCH: 100.0,
+        Joint.PINKY_LEFT_STRETCH: 100.0,
     })
 ```
 
@@ -73,12 +75,12 @@ def open_hand_left(backend):
 def closed_fist_left(backend):
     """Close left hand into a fist."""
     backend.set_joints({
-        "thumb_left_opposition": 100.0,
-        "thumb_left_stretch": 0.0,
-        "index_left_stretch": 0.0,
-        "middle_left_stretch": 0.0,
-        "ring_left_stretch": 0.0,
-        "pinky_left_stretch": 0.0,
+        Joint.THUMB_LEFT_OPPOSITION: 100.0,
+        Joint.THUMB_LEFT_STRETCH: 0.0,
+        Joint.INDEX_LEFT_STRETCH: 0.0,
+        Joint.MIDDLE_LEFT_STRETCH: 0.0,
+        Joint.RING_LEFT_STRETCH: 0.0,
+        Joint.PINKY_LEFT_STRETCH: 0.0,
     })
 ```
 
@@ -88,12 +90,12 @@ def closed_fist_left(backend):
 def point_left(backend):
     """Point with left index finger."""
     backend.set_joints({
-        "thumb_left_opposition": 50.0,
-        "thumb_left_stretch": 50.0,
-        "index_left_stretch": 100.0,   # Extended
-        "middle_left_stretch": 0.0,    # Bent
-        "ring_left_stretch": 0.0,      # Bent
-        "pinky_left_stretch": 0.0,     # Bent
+        Joint.THUMB_LEFT_OPPOSITION: 50.0,
+        Joint.THUMB_LEFT_STRETCH: 50.0,
+        Joint.INDEX_LEFT_STRETCH: 100.0,   # Extended
+        Joint.MIDDLE_LEFT_STRETCH: 0.0,    # Bent
+        Joint.RING_LEFT_STRETCH: 0.0,      # Bent
+        Joint.PINKY_LEFT_STRETCH: 0.0,     # Bent
     })
 ```
 
@@ -103,12 +105,12 @@ def point_left(backend):
 def thumbs_up_left(backend):
     """Thumbs up gesture."""
     backend.set_joints({
-        "thumb_left_opposition": 0.0,
-        "thumb_left_stretch": 100.0,   # Extended
-        "index_left_stretch": 0.0,     # Bent
-        "middle_left_stretch": 0.0,    # Bent
-        "ring_left_stretch": 0.0,      # Bent
-        "pinky_left_stretch": 0.0,     # Bent
+        Joint.THUMB_LEFT_OPPOSITION: 0.0,
+        Joint.THUMB_LEFT_STRETCH: 100.0,   # Extended
+        Joint.INDEX_LEFT_STRETCH: 0.0,     # Bent
+        Joint.MIDDLE_LEFT_STRETCH: 0.0,    # Bent
+        Joint.RING_LEFT_STRETCH: 0.0,      # Bent
+        Joint.PINKY_LEFT_STRETCH: 0.0,     # Bent
     })
 ```
 
@@ -118,12 +120,12 @@ def thumbs_up_left(backend):
 def peace_sign_left(backend):
     """Peace/victory sign."""
     backend.set_joints({
-        "thumb_left_opposition": 100.0,
-        "thumb_left_stretch": 0.0,
-        "index_left_stretch": 100.0,   # Extended
-        "middle_left_stretch": 100.0,  # Extended
-        "ring_left_stretch": 0.0,      # Bent
-        "pinky_left_stretch": 0.0,     # Bent
+        Joint.THUMB_LEFT_OPPOSITION: 100.0,
+        Joint.THUMB_LEFT_STRETCH: 0.0,
+        Joint.INDEX_LEFT_STRETCH: 100.0,   # Extended
+        Joint.MIDDLE_LEFT_STRETCH: 100.0,  # Extended
+        Joint.RING_LEFT_STRETCH: 0.0,      # Bent
+        Joint.PINKY_LEFT_STRETCH: 0.0,     # Bent
     })
 ```
 
@@ -133,12 +135,12 @@ def peace_sign_left(backend):
 def ok_gesture_left(backend):
     """OK gesture (thumb and index touching)."""
     backend.set_joints({
-        "thumb_left_opposition": 100.0,
-        "thumb_left_stretch": 50.0,    # Partially bent
-        "index_left_stretch": 50.0,    # Partially bent
-        "middle_left_stretch": 100.0,  # Extended
-        "ring_left_stretch": 100.0,    # Extended
-        "pinky_left_stretch": 100.0,   # Extended
+        Joint.THUMB_LEFT_OPPOSITION: 100.0,
+        Joint.THUMB_LEFT_STRETCH: 50.0,    # Partially bent
+        Joint.INDEX_LEFT_STRETCH: 50.0,    # Partially bent
+        Joint.MIDDLE_LEFT_STRETCH: 100.0,  # Extended
+        Joint.RING_LEFT_STRETCH: 100.0,    # Extended
+        Joint.PINKY_LEFT_STRETCH: 100.0,   # Extended
     })
 ```
 
@@ -148,12 +150,12 @@ def ok_gesture_left(backend):
 def pinch_grip_left(backend):
     """Pinch grip for holding a pen."""
     backend.set_joints({
-        "thumb_left_opposition": 80.0,
-        "thumb_left_stretch": 60.0,
-        "index_left_stretch": 60.0,
-        "middle_left_stretch": 40.0,
-        "ring_left_stretch": 30.0,
-        "pinky_left_stretch": 30.0,
+        Joint.THUMB_LEFT_OPPOSITION: 80.0,
+        Joint.THUMB_LEFT_STRETCH: 60.0,
+        Joint.INDEX_LEFT_STRETCH: 60.0,
+        Joint.MIDDLE_LEFT_STRETCH: 40.0,
+        Joint.RING_LEFT_STRETCH: 30.0,
+        Joint.PINKY_LEFT_STRETCH: 30.0,
     })
 ```
 
@@ -162,7 +164,7 @@ def pinch_grip_left(backend):
 ### Wave Animation
 
 ```python
-from pib3 import Swift
+from pib3 import Swift, Joint
 import time
 
 def wave_animation(backend):
@@ -173,13 +175,13 @@ def wave_animation(backend):
 
     # Wave back and forth
     for _ in range(3):
-        backend.set_joint("wrist_left", 30.0)
+        backend.set_joint(Joint.WRIST_LEFT, 30.0)
         time.sleep(0.3)
-        backend.set_joint("wrist_left", 70.0)
+        backend.set_joint(Joint.WRIST_LEFT, 70.0)
         time.sleep(0.3)
 
     # Return to neutral
-    backend.set_joint("wrist_left", 50.0)
+    backend.set_joint(Joint.WRIST_LEFT, 50.0)
 
 with Swift() as viz:
     wave_animation(viz)

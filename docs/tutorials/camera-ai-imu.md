@@ -625,13 +625,13 @@ class VisionController:
 
                     if center_x < 0.4:
                         # Person on left, turn head left
-                        self.robot.set_joint("turn_head_motor", 60)
+                        self.robot.set_joint(Joint.TURN_HEAD, 60)
                     elif center_x > 0.6:
                         # Person on right, turn head right
-                        self.robot.set_joint("turn_head_motor", 40)
+                        self.robot.set_joint(Joint.TURN_HEAD, 40)
                     else:
                         # Person centered
-                        self.robot.set_joint("turn_head_motor", 50)
+                        self.robot.set_joint(Joint.TURN_HEAD, 50)
 
                     self.person_detected = False
 
@@ -640,6 +640,7 @@ class VisionController:
             sub.unsubscribe()
 
 # Usage
+from pib3 import Robot, Joint
 with Robot(host="192.168.178.71") as robot:
     controller = VisionController(robot)
     controller.run(duration=30)

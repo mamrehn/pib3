@@ -7,13 +7,14 @@ Abstract base class defining the common interface for all robot control backends
 All backends (Robot, Swift, Webots) inherit from `RobotBackend` and share a common API for joint control and trajectory execution.
 
 ```python
-from pib3 import Robot, Swift
+from pib3 import Robot, Swift, Joint
 
 # All backends support the same methods
 with Swift() as backend:
-    backend.set_joint("elbow_left", 50.0)
-    pos = backend.get_joint("elbow_left")
+    backend.set_joint(Joint.ELBOW_LEFT, 50.0)
+    pos = backend.get_joint(Joint.ELBOW_LEFT)
     backend.run_trajectory("trajectory.json")
+```
 ```
 
 ---
@@ -43,19 +44,19 @@ Must be called before using any other methods. Alternatively, use the context ma
 **Example:**
 
 ```python
-from pib3 import Robot
+from pib3 import Robot, Joint
 
 # Manual connection
 robot = Robot(host="172.26.34.149")
 robot.connect()
 try:
-    robot.set_joint("elbow_left", 50.0)
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0)
 finally:
     robot.disconnect()
 
 # Context manager (recommended)
 with Robot(host="172.26.34.149") as robot:
-    robot.set_joint("elbow_left", 50.0)
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0)
 ```
 
 ---
@@ -137,15 +138,15 @@ def get_joint(
 **Example:**
 
 ```python
-from pib3 import Robot
+from pib3 import Robot, Joint
 
 with Robot(host="172.26.34.149") as robot:
     # Get position (waits up to 5s by default)
-    pos_percent = robot.get_joint("elbow_left")
+    pos_percent = robot.get_joint(Joint.ELBOW_LEFT)
     print(f"Elbow at {pos_percent:.1f}%")
 
     # Get position with custom timeout
-    pos_rad = robot.get_joint("elbow_left", unit="rad", timeout=2.0)
+    pos_rad = robot.get_joint(Joint.ELBOW_LEFT, unit="rad", timeout=2.0)
     print(f"Elbow at {pos_rad:.3f} rad")
 ```
 
@@ -251,21 +252,21 @@ def set_joint(
 **Example:**
 
 ```python
-from pib3 import Swift
+from pib3 import Swift, Joint
 import math
 
 with Swift() as viz:
     # Set using percentage (recommended)
-    viz.set_joint("elbow_left", 50.0)  # Move to 50%
-    viz.set_joint("elbow_left", 0.0)   # Move to minimum
-    viz.set_joint("elbow_left", 100.0) # Move to maximum
+    viz.set_joint(Joint.ELBOW_LEFT, 50.0)  # Move to 50%
+    viz.set_joint(Joint.ELBOW_LEFT, 0.0)   # Move to minimum
+    viz.set_joint(Joint.ELBOW_LEFT, 100.0) # Move to maximum
 
     # Set using radians
-    viz.set_joint("elbow_left", math.pi / 4, unit="rad")  # 45 degrees
+    viz.set_joint(Joint.ELBOW_LEFT, math.pi / 4, unit="rad")  # 45 degrees
 
     # Wait for completion
     success = viz.set_joint(
-        "elbow_left",
+        Joint.ELBOW_LEFT,
         75.0,
         async_=False,
         timeout=2.0,
@@ -312,15 +313,15 @@ def set_joints(
 **Example:**
 
 ```python
-from pib3 import Robot
+from pib3 import Robot, Joint
 
 with Robot(host="172.26.34.149") as robot:
     # Set multiple joints with a dictionary
     robot.set_joints({
-        "shoulder_vertical_left": 30.0,
-        "shoulder_horizontal_left": 40.0,
-        "elbow_left": 60.0,
-        "wrist_left": 50.0,
+        Joint.SHOULDER_VERTICAL_LEFT: 30.0,
+        Joint.SHOULDER_HORIZONTAL_LEFT: 40.0,
+        Joint.ELBOW_LEFT: 60.0,
+        Joint.WRIST_LEFT: 50.0,
     })
 
     # Save and restore poses
@@ -332,7 +333,7 @@ with Robot(host="172.26.34.149") as robot:
 
     # Wait for completion
     success = robot.set_joints(
-        {"elbow_left": 50.0, "wrist_left": 50.0},
+        {Joint.ELBOW_LEFT: 50.0, Joint.WRIST_LEFT: 50.0},
         async_=False,
         timeout=2.0,
     )
@@ -474,13 +475,15 @@ All backends support two units for position values:
 - `100%` = joint at maximum position
 
 ```python
+from pib3 import Joint
+import math
+
 # These are equivalent ways to move to the middle
-backend.set_joint("elbow_left", 50.0)               # 50%
-backend.set_joint("elbow_left", 50.0, unit="percent")  # Explicit
+backend.set_joint(Joint.ELBOW_LEFT, 50.0)               # 50%
+backend.set_joint(Joint.ELBOW_LEFT, 50.0, unit="percent")  # Explicit
 
 # Use radians for precise angular control
-import math
-backend.set_joint("elbow_left", math.pi / 4, unit="rad")  # 45 degrees
+backend.set_joint(Joint.ELBOW_LEFT, math.pi / 4, unit="rad")  # 45 degrees
 ```
 
 ---

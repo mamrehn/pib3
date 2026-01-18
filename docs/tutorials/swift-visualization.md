@@ -100,26 +100,26 @@ viz.launch_interactive(port=8080)  # Sliders at http://localhost:8080
 Swift uses the same API as the real robot:
 
 ```python
-from pib3 import Swift
+from pib3 import Swift, Joint
 import time
 
 with Swift() as viz:
     # Set joint positions (percentage)
-    viz.set_joint("turn_head_motor", 0.0)    # Look left
+    viz.set_joint(Joint.TURN_HEAD, 0.0)    # Look left
     time.sleep(1)
-    viz.set_joint("turn_head_motor", 100.0)  # Look right
+    viz.set_joint(Joint.TURN_HEAD, 100.0)  # Look right
     time.sleep(1)
-    viz.set_joint("turn_head_motor", 50.0)   # Center
+    viz.set_joint(Joint.TURN_HEAD, 50.0)   # Center
 
     # Read positions
-    pos = viz.get_joint("turn_head_motor")
+    pos = viz.get_joint(Joint.TURN_HEAD)
     print(f"Head at {pos:.1f}%")
 
     # Set multiple joints
     viz.set_joints({
-        "shoulder_vertical_left": 30.0,
-        "elbow_left": 60.0,
-        "wrist_left": 50.0,
+        Joint.SHOULDER_VERTICAL_LEFT: 30.0,
+        Joint.ELBOW_LEFT: 60.0,
+        Joint.WRIST_LEFT: 50.0,
     })
 ```
 
