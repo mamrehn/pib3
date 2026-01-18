@@ -26,7 +26,7 @@ import PIL.Image
 import PIL.ImageDraw
 import PIL.ImageFont
 
-from pib3 import Robot, generate_trajectory, TrajectoryConfig, PaperConfig
+from pib3 import Robot, Joint, generate_trajectory, TrajectoryConfig, PaperConfig
 
 
 def ensure_icons_exist(output_dir: Path):
@@ -135,7 +135,7 @@ class SceneScanner:
                 if label not in self.detected_objects or conf > self.detected_objects[label]['confidence']:
                     # Get current head position in percent (0-100)
                     try:
-                        head_pos = self.robot.get_joint("turn_head_motor", unit="percent")
+                        head_pos = self.robot.get_joint(Joint.TURN_HEAD, unit="percent")
                     except Exception:
                         head_pos = None
                         
@@ -177,17 +177,17 @@ def main():
             
             # Look Left
             print("Turning head LEFT (100%)...")
-            robot.set_joint("turn_head_motor", 100)
+            robot.set_joint(Joint.TURN_HEAD, 100)
             time.sleep(2.0)
             
             # Look Right
             print("Turning head RIGHT (0%)...")
-            robot.set_joint("turn_head_motor", 0)
+            robot.set_joint(Joint.TURN_HEAD, 0)
             time.sleep(2.0)
             
             # Look Center
             print("Centering head (50%)...")
-            robot.set_joint("turn_head_motor", 50)
+            robot.set_joint(Joint.TURN_HEAD, 50)
             time.sleep(1.0)
             
             scanner.stop()

@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 
 try:
-    from pib3 import Robot
+    from pib3 import Robot, Joint
     HAS_PIB3 = True
 except ImportError:
     HAS_PIB3 = False
@@ -40,8 +40,8 @@ def demo_read_joints(robot):
     print("\n=== Reading Joint Positions ===")
 
     # Read a single joint
-    print("\n1. Reading single joint (turn_head_motor):")
-    head_pos = robot.get_joint("turn_head_motor")
+    print("\n1. Reading single joint (TURN_HEAD):")
+    head_pos = robot.get_joint(Joint.TURN_HEAD)
     if head_pos is not None:
         print(f"   Head position: {head_pos:.1f}%")
     else:
@@ -49,13 +49,13 @@ def demo_read_joints(robot):
 
     # Read in radians
     print("\n2. Reading same joint in radians:")
-    head_rad = robot.get_joint("turn_head_motor", unit="rad")
+    head_rad = robot.get_joint(Joint.TURN_HEAD, unit="rad")
     if head_rad is not None:
         print(f"   Head position: {head_rad:.3f} rad")
 
     # Read multiple specific joints
     print("\n3. Reading multiple joints:")
-    arm_joints = ["shoulder_vertical_left", "shoulder_horizontal_left", "elbow_left"]
+    arm_joints = [Joint.SHOULDER_VERTICAL_LEFT, Joint.SHOULDER_HORIZONTAL_LEFT, Joint.ELBOW_LEFT]
     positions = robot.get_joints(arm_joints)
     for name, pos in positions.items():
         print(f"   {name}: {pos:.1f}%")
@@ -74,13 +74,13 @@ def demo_write_joints(robot):
 
     # Set a single joint (async - returns immediately)
     print("\n1. Moving head left (async):")
-    robot.set_joint("turn_head_motor", 70.0)
+    robot.set_joint(Joint.TURN_HEAD, 70.0)
     print("   Command sent! (not waiting for completion)")
     time.sleep(1.0)
 
     # Set a single joint (sync - waits for completion)
     print("\n2. Moving head right (sync - waiting for completion):")
-    success = robot.set_joint("turn_head_motor", 30.0, async_=False, timeout=3.0)
+    success = robot.set_joint(Joint.TURN_HEAD, 30.0, async_=False, timeout=3.0)
     if success:
         print("   Joint reached target position!")
     else:
@@ -88,14 +88,14 @@ def demo_write_joints(robot):
 
     # Center head
     print("\n3. Centering head:")
-    robot.set_joint("turn_head_motor", 50.0, async_=False, timeout=2.0)
+    robot.set_joint(Joint.TURN_HEAD, 50.0, async_=False, timeout=2.0)
     print("   Head centered")
 
     # Set multiple joints at once
     print("\n4. Moving multiple joints simultaneously:")
     robot.set_joints({
-        "shoulder_vertical_left": 40.0,
-        "elbow_left": 60.0,
+        Joint.SHOULDER_VERTICAL_LEFT: 40.0,
+        Joint.ELBOW_LEFT: 60.0,
     })
     print("   Commands sent for shoulder and elbow")
     time.sleep(1.5)
@@ -103,8 +103,8 @@ def demo_write_joints(robot):
     # Return to neutral
     print("\n5. Returning joints to neutral (50%):")
     robot.set_joints({
-        "shoulder_vertical_left": 50.0,
-        "elbow_left": 50.0,
+        Joint.SHOULDER_VERTICAL_LEFT: 50.0,
+        Joint.ELBOW_LEFT: 50.0,
     }, async_=False, timeout=3.0)
     print("   Done!")
 
@@ -125,9 +125,9 @@ def demo_pose_management(robot):
     # Move to a different pose
     print("\n2. Moving to a test pose:")
     robot.set_joints({
-        "turn_head_motor": 70.0,
-        "shoulder_vertical_left": 30.0,
-        "elbow_left": 70.0,
+        Joint.TURN_HEAD: 70.0,
+        Joint.SHOULDER_VERTICAL_LEFT: 30.0,
+        Joint.ELBOW_LEFT: 70.0,
     }, async_=False, timeout=3.0)
     print("   Moved to test pose")
     time.sleep(1.0)
@@ -137,10 +137,10 @@ def demo_pose_management(robot):
     with open(pose_file) as f:
         saved_pose = json.load(f)
 
-    # Only restore the joints we moved
+    # Only restore the joints we moved (file uses string keys)
     joints_to_restore = {
         k: v for k, v in saved_pose.items()
-        if k in ["turn_head_motor", "shoulder_vertical_left", "elbow_left"]
+        if k in [Joint.TURN_HEAD.value, Joint.SHOULDER_VERTICAL_LEFT.value, Joint.ELBOW_LEFT.value]
     }
     robot.set_joints(joints_to_restore, async_=False, timeout=3.0)
     print("   Pose restored!")
@@ -158,23 +158,23 @@ def demo_wave(robot):
     # Raise arm
     print("   Raising arm...")
     robot.set_joints({
-        "shoulder_vertical_left": 20.0,
-        "shoulder_horizontal_left": 30.0,
-        "elbow_left": 30.0,
+        Joint.SHOULDER_VERTICAL_LEFT: 20.0,
+        Joint.SHOULDER_HORIZONTAL_LEFT: 30.0,
+        Joint.ELBOW_LEFT: 30.0,
     }, async_=False, timeout=2.0)
 
     # Wave motion
     print("   Waving...")
     for i in range(3):
-        robot.set_joint("elbow_left", 20.0, async_=False, timeout=1.0)
-        robot.set_joint("elbow_left", 40.0, async_=False, timeout=1.0)
+        robot.set_joint(Joint.ELBOW_LEFT, 20.0, async_=False, timeout=1.0)
+        robot.set_joint(Joint.ELBOW_LEFT, 40.0, async_=False, timeout=1.0)
 
     # Return to neutral
     print("   Returning to neutral...")
     robot.set_joints({
-        "shoulder_vertical_left": 50.0,
-        "shoulder_horizontal_left": 50.0,
-        "elbow_left": 50.0,
+        Joint.SHOULDER_VERTICAL_LEFT: 50.0,
+        Joint.SHOULDER_HORIZONTAL_LEFT: 50.0,
+        Joint.ELBOW_LEFT: 50.0,
     }, async_=False, timeout=2.0)
 
     print("   Done waving!")

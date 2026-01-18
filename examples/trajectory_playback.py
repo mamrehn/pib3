@@ -28,7 +28,7 @@ import time
 from pathlib import Path
 
 try:
-    from pib3 import Robot, generate_trajectory, TrajectoryConfig, Trajectory
+    from pib3 import Robot, Joint, generate_trajectory, TrajectoryConfig, Trajectory
     HAS_PIB3 = True
 except ImportError:
     HAS_PIB3 = False
@@ -178,7 +178,7 @@ def create_simple_trajectory():
         t = i / 99.0  # 0 to 1
         head_pos = 50 + 20 * math.sin(t * 2 * math.pi)  # 30 to 70
         waypoints.append({
-            "turn_head_motor": head_pos,
+            Joint.TURN_HEAD: head_pos,
         })
 
     print(f"Created test trajectory with {len(waypoints)} waypoints")

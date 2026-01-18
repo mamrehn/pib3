@@ -83,26 +83,27 @@ class RobotBackend(ABC):
         - SwiftBackend: Swift browser visualization
 
     Example:
+        >>> from pib3 import Joint
         >>> with backend as robot:
         ...     # Set a single joint (percentage: 0%=min, 100%=max of calibrated range)
-        ...     robot.set_joint("elbow_left", 0.0)    # 0% = min angle
-        ...     robot.set_joint("elbow_left", 50.0)   # 50% = middle of range
-        ...     robot.set_joint("elbow_left", 100.0)  # 100% = max angle
+        ...     robot.set_joint(Joint.ELBOW_LEFT, 0.0)    # 0% = min angle
+        ...     robot.set_joint(Joint.ELBOW_LEFT, 50.0)   # 50% = middle of range
+        ...     robot.set_joint(Joint.ELBOW_LEFT, 100.0)  # 100% = max angle
         ...
         ...     # Use degrees directly
-        ...     robot.set_joint("elbow_left", -30.0, unit="deg")  # -30 degrees
-        ...     angle_deg = robot.get_joint("elbow_left", unit="deg")
+        ...     robot.set_joint(Joint.ELBOW_LEFT, -30.0, unit="deg")  # -30 degrees
+        ...     angle_deg = robot.get_joint(Joint.ELBOW_LEFT, unit="deg")
         ...
         ...     # Use radians if needed
-        ...     robot.set_joint("elbow_left", 0.5, unit="rad")
-        ...     angle_rad = robot.get_joint("elbow_left", unit="rad")
+        ...     robot.set_joint(Joint.ELBOW_LEFT, 0.5, unit="rad")
+        ...     angle_rad = robot.get_joint(Joint.ELBOW_LEFT, unit="rad")
         ...
         ...     # Save and restore pose (in percentage)
         ...     saved_pose = robot.get_joints()
         ...     robot.set_joints(saved_pose)
         ...
         ...     # Set and wait for completion
-        ...     success = robot.set_joint("elbow_left", 50.0, async_=False)
+        ...     success = robot.set_joint(Joint.ELBOW_LEFT, 50.0, async_=False)
     """
 
     # Motor names available on PIB robot

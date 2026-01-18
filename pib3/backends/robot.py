@@ -65,18 +65,19 @@ class RealRobotBackend(RobotBackend):
         Calibrate with: python -m pib3.tools.calibrate_joints
 
     Example:
+        >>> from pib3 import Joint
         >>> from pib3.backends import RealRobotBackend
         >>> with RealRobotBackend(host="172.26.34.149") as robot:
         ...     robot.run_trajectory("trajectory.json")
         ...
         ...     # Control individual joints
-        ...     robot.set_joint("elbow_left", 50.0)  # 50% of calibrated range
-        ...     robot.set_joint("elbow_left", 45.0, unit="deg")  # 45 degrees
-        ...     robot.set_joint("elbow_left", 0.5, unit="rad")  # 0.5 radians
+        ...     robot.set_joint(Joint.ELBOW_LEFT, 50.0)  # 50% of calibrated range
+        ...     robot.set_joint(Joint.ELBOW_LEFT, 45.0, unit="deg")  # 45 degrees
+        ...     robot.set_joint(Joint.ELBOW_LEFT, 0.5, unit="rad")  # 0.5 radians
         ...
         ...     # Read current position
-        ...     angle = robot.get_joint("elbow_left")  # Returns percentage
-        ...     angle_deg = robot.get_joint("elbow_left", unit="deg")
+        ...     angle = robot.get_joint(Joint.ELBOW_LEFT)  # Returns percentage
+        ...     angle_deg = robot.get_joint(Joint.ELBOW_LEFT, unit="deg")
         ...
         ...     # Save and restore pose
         ...     saved_pose = robot.get_joints()

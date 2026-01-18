@@ -43,7 +43,7 @@ except ImportError:
 
 # Import pib3 - will fail gracefully if not installed
 try:
-    from pib3 import Robot
+    from pib3 import Robot, Joint
     HAS_PIB3 = True
 except ImportError:
     HAS_PIB3 = False
@@ -245,7 +245,7 @@ def demo_person_tracking(robot, duration: float = 30.0):
             head_pos = (1.0 - center_x) * 40 + 30  # Range: 30-70%
 
             try:
-                robot.set_joint("turn_head_motor", head_pos)
+                robot.set_joint(Joint.TURN_HEAD, head_pos)
                 print(f"Person at x={center_x:.2f} → head at {head_pos:.0f}%")
             except Exception as e:
                 print(f"Failed to move head: {e}")
@@ -257,12 +257,12 @@ def demo_person_tracking(robot, duration: float = 30.0):
 
     try:
         # Center head initially
-        robot.set_joint("turn_head_motor", 50)
+        robot.set_joint(Joint.TURN_HEAD, 50)
         time.sleep(duration)
     finally:
         sub.unsubscribe()
         # Return head to center
-        robot.set_joint("turn_head_motor", 50)
+        robot.set_joint(Joint.TURN_HEAD, 50)
 
     print("Tracking complete.")
 
