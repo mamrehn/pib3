@@ -33,23 +33,24 @@
 ## Features
 
 - **Image to Trajectory**: Convert any image to robot drawing trajectories
-- **Percentage-based Control**: Use 0-100% values that work across all backends
-- **Real Robot Support**: Connect to PIB robot via rosbridge websocket
-- **Swift Visualization**: Browser-based 3D visualization with interactive controls
-- **Webots Integration**: Full Webots simulator support
-- **Calibration Tool**: Interactive calibration for your specific robot hardware
-- **Save/Restore Poses**: Easily save and restore robot poses
+- **Joint Enum**: IDE tab completion for joint names (`Joint.ELBOW_LEFT`)
+- **Percentage Control**: Use 0-100% values that work across all backends
+- **Real Robot Support**: Connect via rosbridge websocket
+- **Swift Visualization**: Browser-based 3D visualization
+- **Webots Integration**: Full simulator support
 
 ## Quick Example
 
 ```python
 import pib3
+from pib3 import Robot, Joint
 
 # Convert image to trajectory
 trajectory = pib3.generate_trajectory("drawing.png")
 
-# Execute on real robot
-with pib3.Robot(host="172.26.34.149") as robot:
+# Execute on robot with IDE tab completion
+with Robot(host="172.26.34.149") as robot:
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0)  # Use Joint enum
     robot.run_trajectory(trajectory)
 ```
 
@@ -97,9 +98,7 @@ Learn how to use pib3 effectively:
 
 ## API Reference
 
-Full documentation for all classes and functions:
-
-- [Core Types](api/types.md) - Stroke, Sketch, Trajectory
+- [Core Types](api/types.md) - Joint enum, Stroke, Sketch, Trajectory
 - [Configuration](api/config.md) - All configuration options
 - [Backends](api/backends/base.md) - Robot, Swift, Webots
 

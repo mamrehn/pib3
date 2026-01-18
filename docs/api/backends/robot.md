@@ -19,17 +19,11 @@ Control the physical PIB robot via rosbridge websocket connection.
 ## Quick Start
 
 ```python
-from pib3 import Robot
+from pib3 import Robot, Joint
 
 with Robot(host="172.26.34.149") as robot:
-    # Control joints
-    robot.set_joint("elbow_left", 50.0)
-
-    # Read positions
-    pos = robot.get_joint("elbow_left")
-    print(f"Elbow at {pos:.1f}%")
-
-    # Execute trajectory
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0)  # IDE tab completion
+    pos = robot.get_joint(Joint.ELBOW_LEFT)
     robot.run_trajectory("trajectory.json")
 ```
 
@@ -105,14 +99,11 @@ finally:
 
 ### Using Context Manager
 
-The recommended way to use the robot:
-
 ```python
-from pib3 import Robot
+from pib3 import Robot, Joint
 
 with Robot(host="172.26.34.149") as robot:
-    # Automatically connected
-    robot.set_joint("elbow_left", 50.0)
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0)
 # Automatically disconnected
 ```
 
@@ -129,50 +120,36 @@ Set a single joint position.
 ```python
 def set_joint(
     self,
-    motor_name: str,
+    motor_name: Union[str, Joint],
     position: float,
-    unit: Literal["percent", "rad"] = "percent",
+    unit: Literal["percent", "rad", "deg"] = "percent",
     async_: bool = True,
     timeout: float = 1.0,
     tolerance: Optional[float] = None,
 ) -> bool
 ```
 
-**Parameters:**
-
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `motor_name` | `str` | *required* | Motor name (e.g., `"elbow_left"`). |
-| `position` | `float` | *required* | Target position (0-100 for percent, radians for rad). |
-| `unit` | `"percent"` or `"rad"` | `"percent"` | Position unit. |
-| `async_` | `bool` | `True` | If `True`, return immediately. If `False`, wait for joint to reach target. |
-| `timeout` | `float` | `1.0` | Max wait time (only used when `async_=False`). |
-| `tolerance` | `float` or `None` | `None` | Acceptable error (2.0% or 0.05 rad default). |
-
-**Returns:** `bool` - `True` if successful.
+| `motor_name` | `str` or `Joint` | *required* | Motor name or `Joint` enum (e.g., `Joint.ELBOW_LEFT`). |
+| `position` | `float` | *required* | Target position in specified unit. |
+| `unit` | `"percent"`, `"rad"`, `"deg"` | `"percent"` | Position unit. |
+| `async_` | `bool` | `True` | If `False`, wait for joint to reach target. |
+| `timeout` | `float` | `1.0` | Max wait time when `async_=False`. |
+| `tolerance` | `float` | `None` | Acceptable error (default: 2%, 3°, or 0.05 rad). |
 
 **Example:**
 
 ```python
-with Robot(host="172.26.34.149") as robot:
-    # Percentage (default)
-    robot.set_joint("turn_head_motor", 50.0)  # Center head
+from pib3 import Robot, Joint
 
-    # Radians
-    robot.set_joint("elbow_left", 1.25, unit="rad")
+with Robot(host="172.26.34.149") as robot:
+    robot.set_joint(Joint.TURN_HEAD, 50.0)           # Percentage
+    robot.set_joint(Joint.ELBOW_LEFT, 1.25, unit="rad")  # Radians
+    robot.set_joint(Joint.ELBOW_LEFT, -30.0, unit="deg") # Degrees
 
     # Wait for completion
-    success = robot.set_joint(
-        "elbow_left",
-        50.0,
-        async_=False,
-        timeout=2.0,
-        tolerance=2.0,
-    )
-    if success:
-        print("Joint reached target!")
-    else:
-        print("Timeout - joint didn't reach target")
+    success = robot.set_joint(Joint.ELBOW_LEFT, 50.0, async_=False)
 ```
 
 ### set_joints()
@@ -182,31 +159,31 @@ Set multiple joint positions simultaneously.
 ```python
 def set_joints(
     self,
-    positions: Union[Dict[str, float], Sequence[float]],
-    unit: Literal["percent", "rad"] = "percent",
+    positions: Union[Dict[Union[str, Joint], float], Sequence[float]],
+    unit: Literal["percent", "rad", "deg"] = "percent",
     async_: bool = True,
     timeout: float = 1.0,
     tolerance: Optional[float] = None,
 ) -> bool
 ```
 
-**Parameters:**
-
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `positions` | `Dict[str, float]` or `Sequence[float]` | *required* | Target positions as dict or sequence. |
-| `unit` | `"percent"` or `"rad"` | `"percent"` | Position unit. |
-| `async_` | `bool` | `True` | If `True`, return immediately. If `False`, wait for joints to reach targets. |
-| `timeout` | `float` | `1.0` | Max wait time (only used when `async_=False`). |
-| `tolerance` | `float` or `None` | `None` | Acceptable error. |
+| `positions` | `Dict[str\|Joint, float]` or `Sequence[float]` | *required* | Target positions. |
+| `unit` | `"percent"`, `"rad"`, `"deg"` | `"percent"` | Position unit. |
+| `async_` | `bool` | `True` | If `False`, wait for joints to reach targets. |
+| `timeout` | `float` | `1.0` | Max wait time when `async_=False`. |
+| `tolerance` | `float` | `None` | Acceptable error. |
 
 **Example:**
 
 ```python
+from pib3 import Robot, Joint
+
 with Robot(host="172.26.34.149") as robot:
     robot.set_joints({
-        "shoulder_vertical_left": 30.0,
-        "elbow_left": 60.0,
+        Joint.SHOULDER_VERTICAL_LEFT: 30.0,
+        Joint.ELBOW_LEFT: 60.0,
     })
 ```
 
@@ -217,33 +194,26 @@ Read a single joint position.
 ```python
 def get_joint(
     self,
-    motor_name: str,
-    unit: Literal["percent", "rad"] = "percent",
+    motor_name: Union[str, Joint],
+    unit: Literal["percent", "rad", "deg"] = "percent",
     timeout: Optional[float] = None,
 ) -> Optional[float]
 ```
 
-**Parameters:**
-
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `motor_name` | `str` | *required* | Motor name to query. |
-| `unit` | `"percent"` or `"rad"` | `"percent"` | Return unit. |
-| `timeout` | `float` or `None` | `5.0` | Max time to wait for ROS messages to arrive (seconds). |
+| `motor_name` | `str` or `Joint` | *required* | Motor name or `Joint` enum. |
+| `unit` | `"percent"`, `"rad"`, `"deg"` | `"percent"` | Return unit. |
+| `timeout` | `float` | `5.0` | Max wait time for ROS messages (seconds). |
 
-**Returns:** `float` or `None` - Current position, or `None` if unavailable.
-
-**Example:**
+**Returns:** `float` or `None` - Current position.
 
 ```python
-with Robot(host="172.26.34.149") as robot:
-    # Uses default 5s timeout
-    pos = robot.get_joint("elbow_left")
-    print(f"Elbow at {pos:.1f}%")
+from pib3 import Robot, Joint
 
-    # Custom timeout
-    pos_rad = robot.get_joint("elbow_left", unit="rad", timeout=2.0)
-    print(f"Elbow at {pos_rad:.3f} rad")
+with Robot(host="172.26.34.149") as robot:
+    pos = robot.get_joint(Joint.ELBOW_LEFT)
+    pos_rad = robot.get_joint(Joint.ELBOW_LEFT, unit="rad")
 ```
 
 ### get_joints()
@@ -253,35 +223,26 @@ Read multiple joint positions.
 ```python
 def get_joints(
     self,
-    motor_names: Optional[List[str]] = None,
-    unit: Literal["percent", "rad"] = "percent",
+    motor_names: Optional[List[Union[str, Joint]]] = None,
+    unit: Literal["percent", "rad", "deg"] = "percent",
     timeout: Optional[float] = None,
 ) -> Dict[str, float]
 ```
 
-**Parameters:**
-
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `motor_names` | `List[str]` or `None` | `None` | Motors to query. `None` returns all. |
-| `unit` | `"percent"` or `"rad"` | `"percent"` | Return unit. |
-| `timeout` | `float` or `None` | `5.0` | Max time to wait for ROS messages to arrive (seconds). |
+| `motor_names` | `List[str\|Joint]` or `None` | `None` | Motors to query. `None` returns all. |
+| `unit` | `"percent"`, `"rad"`, `"deg"` | `"percent"` | Return unit. |
+| `timeout` | `float` | `5.0` | Max wait time for ROS messages (seconds). |
 
 **Returns:** `Dict[str, float]` - Motor names mapped to positions.
 
-**Example:**
-
 ```python
-with Robot(host="172.26.34.149") as robot:
-    # Get specific joints (uses default 5s timeout)
-    arm = robot.get_joints([
-        "shoulder_vertical_left",
-        "elbow_left",
-        "wrist_left",
-    ])
+from pib3 import Robot, Joint
 
-    # Get all joints with custom timeout
-    all_joints = robot.get_joints(timeout=2.0)
+with Robot(host="172.26.34.149") as robot:
+    arm = robot.get_joints([Joint.ELBOW_LEFT, Joint.WRIST_LEFT])
+    all_joints = robot.get_joints()
 ```
 
 ---
@@ -289,8 +250,6 @@ with Robot(host="172.26.34.149") as robot:
 ## Trajectory Execution
 
 ### run_trajectory()
-
-Execute a trajectory on the robot.
 
 ```python
 def run_trajectory(
@@ -301,37 +260,23 @@ def run_trajectory(
 ) -> bool
 ```
 
-**Parameters:**
-
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `trajectory` | `str`, `Path`, or `Trajectory` | *required* | Trajectory file path or object. |
-| `rate_hz` | `float` | `20.0` | Playback rate (waypoints per second). |
-| `progress_callback` | `Callable[[int, int], None]` or `None` | `None` | Progress callback `(current, total)`. |
-
-**Returns:** `bool` - `True` if completed successfully.
-
-**Example:**
+| `trajectory` | `str`, `Path`, `Trajectory` | *required* | Trajectory file or object. |
+| `rate_hz` | `float` | `20.0` | Waypoints per second. |
+| `progress_callback` | `Callable[[int, int], None]` | `None` | Progress callback `(current, total)`. |
 
 ```python
 from pib3 import Robot, Trajectory
 
 with Robot(host="172.26.34.149") as robot:
-    # From file
     robot.run_trajectory("trajectory.json")
 
-    # From Trajectory object
-    trajectory = Trajectory.from_json("trajectory.json")
-    robot.run_trajectory(trajectory, rate_hz=20.0)
-
     # With progress
-    def progress(current, total):
-        print(f"\r{current}/{total} waypoints", end="")
-
     robot.run_trajectory(
         trajectory,
         rate_hz=20.0,
-        progress_callback=progress,
+        progress_callback=lambda c, t: print(f"\r{c}/{t}", end=""),
     )
 ```
 
@@ -344,58 +289,33 @@ import json
 from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
-    # Save current pose
-    pose = robot.get_joints()
+    pose = robot.get_joints()                    # Save
+    with open("pose.json", "w") as f:
+        json.dump(pose, f)
 
-    # Save to file
-    with open("saved_pose.json", "w") as f:
-        json.dump(pose, f, indent=2)
-
-    # Later: restore from file
-    with open("saved_pose.json") as f:
-        saved = json.load(f)
-    robot.set_joints(saved)
+    with open("pose.json") as f:
+        robot.set_joints(json.load(f))           # Restore
 ```
 
 ---
 
 ## Camera Streaming
 
-Access the OAK-D Lite camera via streaming.
-
 ### subscribe_camera_image()
 
-Subscribe to camera images. The callback receives raw JPEG bytes.
+Subscribe to camera images (raw JPEG bytes).
 
 ```python
-def subscribe_camera_image(
-    self,
-    callback: Callable[[bytes], None],
-) -> roslibpy.Topic
+def subscribe_camera_image(callback: Callable[[bytes], None]) -> roslibpy.Topic
 ```
 
-**Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `callback` | `Callable[[bytes], None]` | *required* | Called with raw JPEG bytes for each frame. |
-
-**Returns:** `roslibpy.Topic` - Call `.unsubscribe()` when done to stop streaming.
-
-!!! note "Data Transport"
-    Data is transmitted as base64-encoded JSON over the WebSocket connection.
-    The pib3 library automatically decodes this to raw JPEG bytes before
-    calling your callback.
-
-**Example:**
+Call `.unsubscribe()` on the returned topic to stop streaming.
 
 ```python
-import cv2
-import numpy as np
+import cv2, numpy as np
 
 def on_frame(jpeg_bytes):
-    img = np.frombuffer(jpeg_bytes, dtype=np.uint8)
-    frame = cv2.imdecode(img, cv2.IMREAD_COLOR)
+    frame = cv2.imdecode(np.frombuffer(jpeg_bytes, np.uint8), cv2.IMREAD_COLOR)
     cv2.imshow("Camera", frame)
     cv2.waitKey(1)
 
@@ -407,250 +327,114 @@ with Robot(host="192.168.178.71") as robot:
 
 ### set_camera_config()
 
-Configure camera settings.
-
 ```python
 def set_camera_config(
-    self,
     fps: Optional[int] = None,
-    quality: Optional[int] = None,
-    resolution: Optional[tuple] = None,
+    quality: Optional[int] = None,      # JPEG quality 1-100
+    resolution: Optional[tuple] = None,  # (width, height)
 ) -> None
 ```
 
-**Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `fps` | `int` or `None` | `None` | Frames per second (e.g., 30). |
-| `quality` | `int` or `None` | `None` | JPEG quality 1-100. |
-| `resolution` | `tuple` or `None` | `None` | (width, height) tuple. |
-
-!!! note "Pipeline Rebuild"
-    Changing camera settings causes a brief stream interruption (~100-200ms).
+!!! note
+    Changing settings causes ~100-200ms stream interruption.
 
 ---
 
 ## AI Detection
 
-Access AI inference from the OAK-D Lite's neural compute engine.
-
-!!! tip "On-Demand Pattern"
-    AI inference only runs while you have active subscribers. Unsubscribe to stop inference and save resources.
+AI inference runs only while subscribers are active. Unsubscribe to stop and save resources.
 
 ### subscribe_ai_detections()
 
-Subscribe to AI detection results.
-
 ```python
-def subscribe_ai_detections(
-    self,
-    callback: Callable[[dict], None],
-) -> roslibpy.Topic
+def subscribe_ai_detections(callback: Callable[[dict], None]) -> roslibpy.Topic
 ```
 
-**Callback data format:**
-
+Callback receives:
 ```python
-{
-    "model": "mobilenet-ssd",
-    "type": "detection",  # or "classification", "segmentation", "pose"
-    "frame_id": 42,
-    "timestamp_ns": 1234567890123456789,
-    "latency_ms": 12.5,
-    "result": {
-        "detections": [
-            {"label": 15, "confidence": 0.92, "bbox": {...}}
-        ]
-    }
-}
+{"model": "mobilenet-ssd", "type": "detection", "frame_id": 42,
+ "result": {"detections": [{"label": 15, "confidence": 0.92, "bbox": {...}}]}}
 ```
-
-**Example:**
 
 ```python
 def on_detection(data):
-    if data['type'] == 'detection':
-        for det in data['result']['detections']:
-            print(f"Class {det['label']} at {det['bbox']}")
+    for det in data['result']['detections']:
+        print(f"Class {det['label']} @ {det['confidence']:.0%}")
 
-with Robot(host="172.26.34.149") as robot:
-    sub = robot.subscribe_ai_detections(on_detection)
-    time.sleep(10)
-    sub.unsubscribe()  # Inference stops
-```
-
-### get_available_ai_models()
-
-Get list of available AI models.
-
-```python
-def get_available_ai_models(
-    self,
-    timeout: float = 5.0,
-) -> dict
-```
-
-**Returns:** Dict mapping model names to their info.
-
-**Example:**
-
-```python
-models = robot.get_available_ai_models()
-for name, info in models.items():
-    print(f"{name}: {info['type']}")
+sub = robot.subscribe_ai_detections(on_detection)
+time.sleep(10)
+sub.unsubscribe()
 ```
 
 ### set_ai_model()
 
-Switch the active AI model (synchronous).
+Switch AI model (synchronous, waits for confirmation).
 
 ```python
-def set_ai_model(
-    self,
-    model_name: str,
-    timeout: float = 5.0,
-) -> bool
+def set_ai_model(model_name: str, timeout: float = 5.0) -> bool
 ```
-
-**Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `model_name` | `str` | *required* | Name of the model to switch to. |
-| `timeout` | `float` | `5.0` | Maximum time to wait for confirmation (seconds). |
-
-**Returns:** `bool` - `True` if model switch confirmed, `False` if timeout.
-
-This method is **synchronous** - it waits for the robot to confirm that the model
-has been loaded before returning. This ensures the model is ready to use immediately
-after the call returns.
-
-**Example:**
 
 ```python
-with Robot(host="192.168.178.71") as robot:
-    # Switch model and check success
-    if robot.set_ai_model("yolov8n"):
-        print("Model ready!")
-    else:
-        print("Model switch timed out")
-
-    # With custom timeout
-    if robot.set_ai_model("human-pose-estimation", timeout=10.0):
-        print("Pose model ready!")
+if robot.set_ai_model("yolov8n"):
+    print("Model ready!")
 ```
 
-!!! note "Pipeline Rebuild"
-    Model switching causes ~200-500ms interruption as the neural network
-    pipeline rebuilds on the OAK-D Lite.
+!!! note
+    Model switching causes ~200-500ms interruption.
 
 ### set_ai_config()
 
-Configure AI inference settings.
-
 ```python
 def set_ai_config(
-    self,
     model: Optional[str] = None,
-    confidence: Optional[float] = None,
-    segmentation_mode: Optional[str] = None,
+    confidence: Optional[float] = None,           # 0.0-1.0
+    segmentation_mode: Optional[str] = None,      # "bbox" or "mask"
     segmentation_target_class: Optional[int] = None,
 ) -> None
 ```
 
-**Parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `model` | `str` | Model name to switch to. |
-| `confidence` | `float` | Detection threshold (0.0-1.0). |
-| `segmentation_mode` | `str` | `"bbox"` (lightweight) or `"mask"` (detailed RLE). |
-| `segmentation_target_class` | `int` | Class ID for mask mode. |
-
-### subscribe_current_ai_model()
-
-Subscribe to model change notifications.
+### get_available_ai_models()
 
 ```python
-def subscribe_current_ai_model(
-    self,
-    callback: Callable[[dict], None],
-) -> roslibpy.Topic
+models = robot.get_available_ai_models()  # Returns dict of model info
 ```
 
 ---
 
 ## IMU Sensor
 
-Access IMU data from the OAK-D Lite's BMI270 sensor.
+Access BMI270 IMU data from OAK-D Lite.
 
 ### subscribe_imu()
 
-Subscribe to IMU data.
-
 ```python
 def subscribe_imu(
-    self,
     callback: Callable[[dict], None],
-    data_type: str = "full",
+    data_type: str = "full",  # "full", "accelerometer", or "gyroscope"
 ) -> roslibpy.Topic
 ```
 
-**Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `callback` | `Callable[[dict], None]` | *required* | Called with IMU data. |
-| `data_type` | `str` | `"full"` | `"full"`, `"accelerometer"`, or `"gyroscope"`. |
-
-!!! info "Data Source"
-    All data types subscribe to the same `/imu/data` ROS topic. The `accelerometer`
-    and `gyroscope` options filter the data client-side for convenience, providing
-    a simplified data format.
-
-**Callback data formats:**
-
 | `data_type` | Callback receives |
 |-------------|-------------------|
-| `"full"` | `{"linear_acceleration": {x, y, z}, "angular_velocity": {x, y, z}, "header": {...}}` |
-| `"accelerometer"` | `{"vector": {x, y, z}, "header": {...}}` |
-| `"gyroscope"` | `{"vector": {x, y, z}, "header": {...}}` |
-
-**Example:**
+| `"full"` | `{"linear_acceleration": {x,y,z}, "angular_velocity": {x,y,z}}` |
+| `"accelerometer"` | `{"vector": {x,y,z}}` |
+| `"gyroscope"` | `{"vector": {x,y,z}}` |
 
 ```python
-# Full IMU data
 def on_imu(data):
     accel = data['linear_acceleration']
-    gyro = data['angular_velocity']
     print(f"Accel: {accel['x']:.2f}, {accel['y']:.2f}, {accel['z']:.2f}")
 
-with Robot(host="192.168.178.71") as robot:
-    sub = robot.subscribe_imu(on_imu, data_type="full")
-    time.sleep(5)
-    sub.unsubscribe()
-
-# Accelerometer only
-def on_accel(data):
-    vec = data['vector']
-    print(f"Accel: {vec['x']:.2f}, {vec['y']:.2f}, {vec['z']:.2f} m/s²")
-
-with Robot(host="192.168.178.71") as robot:
-    sub = robot.subscribe_imu(on_accel, data_type="accelerometer")
-    time.sleep(3)
-    sub.unsubscribe()
+sub = robot.subscribe_imu(on_imu)
+time.sleep(5)
+sub.unsubscribe()
 ```
 
 ### set_imu_frequency()
 
-Set IMU sampling frequency.
-
 ```python
-def set_imu_frequency(self, frequency: int) -> None
+def set_imu_frequency(frequency: int) -> None  # 25, 50, 100, 200, or 250 Hz
 ```
-
-Valid frequencies: 25, 50, 100, 200, 250 Hz. BMI270 rounds down to nearest valid frequency.
 
 ---
 
@@ -663,102 +447,27 @@ Decode RLE-encoded segmentation masks.
 ```python
 from pib3.backends import rle_decode
 
-def rle_decode(rle: dict) -> np.ndarray
-```
-
-**Parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `rle` | `dict` | Dict with `'size'` [height, width] and `'counts'` list. |
-
-**Returns:** Binary mask as numpy array of shape (height, width).
-
-**Example:**
-
-```python
-from pib3.backends import rle_decode
-
-def on_segmentation(data):
-    if data['type'] == 'segmentation':
-        result = data['result']
-        if result.get('mode') == 'mask':
-            mask = rle_decode(result['mask_rle'])
-            print(f"Mask shape: {mask.shape}")
+mask = rle_decode(result['mask_rle'])  # Returns np.ndarray (height, width)
 ```
 
 ---
 
 ## ROS Integration
 
-### Topics and Services
+| Topic/Service | Purpose |
+|---------------|---------|
+| `/motor_current` | Joint position feedback |
+| `/apply_joint_trajectory` | Motor commands |
 
-| Name | Type | Purpose |
-|------|------|---------|
-| `/motor_current` | `DiagnosticStatus` | Joint position feedback |
-| `/apply_joint_trajectory` | `ApplyJointTrajectory` | Send motor commands |
-
-### Message Format
-
-Commands are sent in ROS2 JointTrajectory format with positions in centidegrees:
-
-```python
-# Internal conversion (handled automatically)
-centidegrees = round(degrees(radians) * 100)
-```
+Commands use ROS2 JointTrajectory format with positions in centidegrees.
 
 ---
 
 ## Troubleshooting
 
-!!! warning "Connection Refused"
-    **Cause:** Rosbridge is not running on the robot.
-
-    **Solution:** Start rosbridge on the robot:
-
-    ```bash
-    ros2 launch rosbridge_server rosbridge_websocket_launch.xml
-    ```
-
-!!! warning "Connection Timeout"
-    **Cause:** Network issue or incorrect IP address.
-
-    **Solution:**
-
-    1. Verify IP address: `ping 172.26.34.149`
-    2. Check rosbridge port: `nc -zv 172.26.34.149 9090`
-    3. Increase timeout:
-
-    ```python
-    robot = Robot(host="172.26.34.149", timeout=10.0)
-    ```
-
-!!! warning "Joint Not Moving"
-    **Cause:** Motor not connected or joint limits not calibrated.
-
-    **Solution:**
-
-    1. Verify motor responds in Cerebra
-    2. Calibrate joint limits (see [Calibration Guide](../../getting-started/calibration.md))
-    3. Try using radians directly:
-
-    ```python
-    robot.set_joint("elbow_left", 1.0, unit="rad")
-    ```
-
-!!! warning "Position Reading is None or Empty Dict"
-    **Cause:** Motor feedback not received within timeout, or motor not publishing.
-
-    **Solution:** The `get_joint()` and `get_joints()` methods wait up to 5 seconds by default for ROS messages to arrive. If you're still getting `None`, try:
-
-    1. Increase the timeout:
-
-    ```python
-    pos = robot.get_joint("elbow_left", timeout=10.0)
-    ```
-
-    2. Verify the motor is publishing feedback in ROS:
-
-    ```bash
-    ros2 topic echo /motor_current
-    ```
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| Connection refused | Rosbridge not running | `ros2 launch rosbridge_server rosbridge_websocket_launch.xml` |
+| Connection timeout | Wrong IP or network issue | `ping <ip>`, increase `timeout` parameter |
+| Joint not moving | Limits not calibrated | [Calibrate](../../getting-started/calibration.md) or use `unit="rad"` |
+| `get_joint` returns None | ROS message timeout | Increase `timeout`, verify `/motor_current` topic |

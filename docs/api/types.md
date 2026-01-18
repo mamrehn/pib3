@@ -1,13 +1,68 @@
 # Core Types
 
-Data structures for representing 2D drawings.
+Data structures for drawings and robot joints.
 
-## Overview
+---
 
-pib3 uses two main types to represent drawings:
+## Joint Enum
 
-- **Stroke**: A single continuous line (pen-down motion)
-- **Sketch**: A collection of strokes forming a complete drawing
+Enum for robot joint names with IDE tab completion support.
+
+```python
+from pib3 import Joint, Robot
+
+with Robot(host="172.26.34.149") as robot:
+    # Use enum for tab completion
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0)
+    pos = robot.get_joint(Joint.SHOULDER_VERTICAL_RIGHT)
+
+    # Multiple joints
+    robot.set_joints({
+        Joint.SHOULDER_VERTICAL_LEFT: 30.0,
+        Joint.ELBOW_LEFT: 60.0,
+    })
+```
+
+### Available Joints
+
+| Enum | String Value |
+|------|--------------|
+| **Head** | |
+| `Joint.TURN_HEAD` | `turn_head_motor` |
+| `Joint.TILT_HEAD` | `tilt_forward_motor` |
+| **Left Arm** | |
+| `Joint.SHOULDER_VERTICAL_LEFT` | `shoulder_vertical_left` |
+| `Joint.SHOULDER_HORIZONTAL_LEFT` | `shoulder_horizontal_left` |
+| `Joint.UPPER_ARM_LEFT_ROTATION` | `upper_arm_left_rotation` |
+| `Joint.ELBOW_LEFT` | `elbow_left` |
+| `Joint.LOWER_ARM_LEFT_ROTATION` | `lower_arm_left_rotation` |
+| `Joint.WRIST_LEFT` | `wrist_left` |
+| **Left Hand** | |
+| `Joint.THUMB_LEFT_OPPOSITION` | `thumb_left_opposition` |
+| `Joint.THUMB_LEFT_STRETCH` | `thumb_left_stretch` |
+| `Joint.INDEX_LEFT` | `index_left_stretch` |
+| `Joint.MIDDLE_LEFT` | `middle_left_stretch` |
+| `Joint.RING_LEFT` | `ring_left_stretch` |
+| `Joint.PINKY_LEFT` | `pinky_left_stretch` |
+| **Right Arm** | |
+| `Joint.SHOULDER_VERTICAL_RIGHT` | `shoulder_vertical_right` |
+| `Joint.SHOULDER_HORIZONTAL_RIGHT` | `shoulder_horizontal_right` |
+| `Joint.UPPER_ARM_RIGHT_ROTATION` | `upper_arm_right_rotation` |
+| `Joint.ELBOW_RIGHT` | `elbow_right` |
+| `Joint.LOWER_ARM_RIGHT_ROTATION` | `lower_arm_right_rotation` |
+| `Joint.WRIST_RIGHT` | `wrist_right` |
+| **Right Hand** | |
+| `Joint.THUMB_RIGHT_OPPOSITION` | `thumb_right_opposition` |
+| `Joint.THUMB_RIGHT_STRETCH` | `thumb_right_stretch` |
+| `Joint.INDEX_RIGHT` | `index_right_stretch` |
+| `Joint.MIDDLE_RIGHT` | `middle_right_stretch` |
+| `Joint.RING_RIGHT` | `ring_right_stretch` |
+| `Joint.PINKY_RIGHT` | `pinky_right_stretch` |
+
+!!! tip "Backward Compatibility"
+    String joint names still work: `robot.set_joint("elbow_left", 50.0)`
+
+---
 
 ## Stroke
 

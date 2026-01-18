@@ -69,112 +69,81 @@ robot = Robot(
 
 The percentage system maps joint ranges to 0-100%:
 
-- **0%** = minimum position (joint limit)
-- **100%** = maximum position (joint limit)
-- **50%** = middle of range
+| Value | Position |
+|-------|----------|
+| 0% | Joint minimum |
+| 50% | Middle of range |
+| 100% | Joint maximum |
 
 ### Setting Joint Positions
 
 ```python
-from pib3 import Robot
+from pib3 import Robot, Joint
 
 with Robot(host="172.26.34.149") as robot:
-    # Move head to center (50%)
-    robot.set_joint("turn_head_motor", 50.0)
-
-    # Move elbow to 75% of its range
-    robot.set_joint("elbow_left", 75.0)
-
-    # Move shoulder down (0%)
-    robot.set_joint("shoulder_vertical_left", 0.0)
+    # Use Joint enum for IDE tab completion
+    robot.set_joint(Joint.TURN_HEAD, 50.0)           # Center head
+    robot.set_joint(Joint.ELBOW_LEFT, 75.0)          # 75% of range
+    robot.set_joint(Joint.SHOULDER_VERTICAL_LEFT, 0.0)  # Minimum
 ```
+
+!!! tip "IDE Tab Completion"
+    Use `Joint.` to see all available joints with autocomplete in your IDE.
 
 ### Reading Joint Positions
 
-Joint positions are received asynchronously from the robot. By default, `get_joint()` and `get_joints()` wait up to 5 seconds for data to arrive.
+Joint readings wait up to 5s by default for ROS messages.
 
 ```python
-from pib3 import Robot
+from pib3 import Robot, Joint
 
 with Robot(host="172.26.34.149") as robot:
-    # Read single joint (waits up to 5s by default)
-    elbow_pos = robot.get_joint("elbow_left")
-    print(f"Elbow is at {elbow_pos:.1f}%")
+    # Single joint
+    pos = robot.get_joint(Joint.ELBOW_LEFT)
+    print(f"Elbow: {pos:.1f}%")
 
-    # Read with custom timeout
-    elbow_pos = robot.get_joint("elbow_left", timeout=2.0)
+    # Multiple joints
+    arm = robot.get_joints([Joint.ELBOW_LEFT, Joint.WRIST_LEFT])
 
-    # Read multiple joints
-    arm_joints = robot.get_joints([
-        "shoulder_vertical_left",
-        "elbow_left",
-        "wrist_left"
-    ])
-    for name, pos in arm_joints.items():
-        print(f"  {name}: {pos:.1f}%")
-
-    # Read all available joints
+    # All joints
     all_joints = robot.get_joints()
-    print(f"Total joints read: {len(all_joints)}")
 ```
 
 ---
 
-## Using Radians
-
-If you prefer working with radians:
+## Using Radians or Degrees
 
 ```python
-from pib3 import Robot
+from pib3 import Robot, Joint
 
 with Robot(host="172.26.34.149") as robot:
-    # Set position in radians
-    robot.set_joint("elbow_left", 1.25, unit="rad")
+    # Set/get in radians
+    robot.set_joint(Joint.ELBOW_LEFT, 1.25, unit="rad")
+    pos = robot.get_joint(Joint.ELBOW_LEFT, unit="rad")
 
-    # Read position in radians
-    pos_rad = robot.get_joint("elbow_left", unit="rad")
-    print(f"Elbow is at {pos_rad:.3f} radians")
-
-    # Set multiple joints in radians
-    robot.set_joints({
-        "shoulder_vertical_left": 0.5,
-        "elbow_left": 1.2,
-    }, unit="rad")
+    # Set/get in degrees
+    robot.set_joint(Joint.ELBOW_LEFT, -30.0, unit="deg")
+    pos = robot.get_joint(Joint.ELBOW_LEFT, unit="deg")
 ```
 
 ---
 
 ## Setting Multiple Joints
 
-### Using a Dictionary
-
 ```python
-from pib3 import Robot
+from pib3 import Robot, Joint
 
 with Robot(host="172.26.34.149") as robot:
-    # Move multiple joints at once
+    # Multiple joints at once
     robot.set_joints({
-        "shoulder_vertical_left": 30.0,
-        "shoulder_horizontal_left": 50.0,
-        "elbow_left": 60.0,
-        "wrist_left": 50.0,
+        Joint.SHOULDER_VERTICAL_LEFT: 30.0,
+        Joint.ELBOW_LEFT: 60.0,
+        Joint.WRIST_LEFT: 50.0,
     })
-```
 
-### Setting All Joints
-
-```python
-from pib3 import Robot
-
-with Robot(host="172.26.34.149") as robot:
-    # Get current pose as dictionary
+    # Modify current pose
     current = robot.get_joints()
-
-    # Modify specific values
     current["elbow_left"] = 75.0
-    current["turn_head_motor"] = 50.0
-
-    # Apply all joints
     robot.set_joints(current)
 ```
 
@@ -182,133 +151,74 @@ with Robot(host="172.26.34.149") as robot:
 
 ## Saving and Restoring Poses
 
-A common pattern is to save a pose, do something, then restore:
-
-```python
-from pib3 import Robot
-
-with Robot(host="172.26.34.149") as robot:
-    # Save current pose
-    saved_pose = robot.get_joints()
-    print(f"Saved {len(saved_pose)} joint positions")
-
-    # Move robot around
-    robot.set_joint("turn_head_motor", 0.0)    # Look left
-    robot.set_joint("turn_head_motor", 100.0)  # Look right
-
-    # Restore original pose
-    robot.set_joints(saved_pose)
-    print("Restored original pose")
-```
-
-### Saving to File
-
 ```python
 import json
 from pib3 import Robot
 
 with Robot(host="172.26.34.149") as robot:
-    # Save pose to file
+    # Save current pose
     pose = robot.get_joints()
-    with open("my_pose.json", "w") as f:
-        json.dump(pose, f, indent=2)
 
-# Later: Load and restore
-with Robot(host="172.26.34.149") as robot:
-    with open("my_pose.json") as f:
-        saved_pose = json.load(f)
-    robot.set_joints(saved_pose)
+    # ... move robot around ...
+
+    # Restore
+    robot.set_joints(pose)
+
+    # Persist to file
+    with open("pose.json", "w") as f:
+        json.dump(pose, f)
+
+# Load from file
+with open("pose.json") as f:
+    robot.set_joints(json.load(f))
 ```
 
 ---
 
 ## Position Verification
 
-Use verification to ensure joints reach their target positions:
+Wait for joints to reach targets using `async_=False`:
 
 ```python
-from pib3 import Robot
+from pib3 import Robot, Joint
 
 with Robot(host="172.26.34.149") as robot:
-    # Wait until joint reaches position
+    # Wait for single joint
     success = robot.set_joint(
-        "elbow_left",
-        50.0,
-        async_=False,        # Wait for completion
-        timeout=2.0,         # Max wait time (seconds)
-        tolerance=2.0,       # Acceptable error (percentage)
+        Joint.ELBOW_LEFT, 50.0,
+        async_=False,    # Wait for completion
+        timeout=2.0,     # Max wait (seconds)
+        tolerance=2.0,   # Acceptable error (%)
     )
 
-    if success:
-        print("Joint reached target position!")
-    else:
-        print("Joint did not reach target in time")
-```
-
-### Waiting for Multiple Joints
-
-```python
-from pib3 import Robot
-
-with Robot(host="172.26.34.149") as robot:
+    # Wait for multiple joints
     success = robot.set_joints(
-        {
-            "shoulder_vertical_left": 30.0,
-            "elbow_left": 60.0,
-        },
+        {Joint.ELBOW_LEFT: 60.0, Joint.WRIST_LEFT: 50.0},
         async_=False,
         timeout=3.0,
     )
-
-    if success:
-        print("All joints reached targets!")
 ```
 
 ---
 
 ## Controlling the Hands
 
-### Left Hand Joints
-
 ```python
-from pib3 import Robot
+from pib3 import Robot, Joint, left_hand_pose
 
 with Robot(host="172.26.34.149") as robot:
     # Open all fingers (0%)
     robot.set_joints({
-        "thumb_left_opposition": 0.0,
-        "thumb_left_stretch": 0.0,
-        "index_left_stretch": 0.0,
-        "middle_left_stretch": 0.0,
-        "ring_left_stretch": 0.0,
-        "pinky_left_stretch": 0.0,
+        Joint.THUMB_LEFT_OPPOSITION: 0.0,
+        Joint.THUMB_LEFT_STRETCH: 0.0,
+        Joint.INDEX_LEFT: 0.0,
+        Joint.MIDDLE_LEFT: 0.0,
+        Joint.RING_LEFT: 0.0,
+        Joint.PINKY_LEFT: 0.0,
     })
 
-    # Close all fingers (100%)
-    robot.set_joints({
-        "thumb_left_opposition": 100.0,
-        "thumb_left_stretch": 100.0,
-        "index_left_stretch": 100.0,
-        "middle_left_stretch": 100.0,
-        "ring_left_stretch": 100.0,
-        "pinky_left_stretch": 100.0,
-    })
-```
-
-### Using Hand Pose Presets
-
-```python
-from pib3 import Robot, left_hand_pose
-
-with Robot(host="172.26.34.149") as robot:
-    # Open hand (grip=0.0)
-    robot.set_joints(left_hand_pose(0.0), unit="rad")
-
-    # Half closed (grip=0.5)
-    robot.set_joints(left_hand_pose(0.5), unit="rad")
-
-    # Fully closed (grip=1.0)
-    robot.set_joints(left_hand_pose(1.0), unit="rad")
+    # Or use presets (grip: 0.0=open, 1.0=closed)
+    robot.set_joints(left_hand_pose(0.5), unit="rad")  # Half closed
 ```
 
 ---
@@ -394,87 +304,27 @@ if __name__ == "__main__":
 
 ## Available Joints Reference
 
-### Head
+Use `Joint.` enum values for IDE tab completion. See [Types Reference](../api/types.md) for full list.
 
-| Joint Name | Description |
-|------------|-------------|
-| `turn_head_motor` | Horizontal rotation (left/right) |
-| `tilt_forward_motor` | Vertical tilt (up/down) |
-
-### Left Arm
-
-| Joint Name | Description |
-|------------|-------------|
-| `shoulder_vertical_left` | Shoulder up/down |
-| `shoulder_horizontal_left` | Shoulder forward/back |
-| `upper_arm_left_rotation` | Upper arm rotation |
-| `elbow_left` | Elbow bend |
-| `lower_arm_left_rotation` | Forearm rotation |
-| `wrist_left` | Wrist bend |
-
-### Left Hand
-
-| Joint Name | Description |
-|------------|-------------|
-| `thumb_left_opposition` | Thumb rotation |
-| `thumb_left_stretch` | Thumb curl |
-| `index_left_stretch` | Index finger curl |
-| `middle_left_stretch` | Middle finger curl |
-| `ring_left_stretch` | Ring finger curl |
-| `pinky_left_stretch` | Pinky curl |
-
-### Right Arm/Hand
-
-Same as left, replace `_left` with `_right`.
+| Joint Enum | String | Description |
+|------------|--------|-------------|
+| `Joint.TURN_HEAD` | `turn_head_motor` | Head left/right |
+| `Joint.TILT_HEAD` | `tilt_forward_motor` | Head up/down |
+| `Joint.SHOULDER_VERTICAL_LEFT` | `shoulder_vertical_left` | Shoulder up/down |
+| `Joint.ELBOW_LEFT` | `elbow_left` | Elbow bend |
+| `Joint.WRIST_LEFT` | `wrist_left` | Wrist bend |
+| ... | ... | Right side: replace `LEFT` with `RIGHT` |
 
 ---
 
 ## Troubleshooting
 
-!!! warning "Connection refused"
-    **Cause:** Rosbridge not running or wrong IP.
-
-    **Solution:**
-
-    ```bash
-    # On robot, start rosbridge
-    ros2 launch rosbridge_server rosbridge_websocket_launch.xml
-
-    # Verify connectivity
-    ping 172.26.34.149
-    ```
-
-!!! warning "Joints not moving"
-    **Cause:** Joint limits not calibrated, or values out of range.
-
-    **Solution:**
-
-    1. [Calibrate joint limits](../getting-started/calibration.md)
-    2. Try using radians directly: `robot.set_joint("elbow_left", 1.0, unit="rad")`
-
-!!! warning "Waiting for completion always fails"
-    **Cause:** Timeout too short or tolerance too tight.
-
-    **Solution:**
-
-    ```python
-    robot.set_joint(
-        "elbow_left",
-        50.0,
-        async_=False,
-        timeout=5.0,      # Increase timeout
-        tolerance=5.0,    # Increase tolerance
-    )
-    ```
-
-!!! warning "Robot moves slowly"
-    **Cause:** Trajectory rate too low.
-
-    **Solution:**
-
-    ```python
-    robot.run_trajectory(trajectory, rate_hz=30.0)  # Increase rate
-    ```
+| Problem | Solution |
+|---------|----------|
+| Connection refused | Start rosbridge: `ros2 launch rosbridge_server rosbridge_websocket_launch.xml` |
+| Joints not moving | [Calibrate joint limits](../getting-started/calibration.md) or use `unit="rad"` |
+| Timeout waiting | Increase `timeout` and `tolerance` values |
+| Slow movement | Increase trajectory rate: `rate_hz=30.0` |
 
 ---
 
