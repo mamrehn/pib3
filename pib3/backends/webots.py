@@ -208,8 +208,85 @@ class WebotsBackend(RobotBackend):
                 webots_pos = position + self.WEBOTS_OFFSET
                 self._motors[joint_name].setPosition(webots_pos)
 
+        # Step simulation once to initiate movement
         self._robot.step(self._timestep)
         return True
+
+    def _verify_positions(
+        self,
+        target_positions: Dict[str, float],
+        unit: str,
+        timeout: float,
+        tolerance: float,
+    ) -> bool:
+        """
+        Verify joints reached target positions by stepping the simulation.
+
+        Overrides base class to continuously step Webots simulation until
+        motors reach their targets, providing blocking behavior that matches
+        the real robot API.
+
+        Args:
+            target_positions: Dict of target positions (in specified unit).
+            unit: Unit of the target positions ("percent", "deg", or "rad").
+            timeout: Max time to wait (seconds).
+            tolerance: Acceptable error (in same unit).
+
+        Returns:
+            True if all joints are within tolerance.
+        """
+        import math
+
+        # Convert targets to radians for comparison
+        if unit == "percent":
+            targets_rad = {
+                name: self._percent_to_radians(name, pos)
+                for name, pos in target_positions.items()
+            }
+            # Convert tolerance from percent to radians (approximate)
+            tolerance_rad = tolerance * 0.01 * math.pi  # ~1.8° per 1%
+        elif unit == "deg":
+            targets_rad = {name: math.radians(pos) for name, pos in target_positions.items()}
+            tolerance_rad = math.radians(tolerance)
+        else:  # rad
+            targets_rad = dict(target_positions)
+            tolerance_rad = tolerance
+
+        start_time = time.time()
+        max_steps = int(timeout * 1000 / self._timestep)  # Convert timeout to max simulation steps
+
+        for _ in range(max_steps):
+            # Check if all joints are within tolerance
+            all_within_tolerance = True
+            for joint_name, target_rad in targets_rad.items():
+                if joint_name not in self._motors:
+                    continue
+
+                motor = self._motors[joint_name]
+                sensor = motor.getPositionSensor()
+                if sensor is None:
+                    continue
+
+                current_pos = sensor.getValue() - self.WEBOTS_OFFSET
+                error = abs(current_pos - target_rad)
+
+                if error > tolerance_rad:
+                    all_within_tolerance = False
+                    break
+
+            if all_within_tolerance:
+                return True
+
+            # Step simulation to let motors move
+            if self._robot.step(self._timestep) == -1:
+                # Simulation ended
+                return False
+
+            # Also check wall-clock timeout
+            if (time.time() - start_time) >= timeout:
+                return False
+
+        return False
 
     def _execute_waypoints(
         self,

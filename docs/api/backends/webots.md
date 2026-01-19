@@ -377,23 +377,25 @@ Robot {
 ```python
 from pib3 import Joint
 from pib3.backends import WebotsBackend
-import time
 
-with WebotsBackend(step_ms=50) as robot:
-    # Raise arm
-    robot.set_joint(Joint.SHOULDER_VERTICAL_LEFT, 30.0)
+with WebotsBackend() as robot:
+    # Raise arm (async_=False waits for motor to reach position)
+    robot.set_joint(Joint.SHOULDER_VERTICAL_LEFT, 30.0, async_=False)
 
     # Wave back and forth
     for _ in range(5):
-        robot.set_joint(Joint.WRIST_LEFT, 20.0)
-        time.sleep(0.3)
-        robot.set_joint(Joint.WRIST_LEFT, 80.0)
-        time.sleep(0.3)
+        robot.set_joint(Joint.WRIST_LEFT, 20.0, async_=False)
+        robot.set_joint(Joint.WRIST_LEFT, 80.0, async_=False)
 
     # Return to neutral
-    robot.set_joint(Joint.WRIST_LEFT, 50.0)
-    robot.set_joint(Joint.SHOULDER_VERTICAL_LEFT, 50.0)
+    robot.set_joint(Joint.WRIST_LEFT, 50.0, async_=False)
+    robot.set_joint(Joint.SHOULDER_VERTICAL_LEFT, 50.0, async_=False)
 ```
+
+!!! tip "Use `async_=False` instead of `time.sleep()`"
+    In Webots, simulation time only advances when `robot.step()` is called internally.
+    Using `time.sleep()` wastes wall-clock time without advancing the simulation.
+    The `async_=False` parameter automatically steps the simulation until motors reach their targets.
 
 ### Complete Drawing Session
 
@@ -448,3 +450,18 @@ with WebotsBackend() as robot:
     ```python
     backend = WebotsBackend(step_ms=20)  # Smoother
     ```
+
+!!! warning "Motors Don't Reach Target Position"
+    **Cause:** Using `async_=True` (default) only steps simulation once.
+
+    **Solution:** Use `async_=False` to wait for motors to reach their targets:
+
+    ```python
+    # Wrong - returns immediately, motor barely moves
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0)
+
+    # Correct - waits for motor to reach position
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0, async_=False)
+    ```
+
+    This also ensures code compatibility with the real robot, which behaves the same way.
