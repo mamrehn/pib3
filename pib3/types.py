@@ -90,26 +90,19 @@ RIGHT_HAND_JOINTS: List[Joint] = [
 
 
 class HandPose(Enum):
-    """Hand pose presets (values in percent: 0% = open, 100% = closed).
+    """Hand pose presets (values in percent).
+
+    Physical mapping: 0% = -90° (bent/closed), 100% = +90° (extended/open)
 
     Use with robot.set_joints():
         >>> robot.set_joints(HandPose.LEFT_OPEN)
         >>> robot.set_joints(HandPose.RIGHT_CLOSED)
 
     For partial grip, use the joint lists:
-        >>> robot.set_joints({j: 50.0 for j in LEFT_HAND_JOINTS})  # 50% grip
+        >>> robot.set_joints({j: 50.0 for j in LEFT_HAND_JOINTS})  # 50% = 0°
     """
 
     LEFT_OPEN = {
-        "thumb_left_opposition": 0.0,
-        "thumb_left_stretch": 0.0,
-        "index_left_stretch": 0.0,
-        "middle_left_stretch": 0.0,
-        "ring_left_stretch": 0.0,
-        "pinky_left_stretch": 0.0,
-    }
-
-    LEFT_CLOSED = {
         "thumb_left_opposition": 100.0,
         "thumb_left_stretch": 100.0,
         "index_left_stretch": 100.0,
@@ -118,22 +111,31 @@ class HandPose(Enum):
         "pinky_left_stretch": 100.0,
     }
 
-    RIGHT_OPEN = {
-        "thumb_right_opposition": 0.0,
-        "thumb_right_stretch": 0.0,
-        "index_right_stretch": 0.0,
-        "middle_right_stretch": 0.0,
-        "ring_right_stretch": 0.0,
-        "pinky_right_stretch": 0.0,
+    LEFT_CLOSED = {
+        "thumb_left_opposition": 0.0,
+        "thumb_left_stretch": 0.0,
+        "index_left_stretch": 0.0,
+        "middle_left_stretch": 0.0,
+        "ring_left_stretch": 0.0,
+        "pinky_left_stretch": 0.0,
     }
 
-    RIGHT_CLOSED = {
+    RIGHT_OPEN = {
         "thumb_right_opposition": 100.0,
         "thumb_right_stretch": 100.0,
         "index_right_stretch": 100.0,
         "middle_right_stretch": 100.0,
         "ring_right_stretch": 100.0,
         "pinky_right_stretch": 100.0,
+    }
+
+    RIGHT_CLOSED = {
+        "thumb_right_opposition": 0.0,
+        "thumb_right_stretch": 0.0,
+        "index_right_stretch": 0.0,
+        "middle_right_stretch": 0.0,
+        "ring_right_stretch": 0.0,
+        "pinky_right_stretch": 0.0,
     }
 
 
