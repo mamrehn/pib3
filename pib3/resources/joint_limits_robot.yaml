@@ -37,22 +37,22 @@ joints:
 
   # Left hand joints
   thumb_left_opposition:
-    min: 0.0
+    min: -1.5707963267948966
     max: 1.5707963267948966   # +90 degrees
   thumb_left_stretch:
-    min: 0.0
+    min: -1.5707963267948966
     max: 1.5707963267948966   # +90 degrees
   index_left_stretch:
-    min: 0.0
+    min: -1.5707963267948966
     max: 1.5707963267948966   # +90 degrees
   middle_left_stretch:
-    min: 0.0
+    min: -1.5707963267948966
     max: 1.5707963267948966   # +90 degrees
   ring_left_stretch:
-    min: 0.0
+    min: -1.5707963267948966
     max: 1.5707963267948966   # +90 degrees
   pinky_left_stretch:
-    min: 0.0
+    min: -1.5707963267948966
     max: 1.5707963267948966   # +90 degrees
 
   # Right arm joints
@@ -77,20 +77,20 @@ joints:
 
   # Right hand joints
   thumb_right_opposition:
-    min: 0.0
+    min: -1.5707963267948966
     max: 1.5707963267948966   # +90 degrees
   thumb_right_stretch:
-    min: 0.0
+    min: -1.5707963267948966
     max: 1.5707963267948966   # +90 degrees
   index_right_stretch:
-    min: 0.0
+    min: -1.5707963267948966
     max: 1.5707963267948966   # +90 degrees
   middle_right_stretch:
-    min: 0.0
+    min: -1.5707963267948966
     max: 1.5707963267948966   # +90 degrees
   ring_right_stretch:
-    min: 0.0
+    min: -1.5707963267948966
     max: 1.5707963267948966   # +90 degrees
   pinky_right_stretch:
-    min: 0.0
+    min: -1.5707963267948966
     max: 1.5707963267948966   # +90 degrees
