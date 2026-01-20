@@ -67,6 +67,76 @@ class Joint(str, Enum):
     MIDDLE_RIGHT = "middle_right_stretch"
     RING_RIGHT = "ring_right_stretch"
     PINKY_RIGHT = "pinky_right_stretch"
+
+
+# Joint groups for convenience
+LEFT_HAND_JOINTS: List[Joint] = [
+    Joint.THUMB_LEFT_OPPOSITION,
+    Joint.THUMB_LEFT_STRETCH,
+    Joint.INDEX_LEFT,
+    Joint.MIDDLE_LEFT,
+    Joint.RING_LEFT,
+    Joint.PINKY_LEFT,
+]
+
+RIGHT_HAND_JOINTS: List[Joint] = [
+    Joint.THUMB_RIGHT_OPPOSITION,
+    Joint.THUMB_RIGHT_STRETCH,
+    Joint.INDEX_RIGHT,
+    Joint.MIDDLE_RIGHT,
+    Joint.RING_RIGHT,
+    Joint.PINKY_RIGHT,
+]
+
+
+class HandPose(Enum):
+    """Hand pose presets (values in percent: 0% = open, 100% = closed).
+
+    Use with robot.set_joints():
+        >>> robot.set_joints(HandPose.LEFT_OPEN)
+        >>> robot.set_joints(HandPose.RIGHT_CLOSED)
+
+    For partial grip, use the joint lists:
+        >>> robot.set_joints({j: 50.0 for j in LEFT_HAND_JOINTS})  # 50% grip
+    """
+
+    LEFT_OPEN = {
+        "thumb_left_opposition": 0.0,
+        "thumb_left_stretch": 0.0,
+        "index_left_stretch": 0.0,
+        "middle_left_stretch": 0.0,
+        "ring_left_stretch": 0.0,
+        "pinky_left_stretch": 0.0,
+    }
+
+    LEFT_CLOSED = {
+        "thumb_left_opposition": 100.0,
+        "thumb_left_stretch": 100.0,
+        "index_left_stretch": 100.0,
+        "middle_left_stretch": 100.0,
+        "ring_left_stretch": 100.0,
+        "pinky_left_stretch": 100.0,
+    }
+
+    RIGHT_OPEN = {
+        "thumb_right_opposition": 0.0,
+        "thumb_right_stretch": 0.0,
+        "index_right_stretch": 0.0,
+        "middle_right_stretch": 0.0,
+        "ring_right_stretch": 0.0,
+        "pinky_right_stretch": 0.0,
+    }
+
+    RIGHT_CLOSED = {
+        "thumb_right_opposition": 100.0,
+        "thumb_right_stretch": 100.0,
+        "index_right_stretch": 100.0,
+        "middle_right_stretch": 100.0,
+        "ring_right_stretch": 100.0,
+        "pinky_right_stretch": 100.0,
+    }
+
+
 @dataclass
 class Stroke:
     """A single continuous drawing stroke (pen-down motion).

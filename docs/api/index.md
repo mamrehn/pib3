@@ -29,8 +29,9 @@ pib3
 │   └── Webots / WebotsBackend   # Webots simulator
 │
 └── Hand Poses
-    ├── left_hand_pose()         # Left hand joint positions
-    └── right_hand_pose()        # Right hand joint positions
+    ├── HandPose                 # Preset hand poses (enum)
+    ├── LEFT_HAND_JOINTS         # Left hand joint list
+    └── RIGHT_HAND_JOINTS        # Right hand joint list
 ```
 
 ## Quick Reference

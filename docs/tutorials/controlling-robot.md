@@ -204,21 +204,15 @@ with Robot(host="172.26.34.149") as robot:
 ## Controlling the Hands
 
 ```python
-from pib3 import Robot, Joint, left_hand_pose
+from pib3 import Robot, HandPose, LEFT_HAND_JOINTS
 
 with Robot(host="172.26.34.149") as robot:
-    # Open all fingers (0%)
-    robot.set_joints({
-        Joint.THUMB_LEFT_OPPOSITION: 0.0,
-        Joint.THUMB_LEFT_STRETCH: 0.0,
-        Joint.INDEX_LEFT: 0.0,
-        Joint.MIDDLE_LEFT: 0.0,
-        Joint.RING_LEFT: 0.0,
-        Joint.PINKY_LEFT: 0.0,
-    })
+    # Use preset poses
+    robot.set_joints(HandPose.LEFT_OPEN)     # Open hand (0%)
+    robot.set_joints(HandPose.LEFT_CLOSED)   # Close hand (100%)
 
-    # Or use presets (grip: 0.0=open, 1.0=closed)
-    robot.set_joints(left_hand_pose(0.5), unit="rad")  # Half closed
+    # Partial grip
+    robot.set_joints({j: 50.0 for j in LEFT_HAND_JOINTS})  # 50% closed
 ```
 
 ---

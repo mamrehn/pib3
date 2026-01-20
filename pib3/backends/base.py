@@ -9,7 +9,7 @@ from typing import Callable, Dict, List, Literal, Optional, Sequence, Union
 import numpy as np
 import yaml
 
-from ..types import Joint
+from ..types import Joint, HandPose
 
 logger = logging.getLogger(__name__)
 
@@ -438,7 +438,7 @@ class RobotBackend(ABC):
 
     def set_joints(
         self,
-        positions: Union[Dict[MotorNameType, float], Sequence[float]],
+        positions: Union[Dict[MotorNameType, float], Sequence[float], HandPose],
         unit: UnitType = "percent",
         async_: bool = True,
         timeout: float = 1.0,
@@ -449,7 +449,8 @@ class RobotBackend(ABC):
 
         Args:
             positions: Dict mapping motor names (str or Joint) to positions,
-                      or sequence of positions for all MOTOR_NAMES in order.
+                      sequence of positions for all MOTOR_NAMES in order,
+                      or a HandPose enum member.
             unit: Unit for positions ("percent", "deg", or "rad"). Default: "percent".
             async_: If True, return immediately. If False, wait for completion.
             timeout: Max wait time when async_=False (seconds).
@@ -459,13 +460,18 @@ class RobotBackend(ABC):
             True if successful (and positions reached if async_=False).
 
         Example:
-            >>> from pib3 import Joint
+            >>> from pib3 import Joint, HandPose
             >>> backend.set_joints({
             ...     Joint.SHOULDER_VERTICAL_LEFT: 50.0,
             ...     Joint.ELBOW_LEFT: 0.0,
             ... })
             >>> backend.set_joints({Joint.ELBOW_LEFT: -30.0}, unit="deg")
+            >>> backend.set_joints(HandPose.LEFT_CLOSED)  # Hand pose preset
         """
+        # Handle HandPose enum
+        if isinstance(positions, HandPose):
+            positions = positions.value
+
         # Convert sequence to dict if needed
         if not isinstance(positions, dict):
             positions_list = list(positions)

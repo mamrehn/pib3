@@ -73,11 +73,12 @@ with Robot(host="172.26.34.149") as robot:
 ### Hand Poses
 
 ```python
-from pib3 import Robot, left_hand_pose, LEFT_HAND_PENCIL_GRIP
+from pib3 import Robot, HandPose, LEFT_HAND_JOINTS
 
 with Robot(host="172.26.34.149") as robot:
-    robot.set_joints(left_hand_pose(0.5))     # 50% grip
-    robot.set_joints(LEFT_HAND_PENCIL_GRIP)   # Pre-calibrated pose
+    robot.set_joints(HandPose.LEFT_OPEN)                    # Open hand
+    robot.set_joints(HandPose.LEFT_CLOSED)                  # Close hand
+    robot.set_joints({j: 50.0 for j in LEFT_HAND_JOINTS})   # 50% grip
 ```
 
 ### Image to Drawing Trajectory

@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 # Core types
-from .types import Joint, Sketch, Stroke
+from .types import Joint, Sketch, Stroke, HandPose, LEFT_HAND_JOINTS, RIGHT_HAND_JOINTS
 
 # Configuration
 from .config import (
@@ -57,19 +57,6 @@ Webots = WebotsBackend
 Robot = RealRobotBackend
 Swift = SwiftBackend
 
-# Hand poses
-from .hand_poses import (
-    LEFT_HAND_OPEN,
-    LEFT_HAND_CLOSED,
-    LEFT_HAND_PENCIL_GRIP,
-    LEFT_HAND_JOINTS,
-    RIGHT_HAND_OPEN,
-    RIGHT_HAND_CLOSED,
-    RIGHT_HAND_PENCIL_GRIP,
-    RIGHT_HAND_JOINTS,
-    left_hand_pose,
-    right_hand_pose,
-)
 
 __version__ = "0.1.1"
 
@@ -101,16 +88,9 @@ __all__ = [
     "Robot",
     "Swift",
     # Hand poses
-    "LEFT_HAND_OPEN",
-    "LEFT_HAND_CLOSED",
-    "LEFT_HAND_PENCIL_GRIP",
+    "HandPose",
     "LEFT_HAND_JOINTS",
-    "RIGHT_HAND_OPEN",
-    "RIGHT_HAND_CLOSED",
-    "RIGHT_HAND_PENCIL_GRIP",
     "RIGHT_HAND_JOINTS",
-    "left_hand_pose",
-    "right_hand_pose",
 ]
 
 
