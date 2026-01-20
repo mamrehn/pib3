@@ -57,7 +57,7 @@ with Robot(host="172.26.34.149") as robot:
 ## Installation
 
 ```bash
-pip install "pib3[all] @ git+https://github.com/mamrehn/pib3.git"
+pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 See the [Installation Guide](getting-started/installation.md) for detailed instructions.

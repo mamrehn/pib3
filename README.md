@@ -23,8 +23,8 @@ Repository statistics: 🐍 ![Python LOC](https://img.shields.io/endpoint?url=ht
 
 ```bash
 python -m venv venv
-venv\Scripts\activate  # OR on Linux: source ./venv/bin/activate 
-pip install -U "pib3[all] @ git+https://github.com/mamrehn/pib3.git"
+venv\Scripts\activate  # OR on Linux: source ./venv/bin/activate
+pip install -U "pib3 @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 ## Quick Start

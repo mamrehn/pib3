@@ -8,7 +8,7 @@
 ## Quick Install
 
 ```bash
-pip install -U "pib3[all] @ git+https://github.com/mamrehn/pib3.git"
+pip install -U "pib3 @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 ---
@@ -24,7 +24,7 @@ python3 -m venv venv
 source venv/bin/activate
 
 # Install pib3
-pip install "pib3[all] @ git+https://github.com/mamrehn/pib3.git"
+pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"
 
 # Verify
 python -c "import pib3; print(f'pib3 {pib3.__version__}')"
@@ -48,7 +48,7 @@ python -m venv venv
 .\venv\Scripts\Activate.ps1
 
 # Install pib3
-pip install "pib3[all] @ git+https://github.com/mamrehn/pib3.git"
+pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"
 
 # Verify
 python -c "import pib3; print(f'pib3 {pib3.__version__}')"

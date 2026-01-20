@@ -3,7 +3,7 @@
 ## Prerequisites
 
 ```bash
-pip install "pib3[all] @ git+https://github.com/mamrehn/pib3.git"
+pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 ---
