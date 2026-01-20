@@ -9,88 +9,88 @@
 joints:
   # Head joints
   turn_head_motor:
-    min: -1.5708
-    max: 1.5708
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   tilt_forward_motor:
-    min: -0.7854
-    max: 1.2217
+    min: -0.7853981633974483  # -45 degrees
+    max: 1.2217304763960306   # +70 degrees
 
   # Left arm joints
   shoulder_vertical_left:
-    min: -1.5708
-    max: 1.5708
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   shoulder_horizontal_left:
-    min: -1.5708
-    max: 1.5708
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   upper_arm_left_rotation:
-    min: -1.5708
-    max: 1.5708
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   elbow_left:
-    min: -1.5708
-    max: 1.5708
+    min: -0.7853981633974483  # -45 degrees
+    max: 1.5707963267948966   # +90 degrees
   lower_arm_left_rotation:
-    min: -1.5708
-    max: 1.5708
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   wrist_left:
-    min: -0.5236
-    max: 0.5236
+    min: -0.5235987755982988  # -30 degrees
+    max: 0.5235987755982988   # +30 degrees
 
   # Left hand joints
   thumb_left_opposition:
-    min: 0.0000
-    max: 1.5708
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   thumb_left_stretch:
-    min: 0.0000
-    max: 1.5708
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   index_left_stretch:
-    min: 0.0000
-    max: 1.5708
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   middle_left_stretch:
-    min: 0.0000
-    max: 1.5708
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   ring_left_stretch:
-    min: 0.0000
-    max: 1.5708
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   pinky_left_stretch:
-    min: 0.0000
-    max: 1.5708
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
 
   # Right arm joints
   shoulder_vertical_right:
-    min: -1.5708
-    max: 1.5708
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   shoulder_horizontal_right:
-    min: -1.5708
-    max: 1.5708
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   upper_arm_right_rotation:
-    min: -1.5708
-    max: 1.5708
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   elbow_right:
-    min: -0.7854
-    max: 1.5708
+    min: -0.7853981633974483  # -45 degrees
+    max: 1.5707963267948966   # +90 degrees
   lower_arm_right_rotation:
-    min: -1.5708
-    max: 1.5708
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
   wrist_right:
-    min: -1.5708
-    max: 1.5708
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
 
   # Right hand joints
   thumb_right_opposition:
-    min: 0.0000
-    max: 1.5708
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   thumb_right_stretch:
-    min: 0.0000
-    max: 1.5708
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   index_right_stretch:
-    min: 0.0000
-    max: 1.5708
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   middle_right_stretch:
-    min: 0.0000
-    max: 1.5708
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   ring_right_stretch:
-    min: 0.0000
-    max: 1.5708
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
   pinky_right_stretch:
-    min: 0.0000
-    max: 1.5708
+    min: 0.0
+    max: 1.5707963267948966   # +90 degrees
