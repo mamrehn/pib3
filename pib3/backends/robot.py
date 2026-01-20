@@ -184,7 +184,7 @@ class RealRobotBackend(RobotBackend):
         self._position_subscriber = roslibpy.Topic(
             self._client,
             '/joint_trajectory',
-            'trajectory_msgs/JointTrajectory'
+            'trajectory_msgs/msg/JointTrajectory'
         )
         self._position_subscriber.subscribe(self._on_joint_trajectory)
 
@@ -486,7 +486,7 @@ class RealRobotBackend(RobotBackend):
         topic = roslibpy.Topic(
             self._client,
             '/camera_topic',
-            'std_msgs/String',
+            'std_msgs/msg/String',
         )
 
         def parse_and_forward(msg):
@@ -523,7 +523,7 @@ class RealRobotBackend(RobotBackend):
         topic = roslibpy.Topic(
             self._client,
             '/camera_topic',
-            'std_msgs/String'
+            'std_msgs/msg/String'
         )
 
         def parse_and_forward(msg):
@@ -568,7 +568,7 @@ class RealRobotBackend(RobotBackend):
         topic = roslibpy.Topic(
             self._client,
             '/camera/config',
-            'std_msgs/String'
+            'std_msgs/msg/String'
         )
         topic.publish({'data': json.dumps(config)})
 
@@ -612,7 +612,7 @@ class RealRobotBackend(RobotBackend):
         topic = roslibpy.Topic(
             self._client,
             '/ai/detections',
-            'std_msgs/String'
+            'std_msgs/msg/String'
         )
 
         def parse_and_forward(msg):
@@ -657,7 +657,7 @@ class RealRobotBackend(RobotBackend):
         topic = roslibpy.Topic(
             self._client,
             '/ai/available_models',
-            'std_msgs/String'
+            'std_msgs/msg/String'
         )
         topic.subscribe(on_models)
         event.wait(timeout=timeout)
@@ -702,7 +702,7 @@ class RealRobotBackend(RobotBackend):
         model_topic = roslibpy.Topic(
             self._client,
             '/ai/current_model',
-            'std_msgs/String'
+            'std_msgs/msg/String'
         )
 
         def on_model_update(msg):
@@ -718,7 +718,7 @@ class RealRobotBackend(RobotBackend):
         config_topic = roslibpy.Topic(
             self._client,
             '/ai/config',
-            'std_msgs/String'
+            'std_msgs/msg/String'
         )
         config_topic.publish({'data': json.dumps({'model': model_name})})
 
@@ -770,7 +770,7 @@ class RealRobotBackend(RobotBackend):
         topic = roslibpy.Topic(
             self._client,
             '/ai/config',
-            'std_msgs/String'
+            'std_msgs/msg/String'
         )
         topic.publish({'data': json.dumps(config)})
 
@@ -802,7 +802,7 @@ class RealRobotBackend(RobotBackend):
         topic = roslibpy.Topic(
             self._client,
             '/ai/current_model',
-            'std_msgs/String'
+            'std_msgs/msg/String'
         )
 
         def parse_and_forward(msg):
@@ -862,7 +862,7 @@ class RealRobotBackend(RobotBackend):
             raise ValueError(f"data_type must be one of: {valid_types}")
 
         # All IMU data comes from /imu/data - individual topics are not published
-        topic = roslibpy.Topic(self._client, '/imu/data', 'sensor_msgs/Imu')
+        topic = roslibpy.Topic(self._client, '/imu/data', 'sensor_msgs/msg/Imu')
 
         if dtype_str == ImuType.FULL.value:
             # Pass through the full IMU message
@@ -916,7 +916,7 @@ class RealRobotBackend(RobotBackend):
         topic = roslibpy.Topic(
             self._client,
             '/imu/config',
-            'std_msgs/String'
+            'std_msgs/msg/String'
         )
         topic.publish({'data': json.dumps({'frequency': frequency})})
 
