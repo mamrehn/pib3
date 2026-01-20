@@ -41,8 +41,10 @@ JOINT_TO_WEBOTS_MOTOR = {
     "pinky_right_stretch": "pinky_right_distal",
 }
 
-# Finger joints that have both proximal and distal motors in Webots
-# When setting a finger joint, we control both motors together
+# Finger joints that have both proximal and distal motors in Webots.
+# The real robot has a single motor per finger that controls both joints coupled.
+# To match this behavior in Webots, we set both proximal and distal to the same position.
+# Webots finger joints: 0° = open, 90° = closed (range 0 to π/2 radians)
 FINGER_PROXIMAL_MOTORS = {
     "thumb_left_stretch": "thumb_left_proximal",
     "index_left_stretch": "index_left_proximal",
@@ -352,7 +354,12 @@ class WebotsBackend(RobotBackend):
         for i, point in enumerate(waypoints):
             # Set all motor positions
             for name, idx in joint_indices.items():
-                self._motors[name].setPosition(point[idx])
+                position = point[idx]
+                self._motors[name].setPosition(position)
+
+                # Also set proximal motor for finger joints (coupled motion)
+                if name in self._proximal_motors:
+                    self._proximal_motors[name].setPosition(position)
 
             # Step simulation
             self._robot.step(step_ms)

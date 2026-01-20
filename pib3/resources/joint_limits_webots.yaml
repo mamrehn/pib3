@@ -2,6 +2,11 @@
 # These values are derived from the Webots proto file.
 # DO NOT EDIT - these are fixed for Webots simulation.
 # For real robot limits, see joint_limits_robot.yaml
+#
+# Finger joints in Webots:
+# - Each finger has separate proximal and distal joints (0° to 90° each)
+# - The backend couples both joints to move synchronously (same as real robot)
+# - 0° = stretched/open, 90° = bent/closed
 
 joints:
   # Head joints
@@ -32,25 +37,27 @@ joints:
     min: -0.5235987755982988  # -30 degrees
     max: 0.5235987755982988   # +30 degrees
 
-  # Left hand joints (0% = bent/closed, 100% = stretched/open)
+  # Left hand joints (0% = closed/clenched, 100% = open)
+  # Webots finger joints: 0° = open, 90° = closed (opposite of real robot direction)
+  # Both proximal and distal joints are set to the same value for coupled motion
   thumb_left_opposition:
-    min: 1.5707963267948966   # +90 degrees (bent)
-    max: 0.0                  # 0 degrees (stretched)
+    min: 1.5707963267948966   # 90° (0% = closed)
+    max: 0.0                  # 0° (100% = open)
   thumb_left_stretch:
-    min: 1.5707963267948966   # +90 degrees (bent)
-    max: 0.0                  # 0 degrees (stretched)
+    min: 1.5707963267948966   # 90° (0% = closed)
+    max: 0.0                  # 0° (100% = open)
   index_left_stretch:
-    min: 1.5707963267948966   # +90 degrees (bent)
-    max: 0.0                  # 0 degrees (stretched)
+    min: 1.5707963267948966   # 90° (0% = closed)
+    max: 0.0                  # 0° (100% = open)
   middle_left_stretch:
-    min: 1.5707963267948966   # +90 degrees (bent)
-    max: 0.0                  # 0 degrees (stretched)
+    min: 1.5707963267948966   # 90° (0% = closed)
+    max: 0.0                  # 0° (100% = open)
   ring_left_stretch:
-    min: 1.5707963267948966   # +90 degrees (bent)
-    max: 0.0                  # 0 degrees (stretched)
+    min: 1.5707963267948966   # 90° (0% = closed)
+    max: 0.0                  # 0° (100% = open)
   pinky_left_stretch:
-    min: 1.5707963267948966   # +90 degrees (bent)
-    max: 0.0                  # 0 degrees (stretched)
+    min: 1.5707963267948966   # 90° (0% = closed)
+    max: 0.0                  # 0° (100% = open)
 
   # Right arm joints
   shoulder_vertical_right:
@@ -72,22 +79,24 @@ joints:
     min: -1.5707963267948966  # -90 degrees
     max: 1.5707963267948966   # +90 degrees
 
-  # Right hand joints (0% = bent/closed, 100% = stretched/open)
+  # Right hand joints (0% = closed/clenched, 100% = open)
+  # Webots finger joints: 0° = open, 90° = closed (opposite of real robot direction)
+  # Both proximal and distal joints are set to the same value for coupled motion
   thumb_right_opposition:
-    min: 1.5707963267948966   # +90 degrees (bent)
-    max: 0.0                  # 0 degrees (stretched)
+    min: 1.5707963267948966   # 90° (0% = closed)
+    max: 0.0                  # 0° (100% = open)
   thumb_right_stretch:
-    min: 1.5707963267948966   # +90 degrees (bent)
-    max: 0.0                  # 0 degrees (stretched)
+    min: 1.5707963267948966   # 90° (0% = closed)
+    max: 0.0                  # 0° (100% = open)
   index_right_stretch:
-    min: 1.5707963267948966   # +90 degrees (bent)
-    max: 0.0                  # 0 degrees (stretched)
+    min: 1.5707963267948966   # 90° (0% = closed)
+    max: 0.0                  # 0° (100% = open)
   middle_right_stretch:
-    min: 1.5707963267948966   # +90 degrees (bent)
-    max: 0.0                  # 0 degrees (stretched)
+    min: 1.5707963267948966   # 90° (0% = closed)
+    max: 0.0                  # 0° (100% = open)
   ring_right_stretch:
-    min: 1.5707963267948966   # +90 degrees (bent)
-    max: 0.0                  # 0 degrees (stretched)
+    min: 1.5707963267948966   # 90° (0% = closed)
+    max: 0.0                  # 0° (100% = open)
   pinky_right_stretch:
-    min: 1.5707963267948966   # +90 degrees (bent)
-    max: 0.0                  # 0 degrees (stretched)
+    min: 1.5707963267948966   # 90° (0% = closed)
+    max: 0.0                  # 0° (100% = open)

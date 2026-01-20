@@ -1,9 +1,17 @@
-# PIB Robot Joint Limits Configuration
+# PIB Robot Joint Limits Configuration (TEMPLATE - NOT USED)
+# This is a template file. The actual limits files used are:
+# - joint_limits_webots.yaml: For Webots simulation (fixed values)
+# - joint_limits_robot.yaml: For real robot (may need calibration)
+#
 # These values define the mapping from percentage (0-100%) to radians.
 # 0% = min (radians), 100% = max (radians)
 #
 # Values are in radians. Fill in actual limits based on robot hardware calibration.
 # Example: turn_head_motor at 50% = centered/front-facing
+#
+# Finger motor note:
+# - Real robot: single motor per finger, range -90° to +90°, -90°=clenched, +90°=open
+# - Webots: separate proximal/distal joints, range 0° to 90°, 0°=open, 90°=closed
 
 joints:
   # Head joints
