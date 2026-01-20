@@ -485,12 +485,12 @@ class RealRobotBackend(RobotBackend):
 
         topic = roslibpy.Topic(
             self._client,
-            '/camera_topic',
-            'std_msgs/msg/String',
+            '/camera/image',
+            'sensor_msgs/msg/CompressedImage',
         )
 
         def parse_and_forward(msg):
-            # Data is base64-encoded JPEG in std_msgs/String
+            # Data is base64-encoded JPEG in sensor_msgs/CompressedImage
             data = msg.get('data', '')
             if isinstance(data, str) and data:
                 jpeg_bytes = base64.b64decode(data)
