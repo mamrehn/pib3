@@ -41,6 +41,21 @@ JOINT_TO_WEBOTS_MOTOR = {
     "pinky_right_stretch": "pinky_right_distal",
 }
 
+# Finger joints that have both proximal and distal motors in Webots
+# When setting a finger joint, we control both motors together
+FINGER_PROXIMAL_MOTORS = {
+    "thumb_left_stretch": "thumb_left_proximal",
+    "index_left_stretch": "index_left_proximal",
+    "middle_left_stretch": "middle_left_proximal",
+    "ring_left_stretch": "ring_left_proximal",
+    "pinky_left_stretch": "pinky_left_proximal",
+    "thumb_right_stretch": "thumb_right_proximal",
+    "index_right_stretch": "index_right_proximal",
+    "middle_right_stretch": "middle_right_proximal",
+    "ring_right_stretch": "ring_right_proximal",
+    "pinky_right_stretch": "pinky_right_proximal",
+}
+
 
 class WebotsBackend(RobotBackend):
     """
@@ -80,6 +95,7 @@ class WebotsBackend(RobotBackend):
         self._robot = None
         self._timestep = None
         self._motors: Dict[str, any] = {}
+        self._proximal_motors: Dict[str, any] = {}
 
     def _to_backend_format(self, radians: np.ndarray) -> np.ndarray:
         """Convert radians to Webots format (add offset)."""
@@ -102,9 +118,10 @@ class WebotsBackend(RobotBackend):
         self._robot = Robot()
         self._timestep = int(self._robot.getBasicTimeStep())
 
-        # Initialize all motors
-        if len (self._motors) == 0:
+        # Initialize all motors (only once)
+        if len(self._motors) == 0:
             self._motors = {}
+            
             for joint_name, motor_name in JOINT_TO_WEBOTS_MOTOR.items():
                 motor = self._robot.getDevice(motor_name)
                 if motor is not None:
@@ -114,6 +131,20 @@ class WebotsBackend(RobotBackend):
                     sensor = motor.getPositionSensor()
                     if sensor is not None:
                         sensor.enable(self._timestep)
+        
+        # Initialize proximal finger motors (only once)
+        if len(self._proximal_motors) == 0:
+            self._proximal_motors = {}
+            for joint_name, proximal_motor_name in FINGER_PROXIMAL_MOTORS.items():
+                motor = self._robot.getDevice(proximal_motor_name)
+                if motor is not None:
+                    self._proximal_motors[joint_name] = motor
+                    logger.debug(f"Initialized proximal motor: {joint_name} -> {proximal_motor_name}")
+                    sensor = motor.getPositionSensor()
+                    if sensor is not None:
+                        sensor.enable(self._timestep)
+                else:
+                    logger.warning(f"Proximal motor not found: {proximal_motor_name}")
 
     def disconnect(self) -> None:
         """Cleanup (no-op for Webots, robot lifecycle managed by simulator)."""
@@ -199,14 +230,24 @@ class WebotsBackend(RobotBackend):
         return result
 
     def _set_joints_impl(self, positions_radians: Dict[str, float]) -> bool:
-        """Set joint positions (converts to Webots format internally)."""
+        """Set joint positions (converts to Webots format internally).
+        
+        For finger joints, this sets both the proximal and distal motors
+        to the same position for realistic coupled finger movement.
+        """
         if not self.is_connected:
             return False
 
         for joint_name, position in positions_radians.items():
             if joint_name in self._motors:
                 webots_pos = position + self.WEBOTS_OFFSET
+                logger.debug(f"Setting {joint_name} to {webots_pos:.4f} rad ({webots_pos * 180 / 3.14159:.1f} deg)")
                 self._motors[joint_name].setPosition(webots_pos)
+                
+                # Also set proximal motor for finger joints (same position)
+                if hasattr(self, '_proximal_motors') and joint_name in self._proximal_motors:
+                    logger.debug(f"Setting proximal for {joint_name} to {webots_pos:.4f} rad")
+                    self._proximal_motors[joint_name].setPosition(webots_pos)
 
         # Step simulation once to initiate movement
         self._robot.step(self._timestep)
