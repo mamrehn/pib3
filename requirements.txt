@@ -8,10 +8,7 @@ spatialmath-python>=1.0.0,<1.1.15  # Pin to avoid axis parsing issues
 # Image processing
 scikit-image>=0.18.0
 
-# Visualization with Swift
-swift-sim>=1.0.0
 spatialgeometry>=1.0.0
-websockets>=10.0,<11.0  # swift-sim 1.x requires websockets 10.x
 
 # Real robot connection via rosbridge
 roslibpy>=1.0.0

@@ -572,7 +572,6 @@ def _set_initial_arm_pose(
 def sketch_to_trajectory(
     sketch: Sketch,
     config: Optional[TrajectoryConfig] = None,
-    visualize: bool = False,
     progress_callback: Optional[Callable[[int, int, bool], None]] = None,
     initial_q: Optional[Union[np.ndarray, Dict[str, float], "Trajectory"]] = None,
 ) -> Trajectory:
@@ -582,7 +581,6 @@ def sketch_to_trajectory(
     Args:
         sketch: Sketch object containing strokes to draw.
         config: Trajectory configuration. Uses defaults if None.
-        visualize: If True, show Swift visualization during IK solving.
         progress_callback: Optional callback(current_point, total_points, success).
         initial_q: Initial joint configuration to start IK solving from.
             Can be one of:
@@ -695,10 +693,6 @@ def sketch_to_trajectory(
         paper.center_y = -0.34
     paper.start_x = float(start_pos[0] - paper.size / 2.0)
 
-    # Optional visualization setup
-    # Swift visualization removed
-    env = None
-
     # Generate 3D trajectory points
     trajectory_3d = []
     for stroke in sketch.strokes:
@@ -761,14 +755,6 @@ def sketch_to_trajectory(
         if progress_callback:
             progress_callback(i + 1, total_points, success)
 
-        # Update visualization
-        if env and i % 20 == 0:
-            robot.q = q_current
-            try:
-                env.step(0.05)
-            except Exception:
-                pass
-
     if success_count == 0:
         raise RuntimeError("No successful IK solutions found. Check paper position and robot reach.")
 
@@ -804,12 +790,5 @@ def sketch_to_trajectory(
             },
         },
     )
-
-    # Cleanup visualization
-    if env:
-        try:
-            env.close()
-        except Exception:
-            pass
 
     return trajectory

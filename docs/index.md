@@ -20,7 +20,7 @@
 
     ---
 
-    Works with real robots, Webots simulation, and Swift 3D visualization in the browser.
+    Works with real robots and Webots simulation.
 
 -   :material-percent:{ .lg .middle } **Intuitive Control**
 
@@ -36,7 +36,7 @@
 - **Joint Enum**: IDE tab completion for joint names (`Joint.ELBOW_LEFT`)
 - **Percentage Control**: Use 0-100% values that work across all backends
 - **Real Robot Support**: Connect via rosbridge websocket
-- **Swift Visualization**: Browser-based 3D visualization
+
 - **Webots Integration**: Full simulator support
 
 ## Quick Example
@@ -92,7 +92,7 @@ Learn how to use pib3 effectively:
 
 - [Image to Trajectory](tutorials/image-to-trajectory.md) - Convert images to robot movements
 - [Controlling the Robot](tutorials/controlling-robot.md) - Master the joint control API
-- [Swift Visualization](tutorials/swift-visualization.md) - Use browser-based 3D visualization
+
 - [Working with Sketches](tutorials/working-with-sketches.md) - Manipulate sketches programmatically
 - [Custom Configurations](tutorials/custom-configurations.md) - Fine-tune all parameters
 
@@ -100,7 +100,7 @@ Learn how to use pib3 effectively:
 
 - [Core Types](api/types.md) - Joint enum, Stroke, Sketch, Trajectory
 - [Configuration](api/config.md) - All configuration options
-- [Backends](api/backends/base.md) - Robot, Swift, Webots
+- [Backends](api/backends/base.md) - Robot, Webots
 
 ## Project Links
 

@@ -16,7 +16,7 @@ Master the joint control API. Learn percentage-based control, pose saving/restor
 
 Access OAK-D Lite camera streaming, AI object detection, and IMU sensor data. Includes on-demand activation patterns.
 
-### [Swift Visualization](swift-visualization.md)
+
 
 Use browser-based 3D visualization. Run trajectories, use interactive mode, and add visual elements.
 
@@ -48,7 +48,7 @@ Before starting the tutorials, ensure you have:
 
 1. [Installed pib3](../getting-started/installation.md) with the features you need
 2. A basic understanding of Python
-3. (For robot tutorials) Access to a PIB robot or willingness to use Swift visualization
+3. (For robot tutorials) Access to a PIB robot or Webots simulation
 
 ## Suggested Learning Path
 
@@ -56,7 +56,7 @@ Before starting the tutorials, ensure you have:
 graph LR
     A[Installation] --> B[Quick Start]
     B --> C[Image to Trajectory]
-    C --> D[Swift Visualization]
+
     D --> E[Controlling Robot]
     E --> F[Camera, AI & IMU]
     F --> G[Calibration]
@@ -64,7 +64,7 @@ graph LR
 ```
 
 1. **Start here**: [Image to Trajectory](image-to-trajectory.md) - Core functionality
-2. **Visualization**: [Swift Visualization](swift-visualization.md) - Test without hardware
+
 3. **Robot Control**: [Controlling the Robot](controlling-robot.md) - When you have access
 4. **Sensors**: [Camera, AI & IMU](camera-ai-imu.md) - Vision and sensors
 5. **Advanced**: [Custom Configurations](custom-configurations.md) - Fine-tune behavior

@@ -24,10 +24,10 @@ print(f"Generated {len(trajectory)} waypoints")
 ### Visualize in Browser (Optional)
 
 ```python
-from pib3 import Swift, Trajectory
+from pib3 import Webots, Trajectory
 
 trajectory = Trajectory.from_json("my_trajectory.json")
-with Swift() as viz:
+with Webots() as viz:
     viz.run_trajectory(trajectory)
 ```
 
@@ -69,24 +69,24 @@ with Robot(host="172.26.34.149") as robot:
 
 ---
 
-## Swift Visualization
+## Webots Visualization
 
 ### Run Trajectory
 
 ```python
-from pib3 import Swift, Trajectory
+from pib3 import Webots, Trajectory
 
 trajectory = Trajectory.from_json("my_trajectory.json")
-with Swift() as viz:
+with Webots() as viz:
     viz.run_trajectory(trajectory)
 ```
 
 ### Interactive Mode
 
 ```python
-from pib3 import Swift
+from pib3 import Webots
 
-viz = Swift()
+viz = Webots()
 viz.connect()
 viz.launch_interactive()  # Sliders at http://localhost:8001
 # 3D view at http://localhost:52000

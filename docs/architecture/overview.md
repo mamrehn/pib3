@@ -29,7 +29,7 @@ graph TB
     end
 
     subgraph Backends
-        TJ --> SW[Swift<br/>Visualization]
+
         TJ --> WB[Webots<br/>Simulator]
         TJ --> RR[Real Robot<br/>via rosbridge]
     end
@@ -46,7 +46,7 @@ pib3/
 ├── trajectory.py        # Sketch → Trajectory + IK solver
 ├── backends/
 │   ├── base.py          # RobotBackend ABC
-│   ├── swift.py         # Browser visualization
+
 │   ├── webots.py        # Webots simulator
 │   └── robot.py         # Real robot (rosbridge)
 ├── tools/

@@ -46,7 +46,6 @@ def get_joint():
 
 # Constants: UPPERCASE with underscores
 WEBOTS_OFFSET = 0.0
-SWIFT_OFFSET = -1.0
 DEFAULT_TOLERANCE = 0.001
 
 # Private: leading underscore
@@ -306,17 +305,13 @@ def sample_sketch():
 ### When to Comment
 
 ```python
-# Good: explain WHY, not WHAT
-# Swift uses different coordinate system than canonical format
-swift_pos = radians - 1.0
-
 # Good: clarify complex logic
 # Use damped least squares to avoid singularities near joint limits
 J_damped = J.T @ np.linalg.inv(J @ J.T + damping * np.eye(6))
 
 # Bad: restating the code
 # Subtract 1.0 from radians
-swift_pos = radians - 1.0
+webots_pos = radians - 1.0
 ```
 
 ### TODO Comments

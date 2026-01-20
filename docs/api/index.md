@@ -25,7 +25,7 @@ pib3
 │
 ├── Backends
 │   ├── Robot / RealRobotBackend # Real robot via rosbridge
-│   ├── Swift / SwiftBackend     # Browser visualization
+
 │   └── Webots / WebotsBackend   # Webots simulator
 │
 └── Hand Poses
@@ -58,7 +58,7 @@ pib3
 | Backend | Description |
 |---------|-------------|
 | [`RealRobotBackend`](backends/robot.md) | Control real PIB robot |
-| [`SwiftBackend`](backends/swift.md) | Browser-based visualization |
+
 | [`WebotsBackend`](backends/webots.md) | Webots simulator |
 
 ## Import Examples
@@ -108,7 +108,7 @@ with Robot(host="172.26.34.149") as robot:
 
     ---
 
-    Robot, Swift, and Webots backends
+    Robot and Webots backends
 
 -   :material-tools: **[Tools](tools.md)**
 

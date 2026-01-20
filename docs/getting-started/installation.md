@@ -64,7 +64,7 @@ python -c "import pib3; print(f'pib3 {pib3.__version__}')"
 | Option | Dependencies | Use Case |
 |--------|--------------|----------|
 | `image` | scikit-image | Advanced image processing |
-| `viz` | swift-sim, spatialgeometry | 3D browser visualization |
+
 | `robot` | roslibpy | Real robot via rosbridge |
 | `dev` | pytest, black, ruff, mypy | Development/testing |
 | `all` | All above (except dev) | Full functionality |
@@ -97,7 +97,7 @@ pip install -e ".[all,dev]"
 | Permission errors (Linux) | Use venv or `pip install --user` |
 | PowerShell script error | `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` |
 | SSL/Certificate errors | Add `--trusted-host pypi.org --trusted-host files.pythonhosted.org` |
-| Swift not working | Install with `[viz]` option |
+
 | Robot connection fails | Install with `[robot]` option, check rosbridge running |
 
 ---

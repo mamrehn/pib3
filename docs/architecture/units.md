@@ -8,7 +8,7 @@ Joint angle units and conversions across different components.
 |---------|------|-----------------|
 | Canonical (Trajectory/Webots) | radians | -π/2 to +π/2 |
 | User API (default) | percentage | 0% to 100% |
-| Swift visualization | radians - 1.0 | -2.57 to +0.57 |
+
 | Real robot (ROS) | centidegrees | -9000 to +9000 |
 
 ## Percentage System
@@ -86,31 +86,7 @@ class WebotsBackend(RobotBackend):
         return values  # Identity
 ```
 
-## Swift Offset
 
-Swift visualization requires a **-1.0 radian offset** from canonical:
-
-```
-Swift_position = Canonical_radians - 1.0
-Canonical_radians = Swift_position + 1.0
-```
-
-### Handled Automatically
-
-The `SwiftBackend` applies this conversion internally:
-
-```python
-class SwiftBackend(RobotBackend):
-    SWIFT_OFFSET = -1.0
-
-    def _to_backend_format(self, radians):
-        return radians + self.SWIFT_OFFSET  # Subtracts 1.0
-
-    def _from_backend_format(self, values):
-        return values - self.SWIFT_OFFSET  # Adds 1.0
-```
-
-You don't need to think about this offset when using the library.
 
 ## Real Robot (ROS) Format
 
@@ -162,12 +138,12 @@ Trajectories are stored in **canonical Webots motor radians**:
 Backends convert to their native format when executing:
 
 - **Webots**: Uses waypoints directly (no conversion)
-- **Swift**: Subtracts 1.0 from each value
+
 - **Real Robot**: Converts to centidegrees
 
 ## Comparison Table
 
-| Operation | Swift | Webots | Real Robot |
+| Operation | Webots | Real Robot |
 |-----------|-------|--------|------------|
 | Internal storage | radians | radians | radians |
 | Backend conversion | -1.0 rad | none | to centideg |
@@ -180,7 +156,7 @@ Backends convert to their native format when executing:
 ### Working with Different Units
 
 ```python
-from pib3 import Robot, Swift, Joint
+from pib3 import Robot, Joint
 import math
 
 # Both backends support the same API
@@ -196,8 +172,7 @@ def demonstrate_units(backend):
     print(f"Radians: {pos_rad:.3f}")
 
 # Works the same with both backends
-with Swift() as viz:
-    demonstrate_units(viz)
+
 
 with Robot(host="172.26.34.149") as robot:
     demonstrate_units(robot)

@@ -68,7 +68,7 @@ class RobotBackend(ABC):
     Abstract base class for robot control backends.
 
     Provides a unified interface for controlling the PIB robot through
-    different backends (Webots simulation, real robot, Swift visualization).
+    different backends (Webots simulation, real robot).
 
     Position values use percentage (0-100%) by default, which maps to the
     joint's calibrated range:
@@ -80,7 +80,6 @@ class RobotBackend(ABC):
     Implementations:
         - WebotsBackend: Webots simulator
         - RealRobotBackend: Real robot via rosbridge
-        - SwiftBackend: Swift browser visualization
 
     Example:
         >>> from pib3 import Joint
@@ -131,7 +130,7 @@ class RobotBackend(ABC):
     DEFAULT_VERIFY_TOLERANCE_DEG = 3.0  # 3 degrees
 
     # Joint limits file for this backend (override in subclasses)
-    # - "joint_limits_webots.yaml" for simulation (Webots, Swift)
+    # - "joint_limits_webots.yaml" for simulation (Webots)
     # - "joint_limits_robot.yaml" for real robot
     JOINT_LIMITS_FILE: str = "joint_limits_webots.yaml"
 
@@ -286,7 +285,6 @@ class RobotBackend(ABC):
                       Default: 5.0 seconds.
                     - WebotsBackend: Waits for motor reading to stabilize
                       (same value twice). Default: 5.0 seconds.
-                    - SwiftBackend: Ignored (synchronous access).
 
         Returns:
             Current position in specified unit, or None if unavailable.

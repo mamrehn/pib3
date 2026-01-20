@@ -190,7 +190,7 @@ The library uses **separate joint limit files** for simulation and real robot:
 
 | File | Used By | Purpose |
 |------|---------|---------|
-| `joint_limits_webots.yaml` | WebotsBackend, SwiftBackend | Simulation limits (from proto file) |
+| `joint_limits_webots.yaml` | WebotsBackend | Simulation limits (from proto file) |
 | `joint_limits_robot.yaml` | RealRobotBackend | Real robot limits (calibrated) |
 
 Calibration values are stored in `pib3/resources/joint_limits_robot.yaml`:

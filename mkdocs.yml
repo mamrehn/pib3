@@ -99,35 +99,35 @@ extra_css:
 nav:
   - Home: index.md
   - Getting Started:
-    - Installation: getting-started/installation.md
-    - Quick Start: getting-started/quickstart.md
-    - Calibration: getting-started/calibration.md
+      - Installation: getting-started/installation.md
+      - Quick Start: getting-started/quickstart.md
+      - Calibration: getting-started/calibration.md
   - Tutorials:
-    - Overview: tutorials/index.md
-    - Image to Trajectory: tutorials/image-to-trajectory.md
-    - Controlling the Robot: tutorials/controlling-robot.md
-    - Camera, AI & IMU: tutorials/camera-ai-imu.md
-    - Swift Visualization: tutorials/swift-visualization.md
-    - Working with Sketches: tutorials/working-with-sketches.md
-    - Custom Configurations: tutorials/custom-configurations.md
+      - Overview: tutorials/index.md
+      - Image to Trajectory: tutorials/image-to-trajectory.md
+      - Controlling the Robot: tutorials/controlling-robot.md
+      - Camera, AI & IMU: tutorials/camera-ai-imu.md
+
+      - Working with Sketches: tutorials/working-with-sketches.md
+      - Custom Configurations: tutorials/custom-configurations.md
   - API Reference:
-    - Overview: api/index.md
-    - Core Types: api/types.md
-    - Configuration: api/config.md
-    - Image Processing: api/image.md
-    - Trajectory Generation: api/trajectory.md
-    - Backends:
-      - Base Backend: api/backends/base.md
-      - Real Robot: api/backends/robot.md
-      - Swift Visualization: api/backends/swift.md
-      - Webots Simulation: api/backends/webots.md
-    - Tools: api/tools.md
-    - Hand Poses: api/hand-poses.md
+      - Overview: api/index.md
+      - Core Types: api/types.md
+      - Configuration: api/config.md
+      - Image Processing: api/image.md
+      - Trajectory Generation: api/trajectory.md
+      - Backends:
+          - Base Backend: api/backends/base.md
+          - Real Robot: api/backends/robot.md
+
+          - Webots Simulation: api/backends/webots.md
+      - Tools: api/tools.md
+      - Hand Poses: api/hand-poses.md
   - Architecture:
-    - Overview: architecture/overview.md
-    - Coordinate Systems: architecture/coordinates.md
-    - Unit Conventions: architecture/units.md
+      - Overview: architecture/overview.md
+      - Coordinate Systems: architecture/coordinates.md
+      - Unit Conventions: architecture/units.md
   - Contributing:
-    - How to Contribute: contributing/index.md
-    - Development Setup: contributing/development.md
-    - Code Style: contributing/code-style.md
+      - How to Contribute: contributing/index.md
+      - Development Setup: contributing/development.md
+      - Code Style: contributing/code-style.md

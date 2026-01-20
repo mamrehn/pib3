@@ -149,17 +149,7 @@ mkdocs serve
 
 ## Testing with Hardware
 
-### Swift Visualization
 
-```bash
-# Test visualization (opens browser)
-python -c "
-from pib3 import Swift, Joint
-with Swift() as viz:
-    viz.set_joint(Joint.ELBOW_LEFT, 50.0)
-    input('Press Enter to exit...')
-"
-```
 
 ### Webots Simulator
 

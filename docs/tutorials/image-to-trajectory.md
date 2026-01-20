@@ -32,7 +32,7 @@ graph LR
     A1[PNG/JPG] --> A
     B1[2D Strokes] --> B
     C1[3D Joint Positions] --> C
-    D1[Robot/Swift/Webots] --> D
+
 ```
 
 1. **Image → Sketch**: Extract contours, simplify, normalize to 2D strokes
@@ -231,19 +231,7 @@ print()  # New line after progress
 
 ## Visualizing During Generation
 
-Watch the IK solving process in Swift:
 
-```python
-import pib3
-
-sketch = pib3.image_to_sketch("drawing.png")
-
-# Enable visualization during IK solving
-trajectory = pib3.sketch_to_trajectory(
-    sketch,
-    visualize=True  # Opens Swift browser window
-)
-```
 
 !!! note
     Visualization slows down trajectory generation but helps debug IK issues.
@@ -491,7 +479,7 @@ traj2 = pib3.sketch_to_trajectory(sketch2, initial_q=traj1)
 
 ## Next Steps
 
-- [Swift Visualization](swift-visualization.md) - Visualize your trajectory
+
 - [Controlling the Robot](controlling-robot.md) - Execute on hardware
 - [Working with Sketches](working-with-sketches.md) - Modify sketches programmatically
 - [Custom Configurations](custom-configurations.md) - All configuration options

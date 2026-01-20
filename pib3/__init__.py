@@ -4,7 +4,7 @@ pib3 - Inverse kinematics and trajectory generation for the PIB robot.
 This package provides tools to:
 1. Convert images to 2D drawing strokes
 2. Generate robot trajectories using inverse kinematics
-3. Execute trajectories on Webots simulation, Swift visualization, or real robot
+3. Execute trajectories on Webots simulation or real robot
 
 Quick Start:
     >>> import pib3
@@ -17,10 +17,7 @@ Quick Start:
     >>> sketch = pib3.image_to_sketch("drawing.png")
     >>> trajectory = pib3.sketch_to_trajectory(sketch)
     >>>
-    >>> # Execute on backends:
-    >>> with pib3.Swift() as viz:
-    ...     viz.run_trajectory(trajectory)
-    >>>
+
     >>> with pib3.Robot(host="172.26.34.149") as robot:
     ...     robot.run_trajectory(trajectory)
 """
@@ -107,7 +104,6 @@ def generate_trajectory(
         image: Input image (file path, numpy array, or PIL Image).
         output_path: If provided, save trajectory JSON to this path.
         config: Full configuration (uses sensible defaults if None).
-        visualize: Show Swift visualization during IK solving.
         initial_q: Initial joint configuration to start IK solving from.
             Can be one of:
             - numpy array of shape (n_joints,) with joint positions in radians

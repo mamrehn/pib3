@@ -42,7 +42,7 @@ trajectory = pib3.generate_trajectory("drawing.png", config=config)
 # With visualization during IK solving
 trajectory = pib3.generate_trajectory(
     "drawing.png",
-    visualize=True  # Opens Swift browser view
+    visualize=True  # Ignored (Swift removed)
 )
 ```
 
@@ -139,8 +139,7 @@ print(f"Metadata: {loaded.metadata}")
 # Get waypoints in Webots format (no offset, canonical format)
 webots_waypoints = trajectory.to_webots_format()
 
-# Get waypoints in Swift format (-1.0 offset)
-swift_waypoints = trajectory.to_swift_format()
+
 
 # Get waypoints in robot format (centidegrees)
 robot_waypoints = trajectory.to_robot_format()

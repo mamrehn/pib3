@@ -10,7 +10,7 @@ Repository statistics: 🐍 ![Python LOC](https://img.shields.io/endpoint?url=ht
 
 | | |
 |---|---|
-| 🔄 **Same Code Everywhere** | Test in Webots or Swift simulation, then run on real robot |
+| 🔄 **Same Code Everywhere** | Test in Webots simulation, then run on real robot |
 | 🎮 **Joint Control** | Read/write motors with IDE autocomplete via `Joint` enum |
 | 📐 **Multiple Units** | Work in percent (0-100%), degrees, or radians |
 | ✍️ **Trajectory Generation** | Convert 2-D images to 3-D robot arm drawing trajectories |
@@ -35,8 +35,6 @@ pip install -U "pib3 @ git+https://github.com/mamrehn/pib3.git"
 import pib3
 
 # Same API works on all backends
-with pib3.Swift() as viz:              # Browser 3D visualization
-    viz.run_trajectory("output.json")
 
 with pib3.Webots() as sim:             # Webots simulation
     sim.run_trajectory("output.json")
@@ -89,8 +87,7 @@ import pib3
 trajectory = pib3.generate_trajectory("drawing.png")
 trajectory.to_json("output.json")
 
-with pib3.Swift() as viz:
-    viz.run_trajectory("output.json")
+
 ```
 
 ### Camera & AI Vision

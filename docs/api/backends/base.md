@@ -4,13 +4,13 @@ Abstract base class defining the common interface for all robot control backends
 
 ## Overview
 
-All backends (Robot, Swift, Webots) inherit from `RobotBackend` and share a common API for joint control and trajectory execution.
+All backends (Robot, Webots) inherit from `RobotBackend` and share a common API for joint control and trajectory execution.
 
 ```python
-from pib3 import Robot, Swift, Joint
+from pib3 import Robot, Joint
 
 # All backends support the same methods
-with Swift() as backend:
+with Robot() as backend:
     backend.set_joint(Joint.ELBOW_LEFT, 50.0)
     pos = backend.get_joint(Joint.ELBOW_LEFT)
     backend.run_trajectory("trajectory.json")
@@ -128,7 +128,7 @@ def get_joint(
 |---------|---------|----------|
 | `RealRobotBackend` | 5.0s | Waits for ROS messages to arrive |
 | `WebotsBackend` | 5.0s | Waits for motor readings to stabilize |
-| `SwiftBackend` | ignored | Returns immediately (synchronous access) |
+
 
 **Returns:** `float` or `None`
 
@@ -182,7 +182,7 @@ def get_joints(
 |---------|---------|----------|
 | `RealRobotBackend` | 5.0s | Waits for ROS messages to arrive |
 | `WebotsBackend` | 5.0s | Waits for motor readings to stabilize |
-| `SwiftBackend` | ignored | Returns immediately (synchronous access) |
+
 
 **Returns:** `Dict[str, float]`
 
@@ -252,20 +252,20 @@ def set_joint(
 **Example:**
 
 ```python
-from pib3 import Swift, Joint
+from pib3 import Robot, Joint
 import math
 
-with Swift() as viz:
+with Robot(host="172.26.34.149") as robot:
     # Set using percentage (recommended)
-    viz.set_joint(Joint.ELBOW_LEFT, 50.0)  # Move to 50%
-    viz.set_joint(Joint.ELBOW_LEFT, 0.0)   # Move to minimum
-    viz.set_joint(Joint.ELBOW_LEFT, 100.0) # Move to maximum
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0)  # Move to 50%
+    robot.set_joint(Joint.ELBOW_LEFT, 0.0)   # Move to minimum
+    robot.set_joint(Joint.ELBOW_LEFT, 100.0) # Move to maximum
 
     # Set using radians
-    viz.set_joint(Joint.ELBOW_LEFT, math.pi / 4, unit="rad")  # 45 degrees
+    robot.set_joint(Joint.ELBOW_LEFT, math.pi / 4, unit="rad")  # 45 degrees
 
     # Wait for completion
-    success = viz.set_joint(
+    success = robot.set_joint(
         Joint.ELBOW_LEFT,
         75.0,
         async_=False,
@@ -372,25 +372,25 @@ def run_trajectory(
 **Example:**
 
 ```python
-from pib3 import Swift, Trajectory
+from pib3 import Robot, Trajectory
 
-with Swift() as viz:
+with Robot(host="172.26.34.149") as robot:
     # From file path
-    viz.run_trajectory("my_trajectory.json")
+    robot.run_trajectory("my_trajectory.json")
 
     # From Trajectory object
     trajectory = Trajectory.from_json("my_trajectory.json")
-    viz.run_trajectory(trajectory)
+    robot.run_trajectory(trajectory)
 
     # With custom playback rate
-    viz.run_trajectory(trajectory, rate_hz=30.0)  # Faster
+    robot.run_trajectory(trajectory, rate_hz=30.0)  # Faster
 
     # With progress callback
     def on_progress(current, total):
         percent = (current / total) * 100
         print(f"\rProgress: {percent:.1f}%", end="", flush=True)
 
-    viz.run_trajectory(trajectory, progress_callback=on_progress)
+    robot.run_trajectory(trajectory, progress_callback=on_progress)
     print()  # Newline after progress
 ```
 
@@ -493,5 +493,5 @@ backend.set_joint(Joint.ELBOW_LEFT, math.pi / 4, unit="rad")  # 45 degrees
 | Backend | Class | Import | Use Case |
 |---------|-------|--------|----------|
 | [Real Robot](robot.md) | `RealRobotBackend` | `from pib3 import Robot` | Control physical PIB robot |
-| [Swift](swift.md) | `SwiftBackend` | `from pib3 import Swift` | Browser-based 3D visualization |
+
 | [Webots](webots.md) | `WebotsBackend` | `from pib3.backends import WebotsBackend` | Webots physics simulation |

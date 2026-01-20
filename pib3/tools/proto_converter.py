@@ -6,8 +6,6 @@ import re
 import os
 
 # NOTE: The canonical format uses Webots motor radians directly.
-# Swift visualization requires a -1.0 radian offset: Swift_pos = Canonical_radians - 1.0
-# This offset is applied in SwiftBackend, not baked into the URDF.
 
 # --- Vector Math ---
 
