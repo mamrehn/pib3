@@ -110,7 +110,6 @@ class Trajectory:
     UNIT = "radians"
     COORDINATE_FRAME = "webots"  # Canonical format = Webots motor radians
     WEBOTS_OFFSET = 0.0  # No offset needed for Webots
-    SWIFT_OFFSET = -1.0  # Swift visualization needs -1.0 from canonical
 
     def __len__(self) -> int:
         """Return number of waypoints."""
@@ -123,10 +122,6 @@ class Trajectory:
     def to_webots_format(self) -> np.ndarray:
         """Convert waypoints to Webots motor positions (identity, no offset)."""
         return self.waypoints + self.WEBOTS_OFFSET
-
-    def to_swift_format(self) -> np.ndarray:
-        """Convert waypoints to Swift visualization format (subtract 1.0)."""
-        return self.waypoints + self.SWIFT_OFFSET
 
     def to_robot_format(self) -> np.ndarray:
         """Convert waypoints to real robot format (centidegrees)."""
@@ -145,8 +140,7 @@ class Trajectory:
                 "created_at": datetime.utcnow().isoformat() + "Z",
                 "offsets": {
                     "webots": self.WEBOTS_OFFSET,
-                    "swift": self.SWIFT_OFFSET,
-                    "description": "Canonical format is Webots motor radians. Swift needs -1.0.",
+                    "description": "Canonical format is Webots motor radians.",
                 },
             },
         }
@@ -702,18 +696,8 @@ def sketch_to_trajectory(
     paper.start_x = float(start_pos[0] - paper.size / 2.0)
 
     # Optional visualization setup
+    # Swift visualization removed
     env = None
-    if visualize:
-        try:
-            import swift
-            env = swift.Swift()
-            env.launch(realtime=False)
-            env.add(robot)
-            env.step(0.1)
-        except ImportError:
-            warnings.warn("Swift not available for visualization")
-        except Exception as e:
-            warnings.warn(f"Could not launch Swift visualization: {e}")
 
     # Generate 3D trajectory points
     trajectory_3d = []

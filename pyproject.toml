@@ -38,15 +38,13 @@ classifiers = [
 
 dependencies = [
     "numpy>=1.20.0,<2.0",  # roboticstoolbox/spatialmath not yet compatible with numpy 2.x
-    "Pillow>=8.0.0",
-    "PyYAML>=5.0.0",
+    "Pillow>=9.0.0",
+    "PyYAML>=6.0.0",
     "roboticstoolbox-python>=1.0.0",
-    "spatialmath-python>=1.0.0,<1.1.15",  # Pin to avoid axis parsing issues
-    "scikit-image>=0.18.0",
-    "swift-sim>=1.0.0",
+    "spatialmath-python>=1.0.0",
+    "scikit-image>=0.19.0",
     "spatialgeometry>=1.0.0",
-    "websockets>=10.0,<11.0",  # swift-sim 1.x requires websockets 10.x
-    "roslibpy>=1.0.0",
+    "roslibpy>=1.4.0",  # Includes websocket support via autobahn/twisted
 ]
 
 [project.optional-dependencies]

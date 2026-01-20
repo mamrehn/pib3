@@ -49,13 +49,11 @@ from .backends import (
     RobotBackend,
     WebotsBackend,
     RealRobotBackend,
-    SwiftBackend,
 )
 
 # Convenience aliases
 Webots = WebotsBackend
 Robot = RealRobotBackend
-Swift = SwiftBackend
 
 
 __version__ = "0.1.2"
@@ -82,11 +80,9 @@ __all__ = [
     "RobotBackend",
     "WebotsBackend",
     "RealRobotBackend",
-    "SwiftBackend",
     # Aliases
     "Webots",
     "Robot",
-    "Swift",
     # Hand poses
     "HandPose",
     "LEFT_HAND_JOINTS",
