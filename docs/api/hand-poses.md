@@ -4,7 +4,7 @@ Control individual finger joints for hand gestures and poses.
 
 ## Overview
 
-The PIB robot has 12 finger joints (6 per hand). All values are in percent where **0% = open** and **100% = closed**.
+The PIB robot has 12 finger joints (6 per hand). All values are in percent where **0% = bent/closed** and **100% = stretched/open**.
 
 ## HandPose Enum
 
@@ -29,10 +29,10 @@ with Robot(host="172.26.34.149") as robot:
 
 | Pose | Description |
 |------|-------------|
-| `HandPose.LEFT_OPEN` | Left hand fully open (all joints at 0%) |
-| `HandPose.LEFT_CLOSED` | Left hand fully closed (all joints at 100%) |
-| `HandPose.RIGHT_OPEN` | Right hand fully open (all joints at 0%) |
-| `HandPose.RIGHT_CLOSED` | Right hand fully closed (all joints at 100%) |
+| `HandPose.LEFT_OPEN` | Left hand fully open (all joints at 100%) |
+| `HandPose.LEFT_CLOSED` | Left hand fully closed (all joints at 0%) |
+| `HandPose.RIGHT_OPEN` | Right hand fully open (all joints at 100%) |
+| `HandPose.RIGHT_CLOSED` | Right hand fully closed (all joints at 0%) |
 
 ## Joint Lists
 
@@ -74,8 +74,8 @@ from pib3 import Robot, Joint
 
 with Robot(host="172.26.34.149") as robot:
     # Individual finger control
-    robot.set_joint(Joint.INDEX_LEFT, 100.0)  # Fully closed
-    robot.set_joint(Joint.INDEX_LEFT, 0.0)    # Fully open
+    robot.set_joint(Joint.INDEX_LEFT, 0.0)    # Fully closed/bent
+    robot.set_joint(Joint.INDEX_LEFT, 100.0)  # Fully open/stretched
 
     # Multiple fingers at once
     robot.set_joints({
@@ -97,10 +97,10 @@ with Robot(host="172.26.34.149") as robot:
     robot.set_joints({
         Joint.THUMB_LEFT_OPPOSITION: 50.0,
         Joint.THUMB_LEFT_STRETCH: 50.0,
-        Joint.INDEX_LEFT: 0.0,       # Open (pointing)
-        Joint.MIDDLE_LEFT: 100.0,    # Closed
-        Joint.RING_LEFT: 100.0,      # Closed
-        Joint.PINKY_LEFT: 100.0,     # Closed
+        Joint.INDEX_LEFT: 100.0,     # Open (pointing)
+        Joint.MIDDLE_LEFT: 0.0,      # Closed
+        Joint.RING_LEFT: 0.0,        # Closed
+        Joint.PINKY_LEFT: 0.0,       # Closed
     })
 ```
 
@@ -111,12 +111,12 @@ from pib3 import Robot, Joint
 
 with Robot(host="172.26.34.149") as robot:
     robot.set_joints({
-        Joint.THUMB_LEFT_OPPOSITION: 100.0,
-        Joint.THUMB_LEFT_STRETCH: 100.0,
-        Joint.INDEX_LEFT: 0.0,       # Open
-        Joint.MIDDLE_LEFT: 0.0,      # Open
-        Joint.RING_LEFT: 100.0,      # Closed
-        Joint.PINKY_LEFT: 100.0,     # Closed
+        Joint.THUMB_LEFT_OPPOSITION: 0.0,
+        Joint.THUMB_LEFT_STRETCH: 0.0,
+        Joint.INDEX_LEFT: 100.0,     # Open
+        Joint.MIDDLE_LEFT: 100.0,    # Open
+        Joint.RING_LEFT: 0.0,        # Closed
+        Joint.PINKY_LEFT: 0.0,       # Closed
     })
 ```
 
@@ -127,12 +127,12 @@ from pib3 import Robot, Joint
 
 with Robot(host="172.26.34.149") as robot:
     robot.set_joints({
-        Joint.THUMB_LEFT_OPPOSITION: 0.0,
-        Joint.THUMB_LEFT_STRETCH: 0.0,     # Open (up)
-        Joint.INDEX_LEFT: 100.0,           # Closed
-        Joint.MIDDLE_LEFT: 100.0,          # Closed
-        Joint.RING_LEFT: 100.0,            # Closed
-        Joint.PINKY_LEFT: 100.0,           # Closed
+        Joint.THUMB_LEFT_OPPOSITION: 100.0,
+        Joint.THUMB_LEFT_STRETCH: 100.0,   # Open (up)
+        Joint.INDEX_LEFT: 0.0,             # Closed
+        Joint.MIDDLE_LEFT: 0.0,            # Closed
+        Joint.RING_LEFT: 0.0,              # Closed
+        Joint.PINKY_LEFT: 0.0,             # Closed
     })
 ```
 

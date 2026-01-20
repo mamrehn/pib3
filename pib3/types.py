@@ -92,14 +92,14 @@ RIGHT_HAND_JOINTS: List[Joint] = [
 class HandPose(Enum):
     """Hand pose presets (values in percent).
 
-    Physical mapping: 0% = -90° (bent/closed), 100% = +90° (extended/open)
+    Physical mapping: 0% = bent/closed, 100% = stretched/open
 
     Use with robot.set_joints():
         >>> robot.set_joints(HandPose.LEFT_OPEN)
         >>> robot.set_joints(HandPose.RIGHT_CLOSED)
 
     For partial grip, use the joint lists:
-        >>> robot.set_joints({j: 50.0 for j in LEFT_HAND_JOINTS})  # 50% = 0°
+        >>> robot.set_joints({j: 50.0 for j in LEFT_HAND_JOINTS})  # 50% = half grip
     """
 
     LEFT_OPEN = {

@@ -32,25 +32,25 @@ joints:
     min: -0.5235987755982988  # -30 degrees
     max: 0.5235987755982988   # +30 degrees
 
-  # Left hand joints
+  # Left hand joints (0% = bent/closed, 100% = stretched/open)
   thumb_left_opposition:
-    min: 0.0
-    max: 1.5707963267948966   # +90 degrees
+    min: 1.5707963267948966   # +90 degrees (bent)
+    max: 0.0                  # 0 degrees (stretched)
   thumb_left_stretch:
-    min: 0.0
-    max: 1.5707963267948966   # +90 degrees
+    min: 1.5707963267948966   # +90 degrees (bent)
+    max: 0.0                  # 0 degrees (stretched)
   index_left_stretch:
-    min: 0.0
-    max: 1.5707963267948966   # +90 degrees
+    min: 1.5707963267948966   # +90 degrees (bent)
+    max: 0.0                  # 0 degrees (stretched)
   middle_left_stretch:
-    min: 0.0
-    max: 1.5707963267948966   # +90 degrees
+    min: 1.5707963267948966   # +90 degrees (bent)
+    max: 0.0                  # 0 degrees (stretched)
   ring_left_stretch:
-    min: 0.0
-    max: 1.5707963267948966   # +90 degrees
+    min: 1.5707963267948966   # +90 degrees (bent)
+    max: 0.0                  # 0 degrees (stretched)
   pinky_left_stretch:
-    min: 0.0
-    max: 1.5707963267948966   # +90 degrees
+    min: 1.5707963267948966   # +90 degrees (bent)
+    max: 0.0                  # 0 degrees (stretched)
 
   # Right arm joints
   shoulder_vertical_right:
@@ -72,22 +72,22 @@ joints:
     min: -1.5707963267948966  # -90 degrees
     max: 1.5707963267948966   # +90 degrees
 
-  # Right hand joints
+  # Right hand joints (0% = bent/closed, 100% = stretched/open)
   thumb_right_opposition:
-    min: 0.0
-    max: 1.5707963267948966   # +90 degrees
+    min: 1.5707963267948966   # +90 degrees (bent)
+    max: 0.0                  # 0 degrees (stretched)
   thumb_right_stretch:
-    min: 0.0
-    max: 1.5707963267948966   # +90 degrees
+    min: 1.5707963267948966   # +90 degrees (bent)
+    max: 0.0                  # 0 degrees (stretched)
   index_right_stretch:
-    min: 0.0
-    max: 1.5707963267948966   # +90 degrees
+    min: 1.5707963267948966   # +90 degrees (bent)
+    max: 0.0                  # 0 degrees (stretched)
   middle_right_stretch:
-    min: 0.0
-    max: 1.5707963267948966   # +90 degrees
+    min: 1.5707963267948966   # +90 degrees (bent)
+    max: 0.0                  # 0 degrees (stretched)
   ring_right_stretch:
-    min: 0.0
-    max: 1.5707963267948966   # +90 degrees
+    min: 1.5707963267948966   # +90 degrees (bent)
+    max: 0.0                  # 0 degrees (stretched)
   pinky_right_stretch:
-    min: 0.0
-    max: 1.5707963267948966   # +90 degrees
+    min: 1.5707963267948966   # +90 degrees (bent)
+    max: 0.0                  # 0 degrees (stretched)
