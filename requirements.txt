@@ -12,3 +12,4 @@ spatialgeometry>=1.0.0
 
 # Real robot connection via rosbridge
 roslibpy>=1.0.0
+simpleaudio>=1.0.4

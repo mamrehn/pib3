@@ -132,7 +132,16 @@ class RobotBackend(ABC):
     # Joint limits file for this backend (override in subclasses)
     # - "joint_limits_webots.yaml" for simulation (Webots)
     # - "joint_limits_robot.yaml" for real robot
+    # - "joint_limits_webots.yaml" for simulation (Webots)
+    # - "joint_limits_robot.yaml" for real robot
     JOINT_LIMITS_FILE: str = "joint_limits_webots.yaml"
+
+    def __init__(self, host: str = "localhost", port: int = 9090):
+        self.host = host
+        self.port = port
+        self._is_connected = False
+        from pib3.backends.audio import NoOpAudioBackend, AudioBackend
+        self.audio: AudioBackend = NoOpAudioBackend()
 
     def _get_joint_limits(self) -> Dict[str, Dict[str, float]]:
         """Get joint limits for this backend."""

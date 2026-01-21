@@ -114,6 +114,12 @@ class RealRobotBackend(RobotBackend):
         self._joint_positions: Dict[str, float] = {}
         self._joint_positions_lock = threading.Lock()
 
+        # Initialize audio backend (lazy init in connect() is better, but consistent with pattern)
+        # We can't connect yet, but we can set the client ref. 
+        # Actually ROSAudioBackend needs a connected client. Ideally we init it in connect().
+        # Let's override connect() to init audio there.
+        self.audio = None 
+
     @classmethod
     def from_config(cls, config: RobotConfig) -> "RealRobotBackend":
         """Create backend from RobotConfig."""
@@ -187,6 +193,10 @@ class RealRobotBackend(RobotBackend):
             'trajectory_msgs/msg/JointTrajectory'
         )
         self._position_subscriber.subscribe(self._on_joint_trajectory)
+
+        # Initialize audio backend
+        from pib3.backends.audio import ROSAudioBackend
+        self.audio = ROSAudioBackend(self._client)
 
     def _on_joint_trajectory(self, message: dict) -> None:
         """Callback for position updates from /joint_trajectory topic.
@@ -485,7 +495,7 @@ class RealRobotBackend(RobotBackend):
 
         topic = roslibpy.Topic(
             self._client,
-            '/camera/image',
+            '/camera/image/compressed',
             'sensor_msgs/msg/CompressedImage',
         )
 
@@ -611,7 +621,7 @@ class RealRobotBackend(RobotBackend):
 
         topic = roslibpy.Topic(
             self._client,
-            '/ai/detections',
+            '/camera/ai/detections',
             'std_msgs/msg/String'
         )
 
@@ -656,7 +666,7 @@ class RealRobotBackend(RobotBackend):
 
         topic = roslibpy.Topic(
             self._client,
-            '/ai/available_models',
+            '/camera/ai/available_models',
             'std_msgs/msg/String'
         )
         topic.subscribe(on_models)
@@ -701,7 +711,7 @@ class RealRobotBackend(RobotBackend):
         # Subscribe to current model updates first
         model_topic = roslibpy.Topic(
             self._client,
-            '/ai/current_model',
+            '/camera/ai/current_model',
             'std_msgs/msg/String'
         )
 
@@ -801,7 +811,7 @@ class RealRobotBackend(RobotBackend):
 
         topic = roslibpy.Topic(
             self._client,
-            '/ai/current_model',
+            '/camera/ai/current_model',
             'std_msgs/msg/String'
         )
 
@@ -824,7 +834,7 @@ class RealRobotBackend(RobotBackend):
 
         Streaming only runs while subscribed (on-demand activation).
 
-        All data types subscribe to the same /imu/data topic but filter
+        All data types subscribe to the same /camera/imu topic but filter
         the data before passing it to your callback:
         - "full": Complete IMU message (linear_acceleration + angular_velocity)
         - "accelerometer": Only linear_acceleration in Vector3Stamped format
@@ -861,8 +871,8 @@ class RealRobotBackend(RobotBackend):
         if dtype_str not in valid_types:
             raise ValueError(f"data_type must be one of: {valid_types}")
 
-        # All IMU data comes from /imu/data - individual topics are not published
-        topic = roslibpy.Topic(self._client, '/imu/data', 'sensor_msgs/msg/Imu')
+        # All IMU data comes from /camera/imu - individual topics are not published
+        topic = roslibpy.Topic(self._client, '/camera/imu', 'sensor_msgs/msg/Imu')
 
         if dtype_str == ImuType.FULL.value:
             # Pass through the full IMU message

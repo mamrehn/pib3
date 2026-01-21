@@ -98,6 +98,14 @@ class WebotsBackend(RobotBackend):
         self._timestep = None
         self._motors: Dict[str, any] = {}
         self._proximal_motors: Dict[str, any] = {}
+        
+        # Use system audio for Webots simulation (local speakers)
+        from pib3.backends.audio import SystemAudioBackend
+        try:
+            self.audio = SystemAudioBackend()
+        except ImportError:
+            # Fallback handled by default NoOp in base
+            pass
 
     def _to_backend_format(self, radians: np.ndarray) -> np.ndarray:
         """Convert radians to Webots format (add offset)."""
