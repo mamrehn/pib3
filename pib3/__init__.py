@@ -91,7 +91,6 @@ def generate_trajectory(
     image: Union[str, Path, "np.ndarray", "PIL.Image.Image"],
     output_path: Optional[Union[str, Path]] = None,
     config: Optional[TrajectoryConfig] = None,
-    visualize: bool = False,
     initial_q: Optional[Union["np.ndarray", dict, Trajectory]] = None,
 ) -> Trajectory:
     """
@@ -142,7 +141,7 @@ def generate_trajectory(
 
     # Step 2: Sketch to trajectory
     trajectory = sketch_to_trajectory(
-        sketch, config, visualize=visualize, initial_q=initial_q
+        sketch, config, initial_q=initial_q
     )
 
     # Optional: Save to file

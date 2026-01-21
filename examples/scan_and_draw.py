@@ -26,6 +26,7 @@ import PIL.Image
 import PIL.ImageDraw
 import PIL.ImageFont
 
+import pib3
 from pib3 import Robot, Joint, generate_trajectory, TrajectoryConfig, PaperConfig
 
 
@@ -147,8 +148,20 @@ class SceneScanner:
 
 
 def main():
+
+    print(f'piB3 version: {pib3.__version__}')
+
+    host_michael = '172.26.34.222', 'Michael'
+    host_wolfgang = '172.26.46.47', 'Wolfgang'
+    host_richard = '172.26.30.35', 'Richard'
+    host_martin = '172.26.34.149', 'Martin'  # robot with arms
+
+    host_ip, host_name = host_wolfgang
+
+    print(f'I choose you "{host_name}"!')
+
     parser = argparse.ArgumentParser(description="Scan and Draw PoC")
-    parser.add_argument("--host", default="172.26.34.149", help="Robot IP")
+    parser.add_argument("--host", default=host_ip, help="Robot IP")
     args = parser.parse_args()
 
     # 1. Setup Resources

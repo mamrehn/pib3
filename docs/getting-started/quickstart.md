@@ -21,14 +21,14 @@ trajectory.to_json("my_trajectory.json")
 print(f"Generated {len(trajectory)} waypoints")
 ```
 
-### Visualize in Browser (Optional)
+### Visualize in Simulation (Do this before running on real robot!)
 
 ```python
 from pib3 import Webots, Trajectory
 
 trajectory = Trajectory.from_json("my_trajectory.json")
-with Webots() as viz:
-    viz.run_trajectory(trajectory)
+with Webots() as sim:
+    sim.run_trajectory(trajectory)
 ```
 
 ### Execute on Robot
