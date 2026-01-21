@@ -87,7 +87,7 @@ def demo_detection_models(robot, duration: float = 5.0):
 
         # Switch model (synchronous)
         print(f"Switching to {model_name}...")
-        if robot.set_ai_model(model_name, timeout=5.0):
+        if robot.set_ai_model(model_name, timeout=10.0):
             print(f"Model ready!")
         else:
             print(f"Model switch timed out, skipping...")
