@@ -32,6 +32,8 @@ from typing import Optional
 
 import numpy as np
 
+import pib3
+
 # Optional: OpenCV for display
 try:
     import cv2
@@ -279,6 +281,8 @@ Examples:
   python camera_ai_imu_example.py --demo tracking
         """
     )
+
+    print(f'piB3 version: {pib3.__version__}')
 
     host_michael = '172.26.34.222', 'Michael'
     host_wolfgang = '172.26.46.47', 'Wolfgang'
