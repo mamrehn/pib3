@@ -279,10 +279,20 @@ Examples:
   python camera_ai_imu_example.py --demo tracking
         """
     )
+
+    host_michael = '172.26.34.222', 'Michael'
+    host_wolfgang = '172.26.46.47', 'Wolfgang'
+    host_richard = '172.26.30.35', 'Richard'
+    host_martin = '172.26.34.149', 'Martin'  # robot with arms
+
+    host_ip, host_name = host_wolfgang
+
+    print(f'I choose you "{host_name}"!')
+
     parser.add_argument(
         "--host",
-        default="172.26.34.149",
-        help="Robot IP address (default: 172.26.34.149)"
+        default=host_ip,
+        help=f"Robot IP address (default: {host_ip})"
     )
     parser.add_argument(
         "--port",
