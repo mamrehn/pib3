@@ -307,7 +307,7 @@ Examples:
     # Check pib3 is installed
     if not HAS_PIB3:
         print("Error: pib3 not installed.")
-        print("Install with: pip install 'pib3[robot] @ git+https://github.com/mamrehn/pib3.git'")
+        print("Install with: pip install 'pib3 @ git+https://github.com/mamrehn/pib3.git'")
         return
 
     print(f"Connecting to robot at {args.host}:{args.port}...")

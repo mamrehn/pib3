@@ -396,6 +396,52 @@ with Robot(host="172.26.34.149") as robot:
 
 ---
 
+    @abstractmethod
+    def _execute_waypoints(
+        self,
+        joint_names: List[str],
+        waypoints: np.ndarray,
+        rate_hz: float,
+        progress_callback: Optional[Callable[[int, int], None]],
+    ) -> bool:
+        """Backend-specific waypoint execution."""
+        ...
+
+    # ==================== AUDIO METHODS ====================
+
+    @property
+    def audio(self) -> "AudioBackend":
+        """
+        Access the audio backend.
+
+        Returns:
+            AudioBackend object (SystemAudioBackend or ROSAudioBackend).
+        """
+        return self._audio
+
+
+class AudioBackend(ABC):
+    """Abstract base class for audio playback."""
+
+    @abstractmethod
+    def play(self, data: Union[bytes, np.ndarray, List[int]], sample_rate: int = 16000) -> bool:
+        """
+        Play audio data.
+
+        Args:
+            data: Audio data (bytes, numpy array, or list of int16).
+            sample_rate: Sample rate in Hz (default: 16000).
+
+        Returns:
+            True if playback started, False otherwise.
+        """
+        ...
+
+    @abstractmethod
+    def stop(self) -> None:
+        """Stop current playback."""
+        ...
+
 ## Available Motor Names
 
 All 26 motors available on the PIB robot:

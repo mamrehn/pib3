@@ -113,10 +113,10 @@ Examples:
   python -m pib3.tools.list_topics --host 172.26.34.149 --filter imu --type sensor
 
 Common topics on PIB robot:
-  /camera/image          - Camera stream (sensor_msgs/msg/CompressedImage)
-  /ai/detections         - AI detection results (std_msgs/msg/String)
-  /joint_trajectory      - Motor positions (trajectory_msgs/msg/JointTrajectory)
-  /imu/data              - IMU sensor data (sensor_msgs/msg/Imu)
+  /camera/image/compressed - Camera stream (sensor_msgs/msg/CompressedImage)
+  /camera/ai/detections    - AI detection results (std_msgs/msg/String)
+  /joint_trajectory        - Motor positions (trajectory_msgs/msg/JointTrajectory)
+  /camera/imu              - IMU sensor data (sensor_msgs/msg/Imu)
         """,
     )
 
