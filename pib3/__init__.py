@@ -46,6 +46,11 @@ from .backends import (
     RobotBackend,
     WebotsBackend,
     RealRobotBackend,
+    # Audio
+    AudioStreamReceiver,
+    AudioDevice,
+    AudioDeviceType,
+    AudioDeviceManager,
 )
 
 # Convenience aliases
@@ -84,6 +89,11 @@ __all__ = [
     "HandPose",
     "LEFT_HAND_JOINTS",
     "RIGHT_HAND_JOINTS",
+    # Audio
+    "AudioStreamReceiver",
+    "AudioDevice",
+    "AudioDeviceType",
+    "AudioDeviceManager",
 ]
 
 

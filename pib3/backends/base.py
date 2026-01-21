@@ -140,8 +140,21 @@ class RobotBackend(ABC):
         self.host = host
         self.port = port
         self._is_connected = False
-        from pib3.backends.audio import NoOpAudioBackend, AudioBackend
+
+        # Audio device management
+        from pib3.backends.audio import (
+            NoOpAudioBackend,
+            NoOpAudioInputBackend,
+            AudioBackend,
+            AudioInputBackend,
+            AudioDevice,
+            AudioDeviceManager,
+        )
         self.audio: AudioBackend = NoOpAudioBackend()
+        self.audio_input: AudioInputBackend = NoOpAudioInputBackend()
+        self._audio_device_manager: Optional[AudioDeviceManager] = None
+        self._selected_input_device: Optional[AudioDevice] = None
+        self._selected_output_device: Optional[AudioDevice] = None
 
     def _get_joint_limits(self) -> Dict[str, Dict[str, float]]:
         """Get joint limits for this backend."""
@@ -272,6 +285,241 @@ class RobotBackend(ABC):
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit - disconnect from backend."""
         self.disconnect()
+
+    # --- Audio Device Methods ---
+
+    def list_audio_input_devices(self) -> List["AudioDevice"]:
+        """
+        List available audio input devices (microphones).
+
+        Returns devices from both local system and robot (if applicable).
+
+        Returns:
+            List of AudioDevice objects that can record audio.
+
+        Example:
+            >>> for mic in robot.list_audio_input_devices():
+            ...     print(f"  {mic.id}: {mic.name}")
+        """
+        from pib3.backends.audio import AudioDeviceManager
+        if self._audio_device_manager is None:
+            self._audio_device_manager = AudioDeviceManager(
+                include_robot=self._should_include_robot_audio()
+            )
+        return self._audio_device_manager.list_input_devices()
+
+    def list_audio_output_devices(self) -> List["AudioDevice"]:
+        """
+        List available audio output devices (speakers).
+
+        Returns devices from both local system and robot (if applicable).
+
+        Returns:
+            List of AudioDevice objects that can play audio.
+
+        Example:
+            >>> for speaker in robot.list_audio_output_devices():
+            ...     print(f"  {speaker.id}: {speaker.name}")
+        """
+        from pib3.backends.audio import AudioDeviceManager
+        if self._audio_device_manager is None:
+            self._audio_device_manager = AudioDeviceManager(
+                include_robot=self._should_include_robot_audio()
+            )
+        return self._audio_device_manager.list_output_devices()
+
+    def set_audio_input_device(self, device: Union[str, "AudioDevice", None]) -> None:
+        """
+        Set the active audio input device (microphone).
+
+        Args:
+            device: Device to use. Can be:
+                - AudioDevice object
+                - Device ID string (e.g., "local_0", "robot_mic")
+                - None to reset to default
+
+        Raises:
+            ValueError: If device ID is not found.
+
+        Example:
+            >>> mics = robot.list_audio_input_devices()
+            >>> robot.set_audio_input_device(mics[0])
+            >>> # Or by ID
+            >>> robot.set_audio_input_device("robot_mic")
+        """
+        from pib3.backends.audio import AudioDevice, AudioDeviceType
+
+        if device is None:
+            self._selected_input_device = None
+            self._setup_audio_input_backend()
+            return
+
+        if isinstance(device, str):
+            # Look up by ID
+            found = None
+            for d in self.list_audio_input_devices():
+                if d.id == device:
+                    found = d
+                    break
+            if found is None:
+                raise ValueError(f"Audio input device '{device}' not found")
+            device = found
+
+        if not device.is_input:
+            raise ValueError(f"Device '{device.name}' is not an input device")
+
+        self._selected_input_device = device
+        self._setup_audio_input_backend()
+
+    def set_audio_output_device(self, device: Union[str, "AudioDevice", None]) -> None:
+        """
+        Set the active audio output device (speaker).
+
+        Args:
+            device: Device to use. Can be:
+                - AudioDevice object
+                - Device ID string (e.g., "local_0", "robot_speaker")
+                - None to reset to default
+
+        Raises:
+            ValueError: If device ID is not found.
+
+        Example:
+            >>> speakers = robot.list_audio_output_devices()
+            >>> robot.set_audio_output_device(speakers[0])
+            >>> # Or by ID
+            >>> robot.set_audio_output_device("robot_speaker")
+        """
+        from pib3.backends.audio import AudioDevice, AudioDeviceType
+
+        if device is None:
+            self._selected_output_device = None
+            self._setup_audio_output_backend()
+            return
+
+        if isinstance(device, str):
+            # Look up by ID
+            found = None
+            for d in self.list_audio_output_devices():
+                if d.id == device:
+                    found = d
+                    break
+            if found is None:
+                raise ValueError(f"Audio output device '{device}' not found")
+            device = found
+
+        if not device.is_output:
+            raise ValueError(f"Device '{device.name}' is not an output device")
+
+        self._selected_output_device = device
+        self._setup_audio_output_backend()
+
+    @property
+    def audio_input_device(self) -> Optional["AudioDevice"]:
+        """Get the currently selected audio input device."""
+        return self._selected_input_device
+
+    @property
+    def audio_output_device(self) -> Optional["AudioDevice"]:
+        """Get the currently selected audio output device."""
+        return self._selected_output_device
+
+    def _should_include_robot_audio(self) -> bool:
+        """
+        Whether to include robot audio devices in listings.
+
+        Override in subclasses. Returns True for RealRobotBackend,
+        False for WebotsBackend.
+        """
+        return False
+
+    def _setup_audio_input_backend(self) -> None:
+        """
+        Set up audio input backend based on selected device.
+
+        Override in subclasses to provide appropriate backends.
+        """
+        from pib3.backends.audio import (
+            NoOpAudioInputBackend,
+            SystemAudioInputBackend,
+            AudioDeviceType,
+        )
+
+        device = self._selected_input_device
+
+        if device is None:
+            # Use smart default
+            device = self._get_default_input_device()
+
+        if device is None:
+            self.audio_input = NoOpAudioInputBackend()
+            return
+
+        if device.device_type == AudioDeviceType.LOCAL:
+            try:
+                self.audio_input = SystemAudioInputBackend(device=device)
+            except ImportError:
+                self.audio_input = NoOpAudioInputBackend()
+        else:
+            # Robot device - subclass should override
+            self.audio_input = NoOpAudioInputBackend()
+
+    def _setup_audio_output_backend(self) -> None:
+        """
+        Set up audio output backend based on selected device.
+
+        Override in subclasses to provide appropriate backends.
+        """
+        from pib3.backends.audio import (
+            NoOpAudioBackend,
+            SystemAudioBackend,
+            AudioDeviceType,
+        )
+
+        device = self._selected_output_device
+
+        if device is None:
+            # Use smart default
+            device = self._get_default_output_device()
+
+        if device is None:
+            self.audio = NoOpAudioBackend()
+            return
+
+        if device.device_type == AudioDeviceType.LOCAL:
+            try:
+                self.audio = SystemAudioBackend(device=device)
+            except ImportError:
+                self.audio = NoOpAudioBackend()
+        else:
+            # Robot device - subclass should override
+            self.audio = NoOpAudioBackend()
+
+    def _get_default_input_device(self) -> Optional["AudioDevice"]:
+        """
+        Get the default input device for this backend.
+
+        Override in subclasses to provide smart defaults.
+        """
+        from pib3.backends.audio import AudioDeviceManager
+        if self._audio_device_manager is None:
+            self._audio_device_manager = AudioDeviceManager(
+                include_robot=self._should_include_robot_audio()
+            )
+        return self._audio_device_manager.get_default_input_device()
+
+    def _get_default_output_device(self) -> Optional["AudioDevice"]:
+        """
+        Get the default output device for this backend.
+
+        Override in subclasses to provide smart defaults.
+        """
+        from pib3.backends.audio import AudioDeviceManager
+        if self._audio_device_manager is None:
+            self._audio_device_manager = AudioDeviceManager(
+                include_robot=self._should_include_robot_audio()
+            )
+        return self._audio_device_manager.get_default_output_device()
 
     # --- Get Methods ---
 

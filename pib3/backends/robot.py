@@ -194,9 +194,8 @@ class RealRobotBackend(RobotBackend):
         )
         self._position_subscriber.subscribe(self._on_joint_trajectory)
 
-        # Initialize audio backend
-        from pib3.backends.audio import ROSAudioBackend
-        self.audio = ROSAudioBackend(self._client)
+        # Initialize audio backends with smart defaults (robot devices)
+        self._setup_audio_backends_for_robot()
 
     def _on_joint_trajectory(self, message: dict) -> None:
         """Callback for position updates from /joint_trajectory topic.
@@ -822,6 +821,167 @@ class RealRobotBackend(RobotBackend):
         topic.subscribe(parse_and_forward)
         return topic
 
+    # ==================== AUDIO METHODS ====================
+
+    def subscribe_audio_stream(
+        self,
+        callback: Callable[[List[int]], None],
+    ) -> "roslibpy.Topic":
+        """
+        Subscribe to audio stream from robot's microphone array.
+
+        Receives raw PCM audio data captured from the microphone.
+        The callback receives int16 samples that can be played back
+        or processed.
+
+        Audio Format:
+            - Sample rate: 16000 Hz (16kHz)
+            - Channels: 1 (Mono)
+            - Bit depth: 16-bit signed integers
+            - Chunk size: ~1024 samples per message
+
+        Args:
+            callback: Called with list of int16 audio samples for each chunk.
+
+        Returns:
+            Topic object (call .unsubscribe() when done to stop streaming).
+
+        Example:
+            >>> import numpy as np
+            >>> audio_buffer = []
+            >>> def on_audio(samples):
+            ...     audio_buffer.extend(samples)
+            ...     print(f"Received {len(samples)} samples")
+            >>> sub = robot.subscribe_audio_stream(on_audio)
+            >>> # ... record for some time ...
+            >>> sub.unsubscribe()
+            >>> # Convert to numpy array for processing
+            >>> audio_data = np.array(audio_buffer, dtype=np.int16)
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        import roslibpy
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/audio_stream',
+            'std_msgs/msg/Int16MultiArray'
+        )
+
+        def parse_and_forward(msg):
+            # Int16MultiArray message format:
+            # { "layout": {...}, "data": [int16, int16, ...] }
+            data = msg.get('data', [])
+            if data:
+                callback(data)
+
+        topic.subscribe(parse_and_forward)
+        return topic
+
+    def play_audio_from_speech(
+        self,
+        text: str,
+        language: str = "en",
+        wait: bool = True,
+        timeout: float = 30.0,
+    ) -> bool:
+        """
+        Play text-to-speech audio on the robot.
+
+        Uses the robot's TTS service to synthesize and play speech.
+        This is useful for making the robot speak without needing
+        to send audio data.
+
+        Args:
+            text: Text to speak.
+            language: Language code (e.g., "en" for English, "de" for German).
+            wait: If True, wait for speech to complete. If False, return immediately.
+            timeout: Max time to wait for service response (seconds).
+
+        Returns:
+            True if speech was initiated successfully.
+
+        Example:
+            >>> robot.play_audio_from_speech("Hello, I am PIB!")
+            >>> robot.play_audio_from_speech("Hallo!", language="de")
+            >>> # Fire and forget
+            >>> robot.play_audio_from_speech("Working...", wait=False)
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        import roslibpy
+
+        service = roslibpy.Service(
+            self._client,
+            '/play_audio_from_speech',
+            'datatypes/srv/PlayAudioFromSpeech'
+        )
+
+        request = roslibpy.ServiceRequest({
+            'speech': text,
+            'language': language,
+        })
+
+        try:
+            result = service.call(request, timeout=timeout)
+            return result.get('success', True)
+        except Exception as e:
+            logger.warning(f"TTS service call failed: {e}")
+            return False
+
+    def play_audio_from_file(
+        self,
+        filepath: str,
+        wait: bool = True,
+        timeout: float = 30.0,
+    ) -> bool:
+        """
+        Play a WAV audio file that exists on the robot's filesystem.
+
+        Note: This requires the audio file to already exist on the robot.
+        There is currently no way to upload audio files via ROS topics.
+        Use this for pre-installed sounds or files transferred separately.
+
+        Args:
+            filepath: Absolute path to the WAV file on the robot's filesystem.
+            wait: If True (join=True), wait for playback to finish.
+                 If False (join=False), return immediately while audio plays.
+            timeout: Max time to wait for service response (seconds).
+
+        Returns:
+            True if playback was initiated successfully.
+
+        Example:
+            >>> # Play a pre-installed sound effect
+            >>> robot.play_audio_from_file("/home/pib/sounds/startup.wav")
+            >>> # Play without waiting
+            >>> robot.play_audio_from_file("/home/pib/sounds/notification.wav", wait=False)
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        import roslibpy
+
+        service = roslibpy.Service(
+            self._client,
+            '/play_audio_from_file',
+            'datatypes/srv/PlayAudioFromFile'
+        )
+
+        request = roslibpy.ServiceRequest({
+            'filepath': filepath,
+            'join': wait,
+        })
+
+        try:
+            result = service.call(request, timeout=timeout)
+            return result.get('success', True)
+        except Exception as e:
+            logger.warning(f"Play audio file service call failed: {e}")
+            return False
+
     # ==================== IMU METHODS ====================
 
     def subscribe_imu(
@@ -945,6 +1105,103 @@ class RealRobotBackend(RobotBackend):
             'std_msgs/msg/String'
         )
         topic.publish({'data': json.dumps({'frequency': frequency})})
+
+    # ==================== AUDIO DEVICE OVERRIDES ====================
+
+    def _should_include_robot_audio(self) -> bool:
+        """Include robot audio devices for real robot backend."""
+        return True
+
+    def _setup_audio_backends_for_robot(self) -> None:
+        """
+        Initialize audio backends with smart defaults for real robot.
+
+        Default: Use robot microphone and robot speaker.
+        """
+        from pib3.backends.audio import (
+            ROSAudioBackend,
+            ROSAudioInputBackend,
+            ROBOT_MICROPHONE,
+            ROBOT_SPEAKER,
+        )
+
+        # Set smart defaults to robot devices
+        self._selected_input_device = ROBOT_MICROPHONE
+        self._selected_output_device = ROBOT_SPEAKER
+
+        # Initialize backends
+        self.audio = ROSAudioBackend(self._client)
+        self.audio_input = ROSAudioInputBackend(self._client)
+
+    def _setup_audio_input_backend(self) -> None:
+        """Set up audio input backend based on selected device."""
+        from pib3.backends.audio import (
+            NoOpAudioInputBackend,
+            SystemAudioInputBackend,
+            ROSAudioInputBackend,
+            AudioDeviceType,
+            ROBOT_MICROPHONE,
+        )
+
+        device = self._selected_input_device
+
+        if device is None:
+            # Smart default: use robot microphone when connected
+            device = ROBOT_MICROPHONE
+            self._selected_input_device = device
+
+        if device.device_type == AudioDeviceType.ROBOT:
+            if self.is_connected:
+                self.audio_input = ROSAudioInputBackend(self._client)
+            else:
+                self.audio_input = NoOpAudioInputBackend()
+        elif device.device_type == AudioDeviceType.LOCAL:
+            try:
+                self.audio_input = SystemAudioInputBackend(device=device)
+            except ImportError:
+                self.audio_input = NoOpAudioInputBackend()
+        else:
+            self.audio_input = NoOpAudioInputBackend()
+
+    def _setup_audio_output_backend(self) -> None:
+        """Set up audio output backend based on selected device."""
+        from pib3.backends.audio import (
+            NoOpAudioBackend,
+            SystemAudioBackend,
+            ROSAudioBackend,
+            AudioDeviceType,
+            ROBOT_SPEAKER,
+        )
+
+        device = self._selected_output_device
+
+        if device is None:
+            # Smart default: use robot speaker when connected
+            device = ROBOT_SPEAKER
+            self._selected_output_device = device
+
+        if device.device_type == AudioDeviceType.ROBOT:
+            if self.is_connected:
+                self.audio = ROSAudioBackend(self._client)
+            else:
+                self.audio = NoOpAudioBackend()
+        elif device.device_type == AudioDeviceType.LOCAL:
+            try:
+                self.audio = SystemAudioBackend(device=device)
+            except ImportError:
+                self.audio = NoOpAudioBackend()
+        else:
+            self.audio = NoOpAudioBackend()
+
+    def _get_default_input_device(self):
+        """Default input device for real robot: robot microphone."""
+        from pib3.backends.audio import ROBOT_MICROPHONE
+        return ROBOT_MICROPHONE
+
+    def _get_default_output_device(self):
+        """Default output device for real robot: robot speaker."""
+        from pib3.backends.audio import ROBOT_SPEAKER
+        return ROBOT_SPEAKER
 
 
 # ==================== RLE DECODER HELPER ====================
