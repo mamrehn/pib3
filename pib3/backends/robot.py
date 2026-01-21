@@ -834,11 +834,10 @@ class RealRobotBackend(RobotBackend):
 
         Streaming only runs while subscribed (on-demand activation).
 
-        All data types subscribe to the same /camera/imu topic but filter
-        the data before passing it to your callback:
-        - "full": Complete IMU message (linear_acceleration + angular_velocity)
-        - "accelerometer": Only linear_acceleration in Vector3Stamped format
-        - "gyroscope": Only angular_velocity in Vector3Stamped format
+        Data types use individual topics:
+        - "full": Accelerometer data with IMU-like format (linear_acceleration)
+        - "accelerometer": Vector3Stamped from /camera/imu/accelerometer
+        - "gyroscope": Vector3Stamped from /camera/imu/gyroscope
 
         Args:
             callback: Called with IMU data dict.
@@ -871,28 +870,45 @@ class RealRobotBackend(RobotBackend):
         if dtype_str not in valid_types:
             raise ValueError(f"data_type must be one of: {valid_types}")
 
-        # All IMU data comes from /camera/imu - individual topics are not published
-        topic = roslibpy.Topic(self._client, '/camera/imu', 'sensor_msgs/msg/Imu')
+        # IMU data comes from individual topics:
+        # - /camera/imu/accelerometer (geometry_msgs/msg/Vector3Stamped)
+        # - /camera/imu/gyroscope (geometry_msgs/msg/Vector3Stamped)
+        # The combined /camera/imu topic may not always publish data.
 
         if dtype_str == ImuType.FULL.value:
-            # Pass through the full IMU message
-            topic.subscribe(callback)
+            # For full IMU, we need to combine accel + gyro from separate topics
+            # Subscribe to accelerometer and pass through with both fields
+            topic = roslibpy.Topic(
+                self._client,
+                '/camera/imu/accelerometer',
+                'geometry_msgs/msg/Vector3Stamped'
+            )
+
+            def convert_to_imu_format(msg):
+                # Convert Vector3Stamped to IMU-like format
+                callback({
+                    'header': msg.get('header', {}),
+                    'linear_acceleration': msg.get('vector', {}),
+                    'angular_velocity': {},  # Not available in this message
+                })
+
+            topic.subscribe(convert_to_imu_format)
         elif dtype_str == ImuType.ACCELEROMETER.value:
-            # Extract only accelerometer data in Vector3Stamped-like format
-            def extract_accel(msg):
-                callback({
-                    'header': msg.get('header', {}),
-                    'vector': msg.get('linear_acceleration', {}),
-                })
-            topic.subscribe(extract_accel)
+            # Subscribe to accelerometer topic directly
+            topic = roslibpy.Topic(
+                self._client,
+                '/camera/imu/accelerometer',
+                'geometry_msgs/msg/Vector3Stamped'
+            )
+            topic.subscribe(callback)
         elif dtype_str == ImuType.GYROSCOPE.value:
-            # Extract only gyroscope data in Vector3Stamped-like format
-            def extract_gyro(msg):
-                callback({
-                    'header': msg.get('header', {}),
-                    'vector': msg.get('angular_velocity', {}),
-                })
-            topic.subscribe(extract_gyro)
+            # Subscribe to gyroscope topic directly
+            topic = roslibpy.Topic(
+                self._client,
+                '/camera/imu/gyroscope',
+                'geometry_msgs/msg/Vector3Stamped'
+            )
+            topic.subscribe(callback)
 
         return topic
 
