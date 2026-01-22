@@ -43,6 +43,9 @@ pib3
 | [`generate_trajectory()`](trajectory.md#pib3.generate_trajectory) | Convert image directly to trajectory |
 | [`image_to_sketch()`](image.md#pib3.image.image_to_sketch) | Convert image to 2D strokes |
 | [`sketch_to_trajectory()`](trajectory.md#pib3.trajectory.sketch_to_trajectory) | Convert strokes to 3D trajectory |
+| [`play_audio()`](audio.md#play_audio) | Play raw audio data |
+| [`play_file()`](audio.md#play_file) | Play audio from WAV file |
+| [`speak()`](audio.md#speak) | Text-to-speech synthesis |
 
 ### Core Types
 
@@ -121,5 +124,11 @@ with Robot(host="172.26.34.149") as robot:
     ---
 
     Hand position presets and functions
+
+-   :material-volume-high: **[Audio System](audio.md)**
+
+    ---
+
+    Audio playback, TTS, and recording
 
 </div>
