@@ -46,11 +46,10 @@ from .backends import (
     RobotBackend,
     WebotsBackend,
     RealRobotBackend,
-    # Audio
+    # Unified audio system
+    AudioOutput,
     AudioStreamReceiver,
-    AudioDevice,
-    AudioDeviceType,
-    AudioDeviceManager,
+    PiperTTS,
 )
 
 # Convenience aliases
@@ -89,11 +88,10 @@ __all__ = [
     "HandPose",
     "LEFT_HAND_JOINTS",
     "RIGHT_HAND_JOINTS",
-    # Audio
+    # Unified audio system
+    "AudioOutput",
     "AudioStreamReceiver",
-    "AudioDevice",
-    "AudioDeviceType",
-    "AudioDeviceManager",
+    "PiperTTS",
 ]
 
 

@@ -99,9 +99,6 @@ class WebotsBackend(RobotBackend):
         self._motors: Dict[str, any] = {}
         self._proximal_motors: Dict[str, any] = {}
 
-        # Initialize audio with smart defaults (local devices for Webots)
-        self._setup_webots_audio()
-
     def _to_backend_format(self, radians: np.ndarray) -> np.ndarray:
         """Convert radians to Webots format (add offset)."""
         return radians + self.WEBOTS_OFFSET
@@ -372,105 +369,13 @@ class WebotsBackend(RobotBackend):
 
         return True
 
-    # ==================== AUDIO DEVICE OVERRIDES ====================
+    # ==================== UNIFIED AUDIO OVERRIDES ====================
 
-    def _should_include_robot_audio(self) -> bool:
+    def _is_webots(self) -> bool:
         """
-        Don't include robot audio devices for Webots.
+        Webots backend returns True.
 
-        Webots simulation uses local microphones and speakers only.
+        This causes ROBOT and LOCAL_AND_ROBOT to resolve to LOCAL only,
+        avoiding duplicate playback in simulation.
         """
-        return False
-
-    def _setup_webots_audio(self) -> None:
-        """
-        Initialize audio backends with smart defaults for Webots.
-
-        Default: Use local (system) microphone and speaker.
-        """
-        from pib3.backends.audio import (
-            SystemAudioBackend,
-            SystemAudioInputBackend,
-            NoOpAudioBackend,
-            NoOpAudioInputBackend,
-            AudioDeviceManager,
-        )
-
-        # Get default local devices
-        manager = AudioDeviceManager(include_robot=False)
-
-        # Set up output (speaker)
-        default_output = manager.get_default_output_device()
-        self._selected_output_device = default_output
-        try:
-            self.audio = SystemAudioBackend(device=default_output)
-        except ImportError:
-            self.audio = NoOpAudioBackend()
-
-        # Set up input (microphone)
-        default_input = manager.get_default_input_device()
-        self._selected_input_device = default_input
-        try:
-            self.audio_input = SystemAudioInputBackend(device=default_input)
-        except ImportError:
-            self.audio_input = NoOpAudioInputBackend()
-
-    def _setup_audio_input_backend(self) -> None:
-        """Set up audio input backend based on selected device."""
-        from pib3.backends.audio import (
-            NoOpAudioInputBackend,
-            SystemAudioInputBackend,
-            AudioDeviceType,
-        )
-
-        device = self._selected_input_device
-
-        if device is None:
-            # Use system default
-            from pib3.backends.audio import AudioDeviceManager
-            manager = AudioDeviceManager(include_robot=False)
-            device = manager.get_default_input_device()
-            self._selected_input_device = device
-
-        if device is None:
-            self.audio_input = NoOpAudioInputBackend()
-            return
-
-        if device.device_type == AudioDeviceType.LOCAL:
-            try:
-                self.audio_input = SystemAudioInputBackend(device=device)
-            except ImportError:
-                self.audio_input = NoOpAudioInputBackend()
-        else:
-            # Robot devices not supported in Webots
-            self.audio_input = NoOpAudioInputBackend()
-
-    def _setup_audio_output_backend(self) -> None:
-        """Set up audio output backend based on selected device."""
-        from pib3.backends.audio import (
-            NoOpAudioBackend,
-            SystemAudioBackend,
-            AudioDeviceType,
-        )
-
-        device = self._selected_output_device
-
-        if device is None:
-            # Use system default
-            from pib3.backends.audio import AudioDeviceManager
-            manager = AudioDeviceManager(include_robot=False)
-            device = manager.get_default_output_device()
-            self._selected_output_device = device
-
-        if device is None:
-            self.audio = NoOpAudioBackend()
-            return
-
-        if device.device_type == AudioDeviceType.LOCAL:
-            try:
-                self.audio = SystemAudioBackend(device=device)
-            except ImportError:
-                self.audio = NoOpAudioBackend()
-        else:
-            # Robot devices not supported in Webots
-            self.audio = NoOpAudioBackend()
+        return True

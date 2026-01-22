@@ -10,6 +10,15 @@ import numpy as np
 import yaml
 
 from ..types import Joint, HandPose
+from .audio import (
+    AudioOutput,
+    LocalAudioPlayer,
+    PiperTTS,
+    load_audio_file,
+    resample_audio,
+    DEFAULT_SAMPLE_RATE,
+    HAS_SIMPLEAUDIO,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -141,20 +150,10 @@ class RobotBackend(ABC):
         self.port = port
         self._is_connected = False
 
-        # Audio device management
-        from pib3.backends.audio import (
-            NoOpAudioBackend,
-            NoOpAudioInputBackend,
-            AudioBackend,
-            AudioInputBackend,
-            AudioDevice,
-            AudioDeviceManager,
-        )
-        self.audio: AudioBackend = NoOpAudioBackend()
-        self.audio_input: AudioInputBackend = NoOpAudioInputBackend()
-        self._audio_device_manager: Optional[AudioDeviceManager] = None
-        self._selected_input_device: Optional[AudioDevice] = None
-        self._selected_output_device: Optional[AudioDevice] = None
+        # Unified audio system
+        self._audio_output: AudioOutput = AudioOutput.LOCAL
+        self._local_player: Optional[LocalAudioPlayer] = None
+        self._tts: Optional[PiperTTS] = None
 
     def _get_joint_limits(self) -> Dict[str, Dict[str, float]]:
         """Get joint limits for this backend."""
@@ -286,240 +285,228 @@ class RobotBackend(ABC):
         """Context manager exit - disconnect from backend."""
         self.disconnect()
 
-    # --- Audio Device Methods ---
-
-    def list_audio_input_devices(self) -> List["AudioDevice"]:
-        """
-        List available audio input devices (microphones).
-
-        Returns devices from both local system and robot (if applicable).
-
-        Returns:
-            List of AudioDevice objects that can record audio.
-
-        Example:
-            >>> for mic in robot.list_audio_input_devices():
-            ...     print(f"  {mic.id}: {mic.name}")
-        """
-        from pib3.backends.audio import AudioDeviceManager
-        if self._audio_device_manager is None:
-            self._audio_device_manager = AudioDeviceManager(
-                include_robot=self._should_include_robot_audio()
-            )
-        return self._audio_device_manager.list_input_devices()
-
-    def list_audio_output_devices(self) -> List["AudioDevice"]:
-        """
-        List available audio output devices (speakers).
-
-        Returns devices from both local system and robot (if applicable).
-
-        Returns:
-            List of AudioDevice objects that can play audio.
-
-        Example:
-            >>> for speaker in robot.list_audio_output_devices():
-            ...     print(f"  {speaker.id}: {speaker.name}")
-        """
-        from pib3.backends.audio import AudioDeviceManager
-        if self._audio_device_manager is None:
-            self._audio_device_manager = AudioDeviceManager(
-                include_robot=self._should_include_robot_audio()
-            )
-        return self._audio_device_manager.list_output_devices()
-
-    def set_audio_input_device(self, device: Union[str, "AudioDevice", None]) -> None:
-        """
-        Set the active audio input device (microphone).
-
-        Args:
-            device: Device to use. Can be:
-                - AudioDevice object
-                - Device ID string (e.g., "local_0", "robot_mic")
-                - None to reset to default
-
-        Raises:
-            ValueError: If device ID is not found.
-
-        Example:
-            >>> mics = robot.list_audio_input_devices()
-            >>> robot.set_audio_input_device(mics[0])
-            >>> # Or by ID
-            >>> robot.set_audio_input_device("robot_mic")
-        """
-        from pib3.backends.audio import AudioDevice, AudioDeviceType
-
-        if device is None:
-            self._selected_input_device = None
-            self._setup_audio_input_backend()
-            return
-
-        if isinstance(device, str):
-            # Look up by ID
-            found = None
-            for d in self.list_audio_input_devices():
-                if d.id == device:
-                    found = d
-                    break
-            if found is None:
-                raise ValueError(f"Audio input device '{device}' not found")
-            device = found
-
-        if not device.is_input:
-            raise ValueError(f"Device '{device.name}' is not an input device")
-
-        self._selected_input_device = device
-        self._setup_audio_input_backend()
-
-    def set_audio_output_device(self, device: Union[str, "AudioDevice", None]) -> None:
-        """
-        Set the active audio output device (speaker).
-
-        Args:
-            device: Device to use. Can be:
-                - AudioDevice object
-                - Device ID string (e.g., "local_0", "robot_speaker")
-                - None to reset to default
-
-        Raises:
-            ValueError: If device ID is not found.
-
-        Example:
-            >>> speakers = robot.list_audio_output_devices()
-            >>> robot.set_audio_output_device(speakers[0])
-            >>> # Or by ID
-            >>> robot.set_audio_output_device("robot_speaker")
-        """
-        from pib3.backends.audio import AudioDevice, AudioDeviceType
-
-        if device is None:
-            self._selected_output_device = None
-            self._setup_audio_output_backend()
-            return
-
-        if isinstance(device, str):
-            # Look up by ID
-            found = None
-            for d in self.list_audio_output_devices():
-                if d.id == device:
-                    found = d
-                    break
-            if found is None:
-                raise ValueError(f"Audio output device '{device}' not found")
-            device = found
-
-        if not device.is_output:
-            raise ValueError(f"Device '{device.name}' is not an output device")
-
-        self._selected_output_device = device
-        self._setup_audio_output_backend()
+    # --- Unified Audio Playback Methods ---
 
     @property
-    def audio_input_device(self) -> Optional["AudioDevice"]:
-        """Get the currently selected audio input device."""
-        return self._selected_input_device
-
-    @property
-    def audio_output_device(self) -> Optional["AudioDevice"]:
-        """Get the currently selected audio output device."""
-        return self._selected_output_device
-
-    def _should_include_robot_audio(self) -> bool:
+    def default_audio_output(self) -> AudioOutput:
         """
-        Whether to include robot audio devices in listings.
+        Get the default audio output destination for this backend.
 
-        Override in subclasses. Returns True for RealRobotBackend,
-        False for WebotsBackend.
+        Override in subclasses:
+        - RealRobotBackend: ROBOT
+        - WebotsBackend: LOCAL
+        """
+        return AudioOutput.LOCAL
+
+    def set_audio_output(self, output: AudioOutput) -> None:
+        """
+        Set the default audio output destination.
+
+        Args:
+            output: AudioOutput.LOCAL, AudioOutput.ROBOT, or AudioOutput.LOCAL_AND_ROBOT.
+
+        Example:
+            >>> robot.set_audio_output(AudioOutput.ROBOT)
+            >>> robot.speak("Hello")  # Plays on robot
+        """
+        self._audio_output = output
+
+    def _get_local_player(self) -> Optional[LocalAudioPlayer]:
+        """Get or create local audio player."""
+        if self._local_player is None and HAS_SIMPLEAUDIO:
+            try:
+                self._local_player = LocalAudioPlayer()
+            except Exception as e:
+                logger.warning(f"Failed to create local audio player: {e}")
+        return self._local_player
+
+    def _get_tts(self, voice: Optional[str] = None) -> PiperTTS:
+        """Get or create TTS engine."""
+        if self._tts is None or (voice and self._tts.voice != voice):
+            from .audio import DEFAULT_PIPER_VOICE
+            self._tts = PiperTTS(voice=voice or DEFAULT_PIPER_VOICE)
+        return self._tts
+
+    def _play_on_local(
+        self,
+        data: np.ndarray,
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        block: bool = True,
+    ) -> bool:
+        """Play audio on local speakers."""
+        player = self._get_local_player()
+        if player is None:
+            logger.warning("Local audio playback not available (simpleaudio not installed)")
+            return False
+        return player.play(data, sample_rate, block=block)
+
+    def _play_on_robot(
+        self,
+        data: np.ndarray,
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        block: bool = True,
+    ) -> bool:
+        """
+        Play audio on robot speakers.
+
+        Override in RealRobotBackend to send via /audio_playback topic.
+        Base implementation returns False (not supported).
+        """
+        logger.warning("Robot audio playback not supported in this backend")
+        return False
+
+    def _is_webots(self) -> bool:
+        """
+        Check if this is a Webots backend.
+
+        Used to determine if ROBOT should be treated as LOCAL.
         """
         return False
 
-    def _setup_audio_input_backend(self) -> None:
+    def play_audio(
+        self,
+        data: Union[bytes, np.ndarray, List[int]],
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        output: Optional[AudioOutput] = None,
+        block: bool = True,
+    ) -> bool:
         """
-        Set up audio input backend based on selected device.
+        Play audio data.
 
-        Override in subclasses to provide appropriate backends.
+        Args:
+            data: Audio data as bytes, numpy array (int16), or list of int16.
+            sample_rate: Sample rate in Hz (default: 16000).
+            output: Playback destination (LOCAL, ROBOT, LOCAL_AND_ROBOT).
+                    If None, uses default for this backend.
+            block: If True, wait for playback to complete.
+
+        Returns:
+            True if playback succeeded (on at least one output).
+
+        Example:
+            >>> robot.play_audio(audio_data, output=AudioOutput.LOCAL)
+            >>> robot.play_audio(audio_data, output=AudioOutput.ROBOT)
+            >>> robot.play_audio(audio_data, output=AudioOutput.LOCAL_AND_ROBOT)
         """
-        from pib3.backends.audio import (
-            NoOpAudioInputBackend,
-            SystemAudioInputBackend,
-            AudioDeviceType,
-        )
-
-        device = self._selected_input_device
-
-        if device is None:
-            # Use smart default
-            device = self._get_default_input_device()
-
-        if device is None:
-            self.audio_input = NoOpAudioInputBackend()
-            return
-
-        if device.device_type == AudioDeviceType.LOCAL:
-            try:
-                self.audio_input = SystemAudioInputBackend(device=device)
-            except ImportError:
-                self.audio_input = NoOpAudioInputBackend()
+        # Convert to numpy int16
+        if isinstance(data, bytes):
+            audio = np.frombuffer(data, dtype=np.int16)
+        elif isinstance(data, list):
+            audio = np.array(data, dtype=np.int16)
+        elif isinstance(data, np.ndarray):
+            audio = data.astype(np.int16)
         else:
-            # Robot device - subclass should override
-            self.audio_input = NoOpAudioInputBackend()
+            raise ValueError(f"Unsupported audio data type: {type(data)}")
 
-    def _setup_audio_output_backend(self) -> None:
+        # Use default output if not specified
+        if output is None:
+            output = self._audio_output or self.default_audio_output
+
+        # For Webots: ROBOT and LOCAL_AND_ROBOT both resolve to LOCAL only
+        if self._is_webots():
+            if output in (AudioOutput.ROBOT, AudioOutput.LOCAL_AND_ROBOT):
+                output = AudioOutput.LOCAL
+
+        # Dispatch based on output
+        success = False
+
+        if output == AudioOutput.LOCAL:
+            success = self._play_on_local(audio, sample_rate, block=block)
+
+        elif output == AudioOutput.ROBOT:
+            success = self._play_on_robot(audio, sample_rate, block=block)
+
+        elif output == AudioOutput.LOCAL_AND_ROBOT:
+            # Play on both (best effort sync)
+            # Start robot playback first (non-blocking), then local
+            robot_success = self._play_on_robot(audio, sample_rate, block=False)
+            local_success = self._play_on_local(audio, sample_rate, block=block)
+
+            # If blocking, also wait for estimated robot playback duration
+            if block and robot_success:
+                import time
+                # Robot playback already waited via estimated duration
+                pass
+
+            success = local_success or robot_success
+
+        return success
+
+    def play_file(
+        self,
+        filepath: Union[str, Path],
+        output: Optional[AudioOutput] = None,
+        block: bool = True,
+    ) -> bool:
         """
-        Set up audio output backend based on selected device.
+        Play audio from a file.
 
-        Override in subclasses to provide appropriate backends.
+        Supports WAV files. Audio is automatically converted to 16kHz mono.
+
+        Args:
+            filepath: Path to audio file.
+            output: Playback destination (LOCAL, ROBOT, LOCAL_AND_ROBOT).
+                    If None, uses default for this backend.
+            block: If True, wait for playback to complete.
+
+        Returns:
+            True if playback succeeded.
+
+        Example:
+            >>> robot.play_file("sound.wav", output=AudioOutput.ROBOT)
         """
-        from pib3.backends.audio import (
-            NoOpAudioBackend,
-            SystemAudioBackend,
-            AudioDeviceType,
-        )
+        try:
+            audio, file_sample_rate = load_audio_file(filepath)
 
-        device = self._selected_output_device
+            # Resample to standard rate if needed
+            if file_sample_rate != DEFAULT_SAMPLE_RATE:
+                audio = resample_audio(audio, file_sample_rate, DEFAULT_SAMPLE_RATE)
 
-        if device is None:
-            # Use smart default
-            device = self._get_default_output_device()
+            return self.play_audio(audio, DEFAULT_SAMPLE_RATE, output=output, block=block)
 
-        if device is None:
-            self.audio = NoOpAudioBackend()
-            return
+        except Exception as e:
+            logger.error(f"Failed to play audio file {filepath}: {e}")
+            return False
 
-        if device.device_type == AudioDeviceType.LOCAL:
-            try:
-                self.audio = SystemAudioBackend(device=device)
-            except ImportError:
-                self.audio = NoOpAudioBackend()
-        else:
-            # Robot device - subclass should override
-            self.audio = NoOpAudioBackend()
-
-    def _get_default_input_device(self) -> Optional["AudioDevice"]:
+    def speak(
+        self,
+        text: str,
+        output: Optional[AudioOutput] = None,
+        voice: Optional[str] = None,
+        block: bool = True,
+    ) -> bool:
         """
-        Get the default input device for this backend.
+        Synthesize and play text-to-speech.
 
-        Override in subclasses to provide smart defaults.
+        Uses Piper TTS with Thorsten German voice by default.
+
+        Args:
+            text: Text to speak.
+            output: Playback destination (LOCAL, ROBOT, LOCAL_AND_ROBOT).
+                    If None, uses default for this backend.
+            voice: Piper voice model name (default: de_DE-thorsten-high).
+            block: If True, wait for playback to complete.
+
+        Returns:
+            True if speech was played successfully.
+
+        Example:
+            >>> robot.speak("Hallo, ich bin pib!")
+            >>> robot.speak("Hello world", voice="en_US-lessac-medium")
         """
-        from pib3.backends.audio import AudioDeviceManager
-        if self._audio_device_manager is None:
-            self._audio_device_manager = AudioDeviceManager(
-                include_robot=self._should_include_robot_audio()
+        try:
+            tts = self._get_tts(voice)
+            audio = tts.synthesize(text, sample_rate=DEFAULT_SAMPLE_RATE)
+            return self.play_audio(audio, DEFAULT_SAMPLE_RATE, output=output, block=block)
+
+        except ImportError:
+            logger.error(
+                "TTS not available. Install with: pip install piper-tts"
             )
-        return self._audio_device_manager.get_default_input_device()
-
-    def _get_default_output_device(self) -> Optional["AudioDevice"]:
-        """
-        Get the default output device for this backend.
-
-        Override in subclasses to provide smart defaults.
-        """
-        from pib3.backends.audio import AudioDeviceManager
-        if self._audio_device_manager is None:
-            self._audio_device_manager = AudioDeviceManager(
-                include_robot=self._should_include_robot_audio()
-            )
-        return self._audio_device_manager.get_default_output_device()
+            return False
+        except Exception as e:
+            logger.error(f"TTS failed: {e}")
+            return False
 
     # --- Get Methods ---
 

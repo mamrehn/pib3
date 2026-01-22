@@ -13,6 +13,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 from .base import RobotBackend
+from .audio import AudioOutput, RobotAudioPlayer, DEFAULT_SAMPLE_RATE
 from ..config import RobotConfig
 from ..types import ImuType, AiTaskType
 
@@ -114,11 +115,8 @@ class RealRobotBackend(RobotBackend):
         self._joint_positions: Dict[str, float] = {}
         self._joint_positions_lock = threading.Lock()
 
-        # Initialize audio backend (lazy init in connect() is better, but consistent with pattern)
-        # We can't connect yet, but we can set the client ref. 
-        # Actually ROSAudioBackend needs a connected client. Ideally we init it in connect().
-        # Let's override connect() to init audio there.
-        self.audio = None 
+        # Unified audio system
+        self._robot_audio_player: Optional[RobotAudioPlayer] = None 
 
     @classmethod
     def from_config(cls, config: RobotConfig) -> "RealRobotBackend":
@@ -1106,102 +1104,49 @@ class RealRobotBackend(RobotBackend):
         )
         topic.publish({'data': json.dumps({'frequency': frequency})})
 
-    # ==================== AUDIO DEVICE OVERRIDES ====================
+    # ==================== UNIFIED AUDIO OVERRIDES ====================
 
-    def _should_include_robot_audio(self) -> bool:
-        """Include robot audio devices for real robot backend."""
-        return True
+    @property
+    def default_audio_output(self) -> AudioOutput:
+        """Default audio output for real robot: ROBOT."""
+        return AudioOutput.ROBOT
 
-    def _setup_audio_backends_for_robot(self) -> None:
-        """
-        Initialize audio backends with smart defaults for real robot.
-
-        Default: Use robot microphone and robot speaker.
-        """
-        from pib3.backends.audio import (
-            ROSAudioBackend,
-            ROSAudioInputBackend,
-            ROBOT_MICROPHONE,
-            ROBOT_SPEAKER,
-        )
-
-        # Set smart defaults to robot devices
-        self._selected_input_device = ROBOT_MICROPHONE
-        self._selected_output_device = ROBOT_SPEAKER
-
-        # Initialize backends
-        self.audio = ROSAudioBackend(self._client)
-        self.audio_input = ROSAudioInputBackend(self._client)
-
-    def _setup_audio_input_backend(self) -> None:
-        """Set up audio input backend based on selected device."""
-        from pib3.backends.audio import (
-            NoOpAudioInputBackend,
-            SystemAudioInputBackend,
-            ROSAudioInputBackend,
-            AudioDeviceType,
-            ROBOT_MICROPHONE,
-        )
-
-        device = self._selected_input_device
-
-        if device is None:
-            # Smart default: use robot microphone when connected
-            device = ROBOT_MICROPHONE
-            self._selected_input_device = device
-
-        if device.device_type == AudioDeviceType.ROBOT:
-            if self.is_connected:
-                self.audio_input = ROSAudioInputBackend(self._client)
-            else:
-                self.audio_input = NoOpAudioInputBackend()
-        elif device.device_type == AudioDeviceType.LOCAL:
+    def _get_robot_audio_player(self) -> Optional[RobotAudioPlayer]:
+        """Get or create robot audio player."""
+        if self._robot_audio_player is None and self.is_connected:
             try:
-                self.audio_input = SystemAudioInputBackend(device=device)
-            except ImportError:
-                self.audio_input = NoOpAudioInputBackend()
-        else:
-            self.audio_input = NoOpAudioInputBackend()
+                self._robot_audio_player = RobotAudioPlayer(self._client)
+            except Exception as e:
+                logger.warning(f"Failed to create robot audio player: {e}")
+        return self._robot_audio_player
 
-    def _setup_audio_output_backend(self) -> None:
-        """Set up audio output backend based on selected device."""
-        from pib3.backends.audio import (
-            NoOpAudioBackend,
-            SystemAudioBackend,
-            ROSAudioBackend,
-            AudioDeviceType,
-            ROBOT_SPEAKER,
-        )
+    def _play_on_robot(
+        self,
+        data: np.ndarray,
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        block: bool = True,
+    ) -> bool:
+        """
+        Play audio on robot speakers via /audio_playback topic.
 
-        device = self._selected_output_device
+        Args:
+            data: Audio data as int16 numpy array.
+            sample_rate: Sample rate in Hz (default: 16000).
+            block: If True, wait for estimated playback duration.
 
-        if device is None:
-            # Smart default: use robot speaker when connected
-            device = ROBOT_SPEAKER
-            self._selected_output_device = device
+        Returns:
+            True if audio was sent successfully.
+        """
+        if not self.is_connected:
+            logger.warning("Cannot play on robot: not connected")
+            return False
 
-        if device.device_type == AudioDeviceType.ROBOT:
-            if self.is_connected:
-                self.audio = ROSAudioBackend(self._client)
-            else:
-                self.audio = NoOpAudioBackend()
-        elif device.device_type == AudioDeviceType.LOCAL:
-            try:
-                self.audio = SystemAudioBackend(device=device)
-            except ImportError:
-                self.audio = NoOpAudioBackend()
-        else:
-            self.audio = NoOpAudioBackend()
+        player = self._get_robot_audio_player()
+        if player is None:
+            logger.warning("Robot audio player not available")
+            return False
 
-    def _get_default_input_device(self):
-        """Default input device for real robot: robot microphone."""
-        from pib3.backends.audio import ROBOT_MICROPHONE
-        return ROBOT_MICROPHONE
-
-    def _get_default_output_device(self):
-        """Default output device for real robot: robot speaker."""
-        from pib3.backends.audio import ROBOT_SPEAKER
-        return ROBOT_SPEAKER
+        return player.play(data, sample_rate, block=block)
 
 
 # ==================== RLE DECODER HELPER ====================

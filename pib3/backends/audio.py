@@ -1,422 +1,260 @@
 """
-Audio backends for PIB robot.
+Audio subsystem for PIB robot.
 
-This module provides:
-- AudioDevice: Dataclass representing an audio input/output device
-- AudioDeviceManager: Lists and manages available audio devices
-- AudioBackend: Abstract base class for playing audio
-- AudioInputBackend: Abstract base class for recording audio
-- NoOpAudioBackend: Fallback that does nothing
-- SystemAudioBackend: Play audio on local system speakers
-- SystemAudioInputBackend: Record from local system microphone
-- ROSAudioBackend: Stream audio to robot via ROS topic
-- ROSAudioInputBackend: Receive audio from robot's microphone
-- AudioStreamReceiver: Convenience class to receive and buffer audio
+This module provides unified audio playback and TTS capabilities that work
+across both the real robot and Webots simulation.
 
-Audio Format (for streaming):
-- Sample rate: 16000 Hz (default)
+Key Components:
+- AudioOutput: Enum for specifying playback destination (LOCAL, ROBOT, LOCAL_AND_ROBOT)
+- PiperTTS: Text-to-speech synthesis using Piper with Thorsten German voice
+- LocalAudioPlayer: Cross-platform local audio playback using simpleaudio
+- RobotAudioPlayer: Send audio to robot via /audio_playback ROS topic
+
+Audio Format (standard throughout):
+- Sample rate: 16000 Hz (16kHz)
 - Channels: 1 (Mono)
 - Bit depth: 16-bit signed integers (int16)
 
-Device Types:
-- "local": Physical devices connected to the machine running this code
-- "robot": Robot's microphone/speaker (via ROS, only for RealRobotBackend)
+Platform-specific requirements:
+- Linux: sudo apt-get install libasound2-dev  (before pip install pib3)
+- macOS: No additional requirements
+- Windows: May need Microsoft Visual C++ Build Tools
+
+Usage:
+    >>> with Robot(host="...") as robot:
+    ...     # Play audio on robot speaker
+    ...     robot.play_audio(audio_data, output=AudioOutput.ROBOT)
+    ...
+    ...     # Play on both local and robot
+    ...     robot.play_file("sound.wav", output=AudioOutput.LOCAL_AND_ROBOT)
+    ...
+    ...     # Text-to-speech (German by default)
+    ...     robot.speak("Hallo, ich bin pib!")
 """
 
-import abc
+import io
+import logging
+import os
 import threading
 import warnings
-from dataclasses import dataclass, field
+import wave
+from dataclasses import dataclass
 from enum import Enum
-from typing import Union, List, Optional, Callable, Dict, Any
+from pathlib import Path
+from typing import Callable, List, Optional, Union
+
 import numpy as np
 
-# Optional imports for audio libraries
+logger = logging.getLogger(__name__)
+
+# Platform-specific installation help for simpleaudio
+import sys
+if sys.platform.startswith('linux'):
+    _SIMPLEAUDIO_HELP = (
+        "simpleaudio is required for audio playback.\n"
+        "On Linux, first install ALSA development libraries:\n"
+        "    sudo apt-get install libasound2-dev\n"
+        "Then install simpleaudio:\n"
+        "    pip install simpleaudio"
+    )
+elif sys.platform == 'darwin':  # macOS
+    _SIMPLEAUDIO_HELP = (
+        "simpleaudio is required for audio playback.\n"
+        "Install with:\n"
+        "    pip install simpleaudio"
+    )
+elif sys.platform == 'win32':  # Windows
+    _SIMPLEAUDIO_HELP = (
+        "simpleaudio is required for audio playback.\n"
+        "On Windows, you may need Microsoft Visual C++ Build Tools.\n"
+        "Download from: https://visualstudio.microsoft.com/visual-cpp-build-tools/\n"
+        "Then install simpleaudio:\n"
+        "    pip install simpleaudio"
+    )
+else:
+    _SIMPLEAUDIO_HELP = (
+        "simpleaudio is required for audio playback.\n"
+        "Install with: pip install simpleaudio"
+    )
+
+# Audio playback imports
 try:
     import simpleaudio as sa
-except ImportError:
+    HAS_SIMPLEAUDIO = True
+except ImportError as e:
     sa = None
-
-try:
-    import sounddevice as sd
-except ImportError:
-    sd = None
+    HAS_SIMPLEAUDIO = False
+    logger.warning(f"simpleaudio not available: {e}\n{_SIMPLEAUDIO_HELP}")
 
 try:
     import roslibpy
+    HAS_ROSLIBPY = True
 except ImportError:
     roslibpy = None
+    HAS_ROSLIBPY = False
 
 
-# Default audio parameters
+# ==================== CONSTANTS ====================
+
 DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_CHANNELS = 1
 DEFAULT_SAMPLE_WIDTH = 2  # 16-bit = 2 bytes
 DEFAULT_CHUNK_SIZE = 1024
 
-
-class AudioDeviceType(Enum):
-    """Type of audio device location."""
-    LOCAL = "local"    # Physical device on local machine
-    ROBOT = "robot"    # Robot's audio device via ROS
+# Piper TTS settings
+PIPER_MODEL_DIR = Path.home() / ".cache" / "pib3" / "piper_models"
+DEFAULT_PIPER_VOICE = "de_DE-thorsten-high"  # German Thorsten voice
 
 
-@dataclass
-class AudioDevice:
+# ==================== AUDIO OUTPUT ENUM ====================
+
+
+class AudioOutput(Enum):
     """
-    Represents an audio input or output device.
+    Destination for audio playback.
 
     Attributes:
-        id: Unique identifier for the device.
-        name: Human-readable device name.
-        device_type: Whether device is local or on robot.
-        is_input: True if device can record audio (microphone).
-        is_output: True if device can play audio (speaker).
-        sample_rate: Default/supported sample rate in Hz.
-        channels: Number of audio channels.
-        index: Backend-specific device index (for local devices).
+        LOCAL: Play on local machine (laptop) speakers only.
+        ROBOT: Play on robot speakers only (via /audio_playback topic).
+        LOCAL_AND_ROBOT: Play on both simultaneously (best-effort sync).
+
+    Note:
+        In Webots simulation, ROBOT and LOCAL_AND_ROBOT both resolve to
+        LOCAL-only playback (no duplication).
     """
-    id: str
-    name: str
-    device_type: AudioDeviceType
-    is_input: bool = False
-    is_output: bool = False
-    sample_rate: int = DEFAULT_SAMPLE_RATE
-    channels: int = DEFAULT_CHANNELS
-    index: Optional[int] = None  # For sounddevice device index
-    extra: Dict[str, Any] = field(default_factory=dict)
-
-    def __str__(self) -> str:
-        direction = []
-        if self.is_input:
-            direction.append("input")
-        if self.is_output:
-            direction.append("output")
-        return f"{self.name} [{self.device_type.value}] ({'/'.join(direction)})"
+    LOCAL = "local"
+    ROBOT = "robot"
+    LOCAL_AND_ROBOT = "local_and_robot"
 
 
-# Pre-defined robot devices (logical, not physical)
-ROBOT_MICROPHONE = AudioDevice(
-    id="robot_mic",
-    name="Robot Microphone",
-    device_type=AudioDeviceType.ROBOT,
-    is_input=True,
-    is_output=False,
-    sample_rate=DEFAULT_SAMPLE_RATE,
-    channels=1,
-)
-
-ROBOT_SPEAKER = AudioDevice(
-    id="robot_speaker",
-    name="Robot Speaker",
-    device_type=AudioDeviceType.ROBOT,
-    is_input=False,
-    is_output=True,
-    sample_rate=DEFAULT_SAMPLE_RATE,
-    channels=1,
-)
+# ==================== LOCAL AUDIO PLAYER ====================
 
 
-class AudioDeviceManager:
+class LocalAudioPlayer:
     """
-    Manages audio device discovery and listing.
+    Cross-platform local audio playback using simpleaudio.
 
-    Provides methods to list available input (microphone) and output (speaker)
-    devices from both local system and robot (when connected).
-
-    Example:
-        >>> manager = AudioDeviceManager()
-        >>> # List all microphones
-        >>> for mic in manager.list_input_devices():
-        ...     print(f"  {mic}")
-        >>> # List all speakers
-        >>> for speaker in manager.list_output_devices():
-        ...     print(f"  {speaker}")
+    Plays audio through the local machine's speakers.
     """
 
-    def __init__(self, include_robot: bool = False):
+    def __init__(self):
+        if not HAS_SIMPLEAUDIO:
+            raise ImportError(_SIMPLEAUDIO_HELP)
+        self._play_obj = None
+        self._lock = threading.Lock()
+
+    def play(
+        self,
+        data: Union[bytes, np.ndarray, List[int]],
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        block: bool = True,
+    ) -> bool:
         """
-        Initialize the device manager.
+        Play audio data through local speakers.
 
         Args:
-            include_robot: If True, include robot devices in listings.
-                          Should be True when connected to real robot.
-        """
-        self.include_robot = include_robot
-        self._cached_devices: Optional[List[AudioDevice]] = None
-
-    def _get_local_devices(self) -> List[AudioDevice]:
-        """Query local audio devices using sounddevice."""
-        devices = []
-
-        if sd is None:
-            return devices
-
-        try:
-            device_list = sd.query_devices()
-            for i, dev in enumerate(device_list):
-                # Skip devices with no channels
-                max_input = dev.get('max_input_channels', 0)
-                max_output = dev.get('max_output_channels', 0)
-
-                if max_input == 0 and max_output == 0:
-                    continue
-
-                device = AudioDevice(
-                    id=f"local_{i}",
-                    name=dev.get('name', f'Device {i}'),
-                    device_type=AudioDeviceType.LOCAL,
-                    is_input=max_input > 0,
-                    is_output=max_output > 0,
-                    sample_rate=int(dev.get('default_samplerate', DEFAULT_SAMPLE_RATE)),
-                    channels=max(max_input, max_output),
-                    index=i,
-                    extra={
-                        'hostapi': dev.get('hostapi'),
-                        'max_input_channels': max_input,
-                        'max_output_channels': max_output,
-                    }
-                )
-                devices.append(device)
-        except Exception as e:
-            warnings.warn(f"Failed to query local audio devices: {e}")
-
-        return devices
-
-    def refresh(self) -> None:
-        """Refresh the cached device list."""
-        self._cached_devices = None
-
-    def list_all_devices(self) -> List[AudioDevice]:
-        """
-        List all available audio devices.
+            data: Audio data as bytes, numpy array (int16), or list of int16.
+            sample_rate: Sample rate in Hz (default: 16000).
+            block: If True, wait for playback to complete.
 
         Returns:
-            List of AudioDevice objects for all input and output devices.
+            True if playback started successfully.
         """
-        if self._cached_devices is not None:
-            return self._cached_devices
-
-        devices = self._get_local_devices()
-
-        # Add robot devices if enabled
-        if self.include_robot:
-            devices.append(ROBOT_MICROPHONE)
-            devices.append(ROBOT_SPEAKER)
-
-        self._cached_devices = devices
-        return devices
-
-    def list_input_devices(self) -> List[AudioDevice]:
-        """
-        List available input devices (microphones).
-
-        Returns:
-            List of AudioDevice objects that can record audio.
-        """
-        return [d for d in self.list_all_devices() if d.is_input]
-
-    def list_output_devices(self) -> List[AudioDevice]:
-        """
-        List available output devices (speakers).
-
-        Returns:
-            List of AudioDevice objects that can play audio.
-        """
-        return [d for d in self.list_all_devices() if d.is_output]
-
-    def get_device_by_id(self, device_id: str) -> Optional[AudioDevice]:
-        """
-        Get a device by its ID.
-
-        Args:
-            device_id: The device ID (e.g., "local_0", "robot_mic").
-
-        Returns:
-            AudioDevice if found, None otherwise.
-        """
-        for device in self.list_all_devices():
-            if device.id == device_id:
-                return device
-        return None
-
-    def get_default_input_device(self) -> Optional[AudioDevice]:
-        """Get the default input device (microphone)."""
-        if sd is not None:
-            try:
-                default_idx = sd.default.device[0]
-                if default_idx is not None:
-                    for device in self.list_input_devices():
-                        if device.index == default_idx:
-                            return device
-            except Exception:
-                pass
-
-        # Fallback to first available input
-        inputs = self.list_input_devices()
-        return inputs[0] if inputs else None
-
-    def get_default_output_device(self) -> Optional[AudioDevice]:
-        """Get the default output device (speaker)."""
-        if sd is not None:
-            try:
-                default_idx = sd.default.device[1]
-                if default_idx is not None:
-                    for device in self.list_output_devices():
-                        if device.index == default_idx:
-                            return device
-            except Exception:
-                pass
-
-        # Fallback to first available output
-        outputs = self.list_output_devices()
-        return outputs[0] if outputs else None
-
-
-# ==================== OUTPUT BACKENDS (Playback) ====================
-
-
-class AudioBackend(abc.ABC):
-    """Abstract base class for audio output (playback) backends."""
-
-    @abc.abstractmethod
-    def play(self, data: Union[bytes, np.ndarray, List[int]], sample_rate: int = 16000) -> bool:
-        """
-        Play audio data.
-
-        Args:
-            data: Audio data. Can be:
-                - bytes: Raw 16-bit PCM bytes.
-                - np.ndarray: NumPy array of int16 values.
-                - List[int]: List of int16 values.
-            sample_rate: Sample rate in Hz. Default: 16000.
-
-        Returns:
-            True if playback started successfully, False otherwise.
-        """
-        pass
-
-    @abc.abstractmethod
-    def stop(self) -> None:
-        """Stop current playback."""
-        pass
-
-
-class NoOpAudioBackend(AudioBackend):
-    """Fallback backend that does nothing."""
-
-    def play(self, data: Union[bytes, np.ndarray, List[int]], sample_rate: int = 16000) -> bool:
-        return False
-
-    def stop(self) -> None:
-        pass
-
-
-class SystemAudioBackend(AudioBackend):
-    """
-    Plays audio locally using sounddevice or simpleaudio.
-
-    Supports device selection for output to specific speakers.
-    """
-
-    def __init__(self, device: Optional[AudioDevice] = None):
-        """
-        Initialize system audio backend.
-
-        Args:
-            device: Optional AudioDevice to use for output.
-                   If None, uses system default.
-        """
-        self._device = device
-        self._device_index = device.index if device else None
-        self.play_obj = None
-        self._stream = None
-
-        # Prefer sounddevice for device selection, fall back to simpleaudio
-        if sd is not None:
-            self._use_sounddevice = True
-        elif sa is not None:
-            self._use_sounddevice = False
-            if device is not None:
-                warnings.warn(
-                    "Device selection requires sounddevice. "
-                    "Using default output. Install with: pip install sounddevice"
-                )
-        else:
-            raise ImportError(
-                "Audio playback requires sounddevice or simpleaudio. "
-                "Install with: pip install sounddevice"
-            )
-
-    @property
-    def device(self) -> Optional[AudioDevice]:
-        """Get the current output device."""
-        return self._device
-
-    def play(self, data: Union[bytes, np.ndarray, List[int]], sample_rate: int = 16000) -> bool:
-        # Convert to numpy array
-        if isinstance(data, bytes):
-            audio_data = np.frombuffer(data, dtype=np.int16)
+        # Convert to bytes
+        if isinstance(data, np.ndarray):
+            audio_bytes = data.astype(np.int16).tobytes()
         elif isinstance(data, list):
-            audio_data = np.array(data, dtype=np.int16)
-        elif isinstance(data, np.ndarray):
-            audio_data = data.astype(np.int16)
+            audio_bytes = np.array(data, dtype=np.int16).tobytes()
+        elif isinstance(data, bytes):
+            audio_bytes = data
         else:
             raise ValueError(f"Unsupported audio data type: {type(data)}")
 
-        self.stop()
-
-        try:
-            if self._use_sounddevice:
-                # Use sounddevice for playback (supports device selection)
-                audio_float = audio_data.astype(np.float32) / 32768.0
-                sd.play(audio_float, sample_rate, device=self._device_index)
-            else:
-                # Fall back to simpleaudio
-                self.play_obj = sa.play_buffer(audio_data.tobytes(), 1, 2, sample_rate)
-            return True
-        except Exception as e:
-            warnings.warn(f"Error playing audio: {e}")
-            return False
+        with self._lock:
+            self.stop()
+            try:
+                self._play_obj = sa.play_buffer(
+                    audio_bytes,
+                    num_channels=DEFAULT_CHANNELS,
+                    bytes_per_sample=DEFAULT_SAMPLE_WIDTH,
+                    sample_rate=sample_rate,
+                )
+                if block:
+                    self._play_obj.wait_done()
+                return True
+            except Exception as e:
+                logger.warning(f"Local audio playback failed: {e}")
+                return False
 
     def stop(self) -> None:
-        if self._use_sounddevice:
+        """Stop current playback."""
+        if self._play_obj is not None:
             try:
-                sd.stop()
+                self._play_obj.stop()
             except Exception:
                 pass
-        elif self.play_obj and self.play_obj.is_playing():
-            self.play_obj.stop()
-            self.play_obj = None
+            self._play_obj = None
+
+    def is_playing(self) -> bool:
+        """Check if audio is currently playing."""
+        return self._play_obj is not None and self._play_obj.is_playing()
 
 
-class ROSAudioBackend(AudioBackend):
+# ==================== ROBOT AUDIO PLAYER ====================
+
+
+class RobotAudioPlayer:
     """
-    Streams audio to robot's speaker via ROS topic.
+    Send audio to robot for playback via /audio_playback ROS topic.
 
-    Note: This publishes to /audio_stream topic. The robot must have
-    an audio player node subscribed to play the audio.
+    The robot's audio_player node subscribes to this topic and plays
+    received audio through the robot's speakers.
     """
 
-    def __init__(self, client):
+    TOPIC_NAME = "/audio_playback"
+    TOPIC_TYPE = "std_msgs/msg/Int16MultiArray"
+
+    def __init__(self, client: "roslibpy.Ros"):
         """
+        Initialize robot audio player.
+
         Args:
-            client: roslibpy.Ros instance.
+            client: Connected roslibpy.Ros instance.
         """
-        if roslibpy is None:
-            raise ImportError("roslibpy is required for ROSAudioBackend.")
+        if not HAS_ROSLIBPY:
+            raise ImportError("roslibpy is required for robot audio.")
 
-        self.client = client
-        self.topic = roslibpy.Topic(client, '/audio_stream', 'std_msgs/msg/Int16MultiArray')
+        self._client = client
+        self._topic = roslibpy.Topic(
+            client,
+            self.TOPIC_NAME,
+            self.TOPIC_TYPE,
+        )
 
-    def play(self, data: Union[bytes, np.ndarray, List[int]], sample_rate: int = 16000) -> bool:
-        if not self.client.is_connected:
+    def play(
+        self,
+        data: Union[bytes, np.ndarray, List[int]],
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        block: bool = True,
+    ) -> bool:
+        """
+        Send audio to robot for playback.
+
+        Args:
+            data: Audio data as bytes, numpy array (int16), or list of int16.
+            sample_rate: Sample rate in Hz (default: 16000).
+            block: If True, wait estimated playback duration.
+
+        Returns:
+            True if audio was sent successfully.
+        """
+        if not self._client.is_connected:
+            logger.warning("Cannot play on robot: not connected")
             return False
 
-        # Convert to List[int] for Int16MultiArray
+        # Convert to list of int16
         if isinstance(data, bytes):
-            dt = np.dtype(np.int16).newbyteorder('<')
-            int_data = np.frombuffer(data, dtype=dt).tolist()
+            int_data = np.frombuffer(data, dtype=np.int16).tolist()
         elif isinstance(data, np.ndarray):
             int_data = data.astype(np.int16).tolist()
         elif isinstance(data, list):
@@ -424,365 +262,355 @@ class ROSAudioBackend(AudioBackend):
         else:
             raise ValueError(f"Unsupported audio data type: {type(data)}")
 
-        msg = {
+        # Construct Int16MultiArray message
+        msg = roslibpy.Message({
             "layout": {"dim": [], "data_offset": 0},
-            "data": int_data
-        }
+            "data": int_data,
+        })
 
         try:
-            self.topic.publish(roslibpy.Message(msg))
+            self._topic.publish(msg)
+
+            if block:
+                # Estimate playback duration and wait
+                duration = len(int_data) / sample_rate
+                import time
+                time.sleep(duration)
+
             return True
         except Exception as e:
-            warnings.warn(f"Error streaming audio to ROS: {e}")
+            logger.warning(f"Failed to send audio to robot: {e}")
             return False
 
     def stop(self) -> None:
-        pass
+        """Stop playback (sends empty message to clear queue)."""
+        if self._client.is_connected:
+            try:
+                msg = roslibpy.Message({
+                    "layout": {"dim": [], "data_offset": 0},
+                    "data": [],
+                })
+                self._topic.publish(msg)
+            except Exception:
+                pass
 
 
-# ==================== INPUT BACKENDS (Recording) ====================
+# ==================== PIPER TTS ====================
 
 
-class AudioInputBackend(abc.ABC):
-    """Abstract base class for audio input (recording) backends."""
-
-    @abc.abstractmethod
-    def start_recording(self, callback: Callable[[np.ndarray], None]) -> bool:
-        """
-        Start recording audio.
-
-        Args:
-            callback: Called with numpy array of int16 samples for each chunk.
-
-        Returns:
-            True if recording started successfully.
-        """
-        pass
-
-    @abc.abstractmethod
-    def stop_recording(self) -> None:
-        """Stop recording audio."""
-        pass
-
-    @property
-    @abc.abstractmethod
-    def is_recording(self) -> bool:
-        """Check if currently recording."""
-        pass
-
-
-class NoOpAudioInputBackend(AudioInputBackend):
-    """Fallback input backend that does nothing."""
-
-    def start_recording(self, callback: Callable[[np.ndarray], None]) -> bool:
-        return False
-
-    def stop_recording(self) -> None:
-        pass
-
-    @property
-    def is_recording(self) -> bool:
-        return False
-
-
-class SystemAudioInputBackend(AudioInputBackend):
+class PiperTTS:
     """
-    Records audio from local microphone using sounddevice.
+    Text-to-speech synthesis using Piper.
 
-    Supports device selection for recording from specific microphones.
+    Uses the Thorsten German voice by default. Voice models are automatically
+    downloaded on first use.
+
+    Piper is a fast, local neural TTS system that works well on
+    resource-constrained devices like Raspberry Pi.
     """
 
-    def __init__(
-        self,
-        device: Optional[AudioDevice] = None,
-        sample_rate: int = DEFAULT_SAMPLE_RATE,
-        chunk_size: int = DEFAULT_CHUNK_SIZE,
-        channels: int = DEFAULT_CHANNELS,
-    ):
+    def __init__(self, voice: str = DEFAULT_PIPER_VOICE):
         """
-        Initialize system audio input backend.
+        Initialize Piper TTS.
 
         Args:
-            device: Optional AudioDevice to use for input.
-                   If None, uses system default microphone.
-            sample_rate: Sample rate in Hz (default: 16000).
-            chunk_size: Number of samples per callback (default: 1024).
-            channels: Number of channels (default: 1 for mono).
+            voice: Piper voice model name (default: German Thorsten).
         """
-        if sd is None:
-            raise ImportError(
-                "sounddevice is required for microphone recording. "
-                "Install with: pip install sounddevice"
-            )
+        self._voice = voice
+        self._piper = None
+        self._model_path = None
+        self._initialized = False
 
-        self._device = device
-        self._device_index = device.index if device else None
-        self._sample_rate = sample_rate
-        self._chunk_size = chunk_size
-        self._channels = channels
-        self._stream: Optional[sd.InputStream] = None
-        self._callback: Optional[Callable[[np.ndarray], None]] = None
-        self._recording = False
-
-    @property
-    def device(self) -> Optional[AudioDevice]:
-        """Get the current input device."""
-        return self._device
-
-    def _audio_callback(self, indata, frames, time_info, status):
-        """Internal callback for sounddevice stream."""
-        if status:
-            warnings.warn(f"Audio input status: {status}")
-        if self._callback is not None:
-            # Convert float32 to int16
-            int_data = (indata[:, 0] * 32767).astype(np.int16)
-            self._callback(int_data)
-
-    def start_recording(self, callback: Callable[[np.ndarray], None]) -> bool:
-        if self._recording:
-            return False
-
-        self._callback = callback
+    def _ensure_initialized(self) -> bool:
+        """Ensure Piper is initialized and model is downloaded."""
+        if self._initialized:
+            return True
 
         try:
-            self._stream = sd.InputStream(
-                device=self._device_index,
-                channels=self._channels,
-                samplerate=self._sample_rate,
-                blocksize=self._chunk_size,
-                dtype=np.float32,
-                callback=self._audio_callback,
+            from piper import PiperVoice
+        except ImportError:
+            raise ImportError(
+                "piper-tts is required for text-to-speech. "
+                "Install with: pip install piper-tts"
             )
-            self._stream.start()
-            self._recording = True
+
+        # Ensure model directory exists
+        PIPER_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Download model if needed
+        model_path = self._download_model_if_needed()
+        if model_path is None:
+            return False
+
+        # Load the model
+        try:
+            self._piper = PiperVoice.load(str(model_path))
+            self._model_path = model_path
+            self._initialized = True
+            logger.info(f"Piper TTS initialized with voice: {self._voice}")
             return True
         except Exception as e:
-            warnings.warn(f"Failed to start recording: {e}")
+            logger.error(f"Failed to load Piper model: {e}")
             return False
 
-    def stop_recording(self) -> None:
-        if self._stream is not None:
-            try:
-                self._stream.stop()
-                self._stream.close()
-            except Exception:
-                pass
-            self._stream = None
-        self._recording = False
-        self._callback = None
+    def _download_model_if_needed(self) -> Optional[Path]:
+        """Download Piper voice model if not already cached."""
+        model_file = PIPER_MODEL_DIR / f"{self._voice}.onnx"
+        config_file = PIPER_MODEL_DIR / f"{self._voice}.onnx.json"
 
-    @property
-    def is_recording(self) -> bool:
-        return self._recording
+        if model_file.exists() and config_file.exists():
+            return model_file
 
+        logger.info(f"Downloading Piper voice model: {self._voice}")
 
-class ROSAudioInputBackend(AudioInputBackend):
-    """
-    Receives audio from robot's microphone via ROS topic subscription.
+        try:
+            import urllib.request
 
-    Subscribes to /audio_stream topic to receive audio from robot.
-    """
+            # Piper model URLs (from official releases)
+            base_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
 
-    def __init__(self, client):
+            # Map voice name to path
+            voice_parts = self._voice.split("-")
+            if len(voice_parts) >= 3:
+                lang = voice_parts[0]  # e.g., "de_DE"
+                name = voice_parts[1]  # e.g., "thorsten"
+                quality = voice_parts[2]  # e.g., "high"
+                voice_path = f"{lang}/{name}/{quality}"
+            else:
+                voice_path = self._voice
+
+            model_url = f"{base_url}/{voice_path}/{self._voice}.onnx"
+            config_url = f"{base_url}/{voice_path}/{self._voice}.onnx.json"
+
+            # Download model
+            logger.info(f"Downloading: {model_url}")
+            urllib.request.urlretrieve(model_url, model_file)
+
+            # Download config
+            logger.info(f"Downloading: {config_url}")
+            urllib.request.urlretrieve(config_url, config_file)
+
+            logger.info(f"Voice model downloaded to: {PIPER_MODEL_DIR}")
+            return model_file
+
+        except Exception as e:
+            logger.error(f"Failed to download Piper model: {e}")
+            # Clean up partial downloads
+            if model_file.exists():
+                model_file.unlink()
+            if config_file.exists():
+                config_file.unlink()
+            return None
+
+    def synthesize(
+        self,
+        text: str,
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+    ) -> np.ndarray:
         """
+        Synthesize speech from text.
+
         Args:
-            client: roslibpy.Ros instance.
+            text: Text to synthesize.
+            sample_rate: Target sample rate (resampling done if needed).
+
+        Returns:
+            Audio data as numpy array of int16 samples.
+
+        Raises:
+            ImportError: If piper-tts is not installed.
+            RuntimeError: If synthesis fails.
         """
-        if roslibpy is None:
-            raise ImportError("roslibpy is required for ROSAudioInputBackend.")
+        if not self._ensure_initialized():
+            raise RuntimeError("Failed to initialize Piper TTS")
 
-        self.client = client
-        self._topic: Optional[roslibpy.Topic] = None
-        self._callback: Optional[Callable[[np.ndarray], None]] = None
-        self._recording = False
+        try:
+            # Synthesize to WAV in memory
+            wav_buffer = io.BytesIO()
 
-    def _on_message(self, msg):
-        """Handle incoming audio message."""
-        if self._callback is not None:
-            data = msg.get('data', [])
-            if data:
-                self._callback(np.array(data, dtype=np.int16))
+            with wave.open(wav_buffer, "wb") as wav_file:
+                self._piper.synthesize(text, wav_file)
 
-    def start_recording(self, callback: Callable[[np.ndarray], None]) -> bool:
-        if not self.client.is_connected:
-            return False
+            # Read back the audio data
+            wav_buffer.seek(0)
+            with wave.open(wav_buffer, "rb") as wav_file:
+                frames = wav_file.readframes(wav_file.getnframes())
+                audio = np.frombuffer(frames, dtype=np.int16)
+                native_rate = wav_file.getframerate()
 
-        if self._recording:
-            return False
+            # Resample if needed
+            if native_rate != sample_rate:
+                # Simple linear resampling
+                duration = len(audio) / native_rate
+                new_length = int(duration * sample_rate)
+                indices = np.linspace(0, len(audio) - 1, new_length)
+                audio = np.interp(indices, np.arange(len(audio)), audio).astype(np.int16)
 
-        self._callback = callback
-        self._topic = roslibpy.Topic(
-            self.client,
-            '/audio_stream',
-            'std_msgs/msg/Int16MultiArray'
-        )
-        self._topic.subscribe(self._on_message)
-        self._recording = True
-        return True
+            return audio
 
-    def stop_recording(self) -> None:
-        if self._topic is not None:
-            try:
-                self._topic.unsubscribe()
-            except Exception:
-                pass
-            self._topic = None
-        self._recording = False
-        self._callback = None
+        except Exception as e:
+            raise RuntimeError(f"TTS synthesis failed: {e}") from e
 
     @property
-    def is_recording(self) -> bool:
-        return self._recording
+    def voice(self) -> str:
+        """Get the current voice model name."""
+        return self._voice
 
 
-# ==================== CONVENIENCE CLASSES ====================
+# ==================== AUDIO STREAM RECEIVER ====================
 
 
 class AudioStreamReceiver:
     """
-    Receives and manages audio streams from any source.
+    Receives and buffers audio from robot's microphone.
 
-    This class provides a convenient way to receive audio, buffer it,
-    and optionally play it back through local speakers.
-
-    Can be used with:
-    - robot.subscribe_audio_stream() for robot microphone
-    - SystemAudioInputBackend for local microphone
-
-    Audio Format:
-        - Sample rate: 16000 Hz
-        - Channels: 1 (Mono)
-        - Bit depth: 16-bit signed integers
+    Designed to work with robot.subscribe_audio_stream() callback.
 
     Example:
-        >>> from pib3 import Robot, AudioStreamReceiver
-        >>> with Robot(host="...") as robot:
-        ...     # Create receiver with local playback
-        ...     receiver = AudioStreamReceiver(playback=True)
-        ...     sub = robot.subscribe_audio_stream(receiver.on_audio)
-        ...     time.sleep(10)  # Record for 10 seconds
-        ...     sub.unsubscribe()
-        ...     # Get recorded audio
-        ...     audio_data = receiver.get_audio()
-        ...     receiver.save_wav("recording.wav")
+        >>> receiver = AudioStreamReceiver()
+        >>> sub = robot.subscribe_audio_stream(receiver.on_audio)
+        >>> time.sleep(10)
+        >>> sub.unsubscribe()
+        >>> audio = receiver.get_audio()
+        >>> receiver.save_wav("recording.wav")
     """
 
     def __init__(
         self,
         sample_rate: int = DEFAULT_SAMPLE_RATE,
-        playback: bool = False,
-        playback_device: Optional[AudioDevice] = None,
         max_buffer_seconds: float = 300.0,
     ):
         """
         Initialize audio stream receiver.
 
         Args:
-            sample_rate: Expected sample rate in Hz (default: 16000).
-            playback: If True, play audio through speakers as it arrives.
-            playback_device: Optional AudioDevice for playback output.
-                            If None, uses system default.
-            max_buffer_seconds: Maximum audio to buffer (default: 300s = 5 minutes).
+            sample_rate: Expected sample rate in Hz.
+            max_buffer_seconds: Maximum audio to buffer (default: 5 minutes).
         """
         self.sample_rate = sample_rate
-        self.playback = playback
         self.max_samples = int(max_buffer_seconds * sample_rate)
-
         self._buffer: List[int] = []
-        self._buffer_lock = threading.Lock()
-        self._play_backend: Optional[SystemAudioBackend] = None
-
-        if playback:
-            try:
-                self._play_backend = SystemAudioBackend(device=playback_device)
-            except ImportError:
-                warnings.warn(
-                    "Audio playback library not available, playback disabled. "
-                    "Install with: pip install sounddevice"
-                )
-                self.playback = False
+        self._lock = threading.Lock()
 
     def on_audio(self, samples: Union[List[int], np.ndarray]) -> None:
         """
-        Callback for audio data.
+        Callback for incoming audio data.
 
-        This method is designed to be passed directly to
-        robot.subscribe_audio_stream() or used with AudioInputBackend.
+        Pass this method directly to robot.subscribe_audio_stream().
 
         Args:
-            samples: List or array of int16 audio samples.
+            samples: Audio samples (int16).
         """
         if isinstance(samples, np.ndarray):
-            samples_list = samples.tolist()
-        else:
-            samples_list = samples
+            samples = samples.tolist()
 
-        with self._buffer_lock:
-            self._buffer.extend(samples_list)
+        with self._lock:
+            self._buffer.extend(samples)
             # Trim if exceeds max buffer
             if len(self._buffer) > self.max_samples:
                 excess = len(self._buffer) - self.max_samples
                 self._buffer = self._buffer[excess:]
 
-        # Play if enabled
-        if self.playback and self._play_backend:
-            self._play_backend.play(samples, self.sample_rate)
-
     def get_audio(self) -> np.ndarray:
-        """
-        Get all buffered audio as numpy array.
-
-        Returns:
-            NumPy array of int16 samples.
-        """
-        with self._buffer_lock:
+        """Get buffered audio as numpy array of int16."""
+        with self._lock:
             return np.array(self._buffer, dtype=np.int16)
 
     def get_audio_float(self) -> np.ndarray:
-        """
-        Get all buffered audio as normalized float32 array.
-
-        Useful for audio processing that expects -1.0 to 1.0 range.
-
-        Returns:
-            NumPy array of float32 samples in range [-1.0, 1.0].
-        """
-        int_audio = self.get_audio()
-        return int_audio.astype(np.float32) / 32768.0
+        """Get buffered audio as normalized float32 in range [-1, 1]."""
+        audio = self.get_audio()
+        return audio.astype(np.float32) / 32768.0
 
     def clear(self) -> None:
         """Clear the audio buffer."""
-        with self._buffer_lock:
+        with self._lock:
             self._buffer.clear()
 
     @property
     def duration(self) -> float:
         """Get duration of buffered audio in seconds."""
-        with self._buffer_lock:
+        with self._lock:
             return len(self._buffer) / self.sample_rate
 
     @property
     def sample_count(self) -> int:
         """Get number of samples in buffer."""
-        with self._buffer_lock:
+        with self._lock:
             return len(self._buffer)
 
-    def save_wav(self, filepath: str) -> None:
+    def save_wav(self, filepath: Union[str, Path]) -> None:
         """
-        Save buffered audio to a WAV file.
+        Save buffered audio to WAV file.
 
         Args:
-            filepath: Path to output WAV file.
-
-        Example:
-            >>> receiver.save_wav("recording.wav")
+            filepath: Output file path.
         """
-        import wave
-
-        audio_data = self.get_audio()
-
-        with wave.open(filepath, 'wb') as wav_file:
+        audio = self.get_audio()
+        with wave.open(str(filepath), "wb") as wav_file:
             wav_file.setnchannels(DEFAULT_CHANNELS)
             wav_file.setsampwidth(DEFAULT_SAMPLE_WIDTH)
             wav_file.setframerate(self.sample_rate)
-            wav_file.writeframes(audio_data.tobytes())
+            wav_file.writeframes(audio.tobytes())
+
+
+# ==================== UTILITY FUNCTIONS ====================
+
+
+def load_audio_file(filepath: Union[str, Path]) -> tuple[np.ndarray, int]:
+    """
+    Load audio from a WAV file.
+
+    Args:
+        filepath: Path to WAV file.
+
+    Returns:
+        Tuple of (audio_data as int16 numpy array, sample_rate).
+    """
+    with wave.open(str(filepath), "rb") as wav_file:
+        sample_rate = wav_file.getframerate()
+        n_channels = wav_file.getnchannels()
+        sample_width = wav_file.getsampwidth()
+        frames = wav_file.readframes(wav_file.getnframes())
+
+        # Convert to numpy
+        if sample_width == 1:
+            audio = np.frombuffer(frames, dtype=np.uint8).astype(np.int16) * 256 - 32768
+        elif sample_width == 2:
+            audio = np.frombuffer(frames, dtype=np.int16)
+        elif sample_width == 4:
+            audio = (np.frombuffer(frames, dtype=np.int32) / 65536).astype(np.int16)
+        else:
+            raise ValueError(f"Unsupported sample width: {sample_width}")
+
+        # Convert stereo to mono if needed
+        if n_channels == 2:
+            audio = audio.reshape(-1, 2).mean(axis=1).astype(np.int16)
+        elif n_channels > 2:
+            audio = audio.reshape(-1, n_channels)[:, 0]  # Take first channel
+
+        return audio, sample_rate
+
+
+def resample_audio(
+    audio: np.ndarray,
+    orig_rate: int,
+    target_rate: int = DEFAULT_SAMPLE_RATE,
+) -> np.ndarray:
+    """
+    Resample audio to target sample rate.
+
+    Args:
+        audio: Audio data as int16 numpy array.
+        orig_rate: Original sample rate.
+        target_rate: Target sample rate.
+
+    Returns:
+        Resampled audio as int16 numpy array.
+    """
+    if orig_rate == target_rate:
+        return audio
+
+    duration = len(audio) / orig_rate
+    new_length = int(duration * target_rate)
+    indices = np.linspace(0, len(audio) - 1, new_length)
+    return np.interp(indices, np.arange(len(audio)), audio).astype(np.int16)

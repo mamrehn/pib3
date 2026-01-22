@@ -156,38 +156,46 @@ if __name__ == "__main__":
     main()
 
 """
-  /ai/available_models                     std_msgs/msg/String
-  /ai/config                               std_msgs/msg/String
-  /ai/current_model                        std_msgs/msg/String
-  /ai/detections                           std_msgs/msg/String
-  /audio_stream                            std_msgs/msg/Int16MultiArray
-  /camera/config                           std_msgs/msg/String
-  /camera/image                            sensor_msgs/msg/CompressedImage
-  /camera_topic                            std_msgs/msg/String
-  /chat_is_listening                       datatypes/msg/ChatIsListening
-  /chat_messages                           datatypes/msg/ChatMessage
-  /client_count                            std_msgs/msg/Int32
-  /connected_clients                       rosbridge_msgs/msg/ConnectedClients
-  /delete_token                            std_msgs/msg/Empty
-  /display_image                           datatypes/msg/DisplayImage
-  /doa_angle                               std_msgs/msg/Int32
-  /imu/accelerometer                       geometry_msgs/msg/Vector3Stamped
-  /imu/config                              std_msgs/msg/String
-  /imu/data                                sensor_msgs/msg/Imu
-  /imu/gyroscope                           geometry_msgs/msg/Vector3Stamped
-  /joint_trajectory                        trajectory_msgs/msg/JointTrajectory
-  /motor_current                           diagnostic_msgs/msg/DiagnosticStatus
-  /motor_settings                          datatypes/msg/MotorSettings
-  /parameter_events                        rcl_interfaces/msg/ParameterEvent
-  /program_input                           datatypes/msg/ProgramInput
-  /proxy_run_program_feedback              datatypes/msg/ProxyRunProgramFeedback
-  /proxy_run_program_result                datatypes/msg/ProxyRunProgramResult
-  /proxy_run_program_status                datatypes/msg/ProxyRunProgramStatus
-  /public_api_token                        std_msgs/msg/String
-  /quality_factor_topic                    std_msgs/msg/Int32
-  /rosout                                  rcl_interfaces/msg/Log
-  /size_topic                              std_msgs/msg/Int32MultiArray
-  /solid_state_relay_state                 datatypes/msg/SolidStateRelayState
-  /timer_period_topic                      std_msgs/msg/Float64
-  /voice_assistant_state                   datatypes/msg/VoiceAssistantState
+TOPIC                         MESSAGE TYPE
+---------------------------------------------------------------------
+/audio_stream                 std_msgs/msg/Int16MultiArray
+/camera/ai/available_models   std_msgs/msg/String
+/camera/ai/config             std_msgs/msg/String
+/camera/ai/current_model      std_msgs/msg/String
+/camera/ai/detections         std_msgs/msg/String
+/camera/ai/status             std_msgs/msg/String
+/camera/error                 std_msgs/msg/String
+/camera/image/compressed      sensor_msgs/msg/CompressedImage
+/camera/imu                   sensor_msgs/msg/Imu
+/camera/imu/accelerometer     geometry_msgs/msg/Vector3Stamped
+/camera/imu/config            std_msgs/msg/String
+/camera/imu/gyroscope         geometry_msgs/msg/Vector3Stamped
+/camera/preview_size          std_msgs/msg/Int32MultiArray
+/camera/quality_factor        std_msgs/msg/Int32
+/camera/rgb/image             std_msgs/msg/String
+/camera/timer_period          std_msgs/msg/Float64
+/camera/video/config          std_msgs/msg/String
+/camera_topic                 std_msgs/msg/String
+/chat_is_listening            datatypes/msg/ChatIsListening
+/chat_messages                datatypes/msg/ChatMessage
+/client_count                 std_msgs/msg/Int32
+/connected_clients            rosbridge_msgs/msg/ConnectedClients
+/delete_token                 std_msgs/msg/Empty
+/display_image                datatypes/msg/DisplayImage
+/doa_angle                    std_msgs/msg/Int32
+/joint_trajectory             trajectory_msgs/msg/JointTrajectory
+/motor_current                diagnostic_msgs/msg/DiagnosticStatus
+/motor_settings               datatypes/msg/MotorSettings
+/parameter_events             rcl_interfaces/msg/ParameterEvent
+/program_input                datatypes/msg/ProgramInput
+/proxy_run_program_feedback   datatypes/msg/ProxyRunProgramFeedback
+/proxy_run_program_result     datatypes/msg/ProxyRunProgramResult
+/proxy_run_program_status     datatypes/msg/ProxyRunProgramStatus
+/public_api_token             std_msgs/msg/String
+/quality_factor_topic         std_msgs/msg/Int32
+/rosout                       rcl_interfaces/msg/Log
+/size_topic                   std_msgs/msg/Int32MultiArray
+/solid_state_relay_state      datatypes/msg/SolidStateRelayState
+/timer_period_topic           std_msgs/msg/Float64
+/voice_assistant_state        datatypes/msg/VoiceAssistantState
 """

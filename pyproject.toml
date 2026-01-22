@@ -45,6 +45,12 @@ dependencies = [
     "scikit-image>=0.19.0",
     "spatialgeometry>=1.0.0",
     "roslibpy>=1.4.0",  # Includes websocket support via autobahn/twisted
+    # Audio playback and TTS
+    # Note: On Linux, install ALSA first: sudo apt-get install libasound2-dev
+    # Note: On Windows, Microsoft Visual C++ Build Tools may be required
+    "simpleaudio>=1.0.4",
+    "piper-tts>=1.2.0",
+    "onnxruntime>=1.14.0",  # Required by piper-tts
 ]
 
 [project.optional-dependencies]
