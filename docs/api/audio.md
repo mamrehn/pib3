@@ -712,6 +712,19 @@ pip install --force-reinstall pib3
 pip install --force-reinstall pib3
 ```
 
+**If you see**: "OSError: PortAudio library not found" during `import pib3` or when running audio code
+
+- This means the Python `sounddevice` package is installed but the native PortAudio
+    library is missing or incompatible on the system.
+- Fix on Debian/Ubuntu:
+
+```bash
+sudo apt-get install libportaudio2 portaudio19-dev
+pip install --upgrade --force-reinstall sounddevice
+```
+
+After installing PortAudio, re-installing `pib3` in the virtualenv may be necessary.
+
 ---
 
 ### TTS not working

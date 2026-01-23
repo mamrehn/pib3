@@ -89,12 +89,21 @@ else:
     )
 
 # Audio playback/recording imports
+# Importing `sounddevice` can fail in two ways:
+#  - ImportError when the Python package is not installed
+#  - OSError (or other Exception) when the PortAudio native library is
+#    missing or broken (e.g. "PortAudio library not found").
+#
+# Handle both cases gracefully so that importing `pib3` does not crash on
+# machines where sound support is not available; callers should check
+# `HAS_SOUNDDEVICE` before attempting hardware playback/recording.
 try:
     import sounddevice as sd
     HAS_SOUNDDEVICE = True
-except ImportError as e:
+except (ImportError, OSError) as e:
     sd = None
     HAS_SOUNDDEVICE = False
+    # Log the underlying exception and provide the platform-specific hint
     logger.warning(f"sounddevice not available: {e}\n{_SOUNDDEVICE_HELP}")
 
 try:
