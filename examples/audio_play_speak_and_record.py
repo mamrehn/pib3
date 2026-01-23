@@ -54,9 +54,9 @@ def parse_args(argv: Optional[list[str]] = None):
                    help="Demo to run: tone, tts, or record")
     p.add_argument("--frequency", "-f", type=float, default=440.0,
                    help="Tone frequency in Hz (default: 440)")
-    p.add_argument("--duration", "-d", type=float, default=1.0,
-                   help="Duration in seconds (default: 1.0)")
-    p.add_argument("--text", type=str, default="Hello from pib3",
+    p.add_argument("--duration", "-d", type=float, default=5.0,
+                   help="Duration in seconds (default: 5.0)")
+    p.add_argument("--text", type=str, default="Hallo von pib3",
                    help="Text for TTS demo")
     p.add_argument(
         "--backend",
