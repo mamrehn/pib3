@@ -46,10 +46,19 @@ from .backends import (
     RobotBackend,
     WebotsBackend,
     RealRobotBackend,
-    # Unified audio system
+    # Unified audio system - enums
     AudioOutput,
+    AudioInput,
+    # Device management
+    AudioDevice,
+    list_audio_devices,
+    list_audio_input_devices,
+    list_audio_output_devices,
+    # Recording/playback utilities
     AudioStreamReceiver,
     PiperTTS,
+    load_audio_file,
+    save_audio_file,
 )
 
 # Convenience aliases
@@ -88,10 +97,19 @@ __all__ = [
     "HandPose",
     "LEFT_HAND_JOINTS",
     "RIGHT_HAND_JOINTS",
-    # Unified audio system
+    # Unified audio system - enums
     "AudioOutput",
+    "AudioInput",
+    # Device management
+    "AudioDevice",
+    "list_audio_devices",
+    "list_audio_input_devices",
+    "list_audio_output_devices",
+    # Recording/playback utilities
     "AudioStreamReceiver",
     "PiperTTS",
+    "load_audio_file",
+    "save_audio_file",
 ]
 
 

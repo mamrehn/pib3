@@ -12,12 +12,20 @@ import yaml
 from ..types import Joint, HandPose
 from .audio import (
     AudioOutput,
+    AudioInput,
+    AudioDevice,
     LocalAudioPlayer,
+    LocalAudioRecorder,
     PiperTTS,
     load_audio_file,
+    save_audio_file,
     resample_audio,
+    list_audio_input_devices,
+    list_audio_output_devices,
+    get_default_audio_input_device,
+    get_default_audio_output_device,
     DEFAULT_SAMPLE_RATE,
-    HAS_SIMPLEAUDIO,
+    HAS_SOUNDDEVICE,
 )
 
 logger = logging.getLogger(__name__)
@@ -152,8 +160,14 @@ class RobotBackend(ABC):
 
         # Unified audio system
         self._audio_output: AudioOutput = AudioOutput.LOCAL
+        self._audio_input: AudioInput = AudioInput.LOCAL
         self._local_player: Optional[LocalAudioPlayer] = None
+        self._local_recorder: Optional[LocalAudioRecorder] = None
         self._tts: Optional[PiperTTS] = None
+
+        # Device selection (None = system default)
+        self._output_device: Optional[Union[int, str, AudioDevice]] = None
+        self._input_device: Optional[Union[int, str, AudioDevice]] = None
 
     def _get_joint_limits(self) -> Dict[str, Dict[str, float]]:
         """Get joint limits for this backend."""
@@ -313,12 +327,21 @@ class RobotBackend(ABC):
 
     def _get_local_player(self) -> Optional[LocalAudioPlayer]:
         """Get or create local audio player."""
-        if self._local_player is None and HAS_SIMPLEAUDIO:
+        if self._local_player is None and HAS_SOUNDDEVICE:
             try:
-                self._local_player = LocalAudioPlayer()
+                self._local_player = LocalAudioPlayer(device=self._output_device)
             except Exception as e:
                 logger.warning(f"Failed to create local audio player: {e}")
         return self._local_player
+
+    def _get_local_recorder(self) -> Optional[LocalAudioRecorder]:
+        """Get or create local audio recorder."""
+        if self._local_recorder is None and HAS_SOUNDDEVICE:
+            try:
+                self._local_recorder = LocalAudioRecorder(device=self._input_device)
+            except Exception as e:
+                logger.warning(f"Failed to create local audio recorder: {e}")
+        return self._local_recorder
 
     def _get_tts(self, voice: Optional[str] = None) -> PiperTTS:
         """Get or create TTS engine."""
@@ -506,6 +529,257 @@ class RobotBackend(ABC):
             return False
         except Exception as e:
             logger.error(f"TTS failed: {e}")
+            return False
+
+    # --- Audio Device Selection Methods ---
+
+    def get_audio_output_devices(self) -> List[AudioDevice]:
+        """
+        List available audio output (speaker) devices.
+
+        Returns:
+            List of AudioDevice objects that support output.
+
+        Example:
+            >>> for device in robot.get_audio_output_devices():
+            ...     print(device)
+        """
+        return list_audio_output_devices()
+
+    def get_audio_input_devices(self) -> List[AudioDevice]:
+        """
+        List available audio input (microphone) devices.
+
+        Returns:
+            List of AudioDevice objects that support input.
+
+        Example:
+            >>> for device in robot.get_audio_input_devices():
+            ...     print(device)
+        """
+        return list_audio_input_devices()
+
+    def set_audio_output_device(self, device: Optional[Union[int, str, AudioDevice]]) -> None:
+        """
+        Set the audio output device for local playback.
+
+        Args:
+            device: Device index (int), name substring (str), AudioDevice object,
+                    or None to use system default.
+
+        Example:
+            >>> devices = robot.get_audio_output_devices()
+            >>> robot.set_audio_output_device(devices[0])  # Use first device
+            >>> robot.set_audio_output_device("Speakers")  # Search by name
+            >>> robot.set_audio_output_device(0)           # Use by index
+            >>> robot.set_audio_output_device(None)        # Use system default
+        """
+        self._output_device = device
+        # Update existing player if it exists
+        if self._local_player is not None:
+            self._local_player.set_device(device)
+
+    def set_audio_input_device(self, device: Optional[Union[int, str, AudioDevice]]) -> None:
+        """
+        Set the audio input device for local recording.
+
+        Args:
+            device: Device index (int), name substring (str), AudioDevice object,
+                    or None to use system default.
+
+        Example:
+            >>> devices = robot.get_audio_input_devices()
+            >>> robot.set_audio_input_device(devices[0])  # Use first device
+            >>> robot.set_audio_input_device("Microphone")  # Search by name
+            >>> robot.set_audio_input_device(0)            # Use by index
+            >>> robot.set_audio_input_device(None)         # Use system default
+        """
+        self._input_device = device
+        # Update existing recorder if it exists
+        if self._local_recorder is not None:
+            self._local_recorder.set_device(device)
+
+    def get_current_audio_output_device(self) -> Optional[AudioDevice]:
+        """Get the currently selected audio output device (None = system default)."""
+        if self._output_device is None:
+            return get_default_audio_output_device()
+        if isinstance(self._output_device, AudioDevice):
+            return self._output_device
+        # Resolve by index or name
+        for d in list_audio_output_devices():
+            if isinstance(self._output_device, int) and d.index == self._output_device:
+                return d
+            if isinstance(self._output_device, str) and self._output_device.lower() in d.name.lower():
+                return d
+        return None
+
+    def get_current_audio_input_device(self) -> Optional[AudioDevice]:
+        """Get the currently selected audio input device (None = system default)."""
+        if self._input_device is None:
+            return get_default_audio_input_device()
+        if isinstance(self._input_device, AudioDevice):
+            return self._input_device
+        # Resolve by index or name
+        for d in list_audio_input_devices():
+            if isinstance(self._input_device, int) and d.index == self._input_device:
+                return d
+            if isinstance(self._input_device, str) and self._input_device.lower() in d.name.lower():
+                return d
+        return None
+
+    # --- Unified Audio Recording Methods ---
+
+    @property
+    def default_audio_input(self) -> AudioInput:
+        """
+        Get the default audio input source for this backend.
+
+        Override in subclasses:
+        - RealRobotBackend: ROBOT
+        - WebotsBackend: LOCAL
+        """
+        return AudioInput.LOCAL
+
+    def set_audio_input(self, input_source: AudioInput) -> None:
+        """
+        Set the default audio input source.
+
+        Args:
+            input_source: AudioInput.LOCAL or AudioInput.ROBOT.
+
+        Example:
+            >>> robot.set_audio_input(AudioInput.ROBOT)
+            >>> audio = robot.record_audio(duration=5.0)  # Records from robot mic
+        """
+        self._audio_input = input_source
+
+    def _record_from_local(
+        self,
+        duration: float,
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+    ) -> Optional[np.ndarray]:
+        """Record audio from local microphone."""
+        recorder = self._get_local_recorder()
+        if recorder is None:
+            logger.warning("Local audio recording not available (sounddevice not installed)")
+            return None
+        try:
+            return recorder.record(duration, sample_rate)
+        except Exception as e:
+            logger.warning(f"Local audio recording failed: {e}")
+            return None
+
+    def _record_from_robot(
+        self,
+        duration: float,
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+    ) -> Optional[np.ndarray]:
+        """
+        Record audio from robot microphone.
+
+        Override in RealRobotBackend to receive via /audio_input topic.
+        Base implementation returns None (not supported).
+        """
+        logger.warning("Robot audio recording not supported in this backend")
+        return None
+
+    def record_audio(
+        self,
+        duration: float,
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        input_source: Optional[AudioInput] = None,
+    ) -> Optional[np.ndarray]:
+        """
+        Record audio for a specified duration.
+
+        Args:
+            duration: Recording duration in seconds.
+            sample_rate: Sample rate in Hz (default: 16000).
+            input_source: Recording source (LOCAL or ROBOT).
+                         If None, uses default for this backend.
+
+        Returns:
+            Audio data as numpy array of int16 samples, or None if failed.
+            The returned array is compatible with play_audio() and save_audio_file().
+
+        Example:
+            >>> # Record from local microphone
+            >>> audio = robot.record_audio(duration=5.0, input_source=AudioInput.LOCAL)
+            >>>
+            >>> # Record from robot microphone
+            >>> audio = robot.record_audio(duration=5.0, input_source=AudioInput.ROBOT)
+            >>>
+            >>> # Play back the recording
+            >>> robot.play_audio(audio)
+            >>>
+            >>> # Save to file
+            >>> from pib3.backends.audio import save_audio_file
+            >>> save_audio_file("recording.wav", audio)
+        """
+        # Use default input if not specified
+        if input_source is None:
+            input_source = self._audio_input or self.default_audio_input
+
+        # Check for common mistake: passing AudioOutput instead of AudioInput
+        if isinstance(input_source, AudioOutput):
+            raise TypeError(
+                f"record_audio() requires AudioInput, not AudioOutput. "
+                f"Use AudioInput.LOCAL or AudioInput.ROBOT instead of {input_source}."
+            )
+
+        # Validate input_source is a valid AudioInput
+        if not isinstance(input_source, AudioInput):
+            raise TypeError(
+                f"input_source must be AudioInput.LOCAL or AudioInput.ROBOT, "
+                f"got {type(input_source).__name__}: {input_source}"
+            )
+
+        # For Webots: ROBOT resolves to LOCAL
+        if self._is_webots() and input_source == AudioInput.ROBOT:
+            input_source = AudioInput.LOCAL
+
+        # Dispatch based on input source
+        if input_source == AudioInput.LOCAL:
+            return self._record_from_local(duration, sample_rate)
+        elif input_source == AudioInput.ROBOT:
+            return self._record_from_robot(duration, sample_rate)
+        else:
+            logger.error(f"Unknown audio input source: {input_source}")
+            return None
+
+    def record_to_file(
+        self,
+        filepath: Union[str, Path],
+        duration: float,
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        input_source: Optional[AudioInput] = None,
+    ) -> bool:
+        """
+        Record audio and save directly to a file.
+
+        Args:
+            filepath: Output file path (WAV format).
+            duration: Recording duration in seconds.
+            sample_rate: Sample rate in Hz (default: 16000).
+            input_source: Recording source (LOCAL or ROBOT).
+                         If None, uses default for this backend.
+
+        Returns:
+            True if recording was saved successfully.
+
+        Example:
+            >>> robot.record_to_file("recording.wav", duration=5.0)
+            >>> robot.record_to_file("robot_audio.wav", duration=10.0, input_source=AudioInput.ROBOT)
+        """
+        audio = self.record_audio(duration, sample_rate, input_source)
+        if audio is None:
+            return False
+
+        try:
+            save_audio_file(filepath, audio, sample_rate)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save audio file {filepath}: {e}")
             return False
 
     # --- Get Methods ---

@@ -13,7 +13,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 from .base import RobotBackend
-from .audio import AudioOutput, RobotAudioPlayer, DEFAULT_SAMPLE_RATE
+from .audio import AudioOutput, AudioInput, RobotAudioPlayer, RobotAudioRecorder, DEFAULT_SAMPLE_RATE
 from ..config import RobotConfig
 from ..types import ImuType, AiTaskType
 
@@ -116,7 +116,8 @@ class RealRobotBackend(RobotBackend):
         self._joint_positions_lock = threading.Lock()
 
         # Unified audio system
-        self._robot_audio_player: Optional[RobotAudioPlayer] = None 
+        self._robot_audio_player: Optional[RobotAudioPlayer] = None
+        self._robot_audio_recorder: Optional[RobotAudioRecorder] = None
 
     @classmethod
     def from_config(cls, config: RobotConfig) -> "RealRobotBackend":
@@ -191,9 +192,6 @@ class RealRobotBackend(RobotBackend):
             'trajectory_msgs/msg/JointTrajectory'
         )
         self._position_subscriber.subscribe(self._on_joint_trajectory)
-
-        # Initialize audio backends with smart defaults (robot devices)
-        self._setup_audio_backends_for_robot()
 
     def _on_joint_trajectory(self, message: dict) -> None:
         """Callback for position updates from /joint_trajectory topic.
@@ -1147,6 +1145,50 @@ class RealRobotBackend(RobotBackend):
             return False
 
         return player.play(data, sample_rate, block=block)
+
+    @property
+    def default_audio_input(self) -> AudioInput:
+        """Default audio input for real robot: ROBOT."""
+        return AudioInput.ROBOT
+
+    def _get_robot_audio_recorder(self) -> Optional[RobotAudioRecorder]:
+        """Get or create robot audio recorder."""
+        if self._robot_audio_recorder is None and self.is_connected:
+            try:
+                self._robot_audio_recorder = RobotAudioRecorder(self._client)
+            except Exception as e:
+                logger.warning(f"Failed to create robot audio recorder: {e}")
+        return self._robot_audio_recorder
+
+    def _record_from_robot(
+        self,
+        duration: float,
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+    ) -> Optional[np.ndarray]:
+        """
+        Record audio from robot's microphone via /audio_input topic.
+
+        Args:
+            duration: Recording duration in seconds.
+            sample_rate: Sample rate in Hz (default: 16000).
+
+        Returns:
+            Audio data as numpy array of int16 samples, or None if failed.
+        """
+        if not self.is_connected:
+            logger.warning("Cannot record from robot: not connected")
+            return None
+
+        recorder = self._get_robot_audio_recorder()
+        if recorder is None:
+            logger.warning("Robot audio recorder not available")
+            return None
+
+        try:
+            return recorder.record(duration, sample_rate)
+        except Exception as e:
+            logger.warning(f"Robot audio recording failed: {e}")
+            return None
 
 
 # ==================== RLE DECODER HELPER ====================

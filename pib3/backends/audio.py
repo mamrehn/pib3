@@ -1,14 +1,18 @@
 """
 Audio subsystem for PIB robot.
 
-This module provides unified audio playback and TTS capabilities that work
+This module provides unified audio playback, recording, and TTS capabilities that work
 across both the real robot and Webots simulation.
 
 Key Components:
 - AudioOutput: Enum for specifying playback destination (LOCAL, ROBOT, LOCAL_AND_ROBOT)
+- AudioInput: Enum for specifying recording source (LOCAL, ROBOT)
+- AudioDevice: Dataclass representing an audio device (speaker or microphone)
 - PiperTTS: Text-to-speech synthesis using Piper with Thorsten German voice
-- LocalAudioPlayer: Cross-platform local audio playback using simpleaudio
+- LocalAudioPlayer: Cross-platform local audio playback using sounddevice
+- LocalAudioRecorder: Cross-platform local audio recording using sounddevice
 - RobotAudioPlayer: Send audio to robot via /audio_playback ROS topic
+- RobotAudioRecorder: Receive audio from robot via /audio_input ROS topic
 
 Audio Format (standard throughout):
 - Sample rate: 16000 Hz (16kHz)
@@ -16,9 +20,9 @@ Audio Format (standard throughout):
 - Bit depth: 16-bit signed integers (int16)
 
 Platform-specific requirements:
-- Linux: sudo apt-get install libasound2-dev  (before pip install pib3)
+- Linux: sudo apt-get install libportaudio2 portaudio19-dev (before pip install pib3)
 - macOS: No additional requirements
-- Windows: May need Microsoft Visual C++ Build Tools
+- Windows: No additional requirements
 
 Usage:
     >>> with Robot(host="...") as robot:
@@ -30,13 +34,23 @@ Usage:
     ...
     ...     # Text-to-speech (German by default)
     ...     robot.speak("Hallo, ich bin pib!")
+    ...
+    ...     # Record from local microphone
+    ...     audio = robot.record_audio(duration=5.0, input=AudioInput.LOCAL)
+    ...
+    ...     # Record from robot microphone
+    ...     audio = robot.record_audio(duration=5.0, input=AudioInput.ROBOT)
+    ...
+    ...     # List available devices
+    ...     speakers = list_audio_output_devices()
+    ...     microphones = list_audio_input_devices()
 """
 
 import io
 import logging
-import os
+import sys
 import threading
-import warnings
+import time
 import wave
 from dataclasses import dataclass
 from enum import Enum
@@ -47,44 +61,41 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# Platform-specific installation help for simpleaudio
-import sys
+# Platform-specific installation help for sounddevice
 if sys.platform.startswith('linux'):
-    _SIMPLEAUDIO_HELP = (
-        "simpleaudio is required for audio playback.\n"
-        "On Linux, first install ALSA development libraries:\n"
-        "    sudo apt-get install libasound2-dev\n"
-        "Then install simpleaudio:\n"
-        "    pip install simpleaudio"
+    _SOUNDDEVICE_HELP = (
+        "sounddevice is required for audio playback and recording.\n"
+        "On Linux, first install PortAudio:\n"
+        "    sudo apt-get install libportaudio2 portaudio19-dev\n"
+        "Then install sounddevice:\n"
+        "    pip install sounddevice"
     )
 elif sys.platform == 'darwin':  # macOS
-    _SIMPLEAUDIO_HELP = (
-        "simpleaudio is required for audio playback.\n"
+    _SOUNDDEVICE_HELP = (
+        "sounddevice is required for audio playback and recording.\n"
         "Install with:\n"
-        "    pip install simpleaudio"
+        "    pip install sounddevice"
     )
 elif sys.platform == 'win32':  # Windows
-    _SIMPLEAUDIO_HELP = (
-        "simpleaudio is required for audio playback.\n"
-        "On Windows, you may need Microsoft Visual C++ Build Tools.\n"
-        "Download from: https://visualstudio.microsoft.com/visual-cpp-build-tools/\n"
-        "Then install simpleaudio:\n"
-        "    pip install simpleaudio"
+    _SOUNDDEVICE_HELP = (
+        "sounddevice is required for audio playback and recording.\n"
+        "Install with:\n"
+        "    pip install sounddevice"
     )
 else:
-    _SIMPLEAUDIO_HELP = (
-        "simpleaudio is required for audio playback.\n"
-        "Install with: pip install simpleaudio"
+    _SOUNDDEVICE_HELP = (
+        "sounddevice is required for audio playback and recording.\n"
+        "Install with: pip install sounddevice"
     )
 
-# Audio playback imports
+# Audio playback/recording imports
 try:
-    import simpleaudio as sa
-    HAS_SIMPLEAUDIO = True
+    import sounddevice as sd
+    HAS_SOUNDDEVICE = True
 except ImportError as e:
-    sa = None
-    HAS_SIMPLEAUDIO = False
-    logger.warning(f"simpleaudio not available: {e}\n{_SIMPLEAUDIO_HELP}")
+    sd = None
+    HAS_SOUNDDEVICE = False
+    logger.warning(f"sounddevice not available: {e}\n{_SOUNDDEVICE_HELP}")
 
 try:
     import roslibpy
@@ -106,7 +117,7 @@ PIPER_MODEL_DIR = Path.home() / ".cache" / "pib3" / "piper_models"
 DEFAULT_PIPER_VOICE = "de_DE-thorsten-high"  # German Thorsten voice
 
 
-# ==================== AUDIO OUTPUT ENUM ====================
+# ==================== AUDIO ENUMS ====================
 
 
 class AudioOutput(Enum):
@@ -127,21 +138,192 @@ class AudioOutput(Enum):
     LOCAL_AND_ROBOT = "local_and_robot"
 
 
+class AudioInput(Enum):
+    """
+    Source for audio recording.
+
+    Attributes:
+        LOCAL: Record from local machine (laptop) microphone.
+        ROBOT: Record from robot's microphone (via /audio_input topic).
+
+    Note:
+        In Webots simulation, ROBOT resolves to LOCAL recording.
+    """
+    LOCAL = "local"
+    ROBOT = "robot"
+
+
+# ==================== AUDIO DEVICE ====================
+
+
+@dataclass
+class AudioDevice:
+    """
+    Represents an audio device (speaker or microphone).
+
+    Attributes:
+        index: Device index for sounddevice.
+        name: Human-readable device name.
+        channels: Number of channels supported.
+        sample_rate: Default sample rate.
+        is_input: True if this is an input (microphone) device.
+        is_output: True if this is an output (speaker) device.
+    """
+    index: int
+    name: str
+    channels: int
+    sample_rate: float
+    is_input: bool
+    is_output: bool
+
+    def __str__(self) -> str:
+        device_type = []
+        if self.is_input:
+            device_type.append("input")
+        if self.is_output:
+            device_type.append("output")
+        return f"[{self.index}] {self.name} ({', '.join(device_type)})"
+
+
+def list_audio_devices() -> List[AudioDevice]:
+    """
+    List all available audio devices.
+
+    Returns:
+        List of AudioDevice objects.
+
+    Raises:
+        ImportError: If sounddevice is not available.
+    """
+    if not HAS_SOUNDDEVICE:
+        raise ImportError(_SOUNDDEVICE_HELP)
+
+    devices = []
+    for i, dev in enumerate(sd.query_devices()):
+        devices.append(AudioDevice(
+            index=i,
+            name=dev['name'],
+            channels=max(dev['max_input_channels'], dev['max_output_channels']),
+            sample_rate=dev['default_samplerate'],
+            is_input=dev['max_input_channels'] > 0,
+            is_output=dev['max_output_channels'] > 0,
+        ))
+    return devices
+
+
+def list_audio_input_devices() -> List[AudioDevice]:
+    """
+    List available audio input (microphone) devices.
+
+    Returns:
+        List of AudioDevice objects that support input.
+    """
+    return [d for d in list_audio_devices() if d.is_input]
+
+
+def list_audio_output_devices() -> List[AudioDevice]:
+    """
+    List available audio output (speaker) devices.
+
+    Returns:
+        List of AudioDevice objects that support output.
+    """
+    return [d for d in list_audio_devices() if d.is_output]
+
+
+def get_default_audio_input_device() -> Optional[AudioDevice]:
+    """
+    Get the default audio input (microphone) device.
+
+    Returns:
+        Default input AudioDevice or None if not available.
+    """
+    if not HAS_SOUNDDEVICE:
+        return None
+    try:
+        idx = sd.default.device[0]
+        if idx is None:
+            return None
+        devices = list_audio_devices()
+        for d in devices:
+            if d.index == idx and d.is_input:
+                return d
+        # Fallback: return first input device
+        for d in devices:
+            if d.is_input:
+                return d
+        return None
+    except Exception:
+        return None
+
+
+def get_default_audio_output_device() -> Optional[AudioDevice]:
+    """
+    Get the default audio output (speaker) device.
+
+    Returns:
+        Default output AudioDevice or None if not available.
+    """
+    if not HAS_SOUNDDEVICE:
+        return None
+    try:
+        idx = sd.default.device[1]
+        if idx is None:
+            return None
+        devices = list_audio_devices()
+        for d in devices:
+            if d.index == idx and d.is_output:
+                return d
+        # Fallback: return first output device
+        for d in devices:
+            if d.is_output:
+                return d
+        return None
+    except Exception:
+        return None
+
+
 # ==================== LOCAL AUDIO PLAYER ====================
 
 
 class LocalAudioPlayer:
     """
-    Cross-platform local audio playback using simpleaudio.
+    Cross-platform local audio playback using sounddevice.
 
     Plays audio through the local machine's speakers.
     """
 
-    def __init__(self):
-        if not HAS_SIMPLEAUDIO:
-            raise ImportError(_SIMPLEAUDIO_HELP)
-        self._play_obj = None
+    def __init__(self, device: Optional[Union[int, str, AudioDevice]] = None):
+        """
+        Initialize local audio player.
+
+        Args:
+            device: Output device - can be index (int), name (str), or AudioDevice.
+                    If None, uses system default.
+        """
+        if not HAS_SOUNDDEVICE:
+            raise ImportError(_SOUNDDEVICE_HELP)
+
+        self._device = self._resolve_device(device)
+        self._stream = None
         self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+
+    def _resolve_device(self, device: Optional[Union[int, str, AudioDevice]]) -> Optional[int]:
+        """Resolve device parameter to device index."""
+        if device is None:
+            return None
+        if isinstance(device, AudioDevice):
+            return device.index
+        if isinstance(device, int):
+            return device
+        if isinstance(device, str):
+            # Search by name
+            for d in list_audio_output_devices():
+                if device.lower() in d.name.lower():
+                    return d.index
+            raise ValueError(f"Output device not found: {device}")
+        raise ValueError(f"Invalid device type: {type(device)}")
 
     def play(
         self,
@@ -158,29 +340,31 @@ class LocalAudioPlayer:
             block: If True, wait for playback to complete.
 
         Returns:
-            True if playback started successfully.
+            True if playback started/completed successfully.
         """
-        # Convert to bytes
-        if isinstance(data, np.ndarray):
-            audio_bytes = data.astype(np.int16).tobytes()
+        # Convert to numpy int16 array
+        if isinstance(data, bytes):
+            audio = np.frombuffer(data, dtype=np.int16)
         elif isinstance(data, list):
-            audio_bytes = np.array(data, dtype=np.int16).tobytes()
-        elif isinstance(data, bytes):
-            audio_bytes = data
+            audio = np.array(data, dtype=np.int16)
+        elif isinstance(data, np.ndarray):
+            audio = data.astype(np.int16)
         else:
             raise ValueError(f"Unsupported audio data type: {type(data)}")
 
+        # Convert to float32 for sounddevice (range -1 to 1)
+        audio_float = audio.astype(np.float32) / 32768.0
+
         with self._lock:
             self.stop()
+            self._stop_event.clear()
+
             try:
-                self._play_obj = sa.play_buffer(
-                    audio_bytes,
-                    num_channels=DEFAULT_CHANNELS,
-                    bytes_per_sample=DEFAULT_SAMPLE_WIDTH,
-                    sample_rate=sample_rate,
-                )
                 if block:
-                    self._play_obj.wait_done()
+                    sd.play(audio_float, samplerate=sample_rate, device=self._device)
+                    sd.wait()
+                else:
+                    sd.play(audio_float, samplerate=sample_rate, device=self._device)
                 return True
             except Exception as e:
                 logger.warning(f"Local audio playback failed: {e}")
@@ -188,16 +372,181 @@ class LocalAudioPlayer:
 
     def stop(self) -> None:
         """Stop current playback."""
-        if self._play_obj is not None:
-            try:
-                self._play_obj.stop()
-            except Exception:
-                pass
-            self._play_obj = None
+        self._stop_event.set()
+        try:
+            sd.stop()
+        except Exception:
+            pass
 
     def is_playing(self) -> bool:
         """Check if audio is currently playing."""
-        return self._play_obj is not None and self._play_obj.is_playing()
+        try:
+            return sd.get_stream() is not None and sd.get_stream().active
+        except Exception:
+            return False
+
+    @property
+    def device(self) -> Optional[int]:
+        """Get the current device index."""
+        return self._device
+
+    def set_device(self, device: Optional[Union[int, str, AudioDevice]]) -> None:
+        """
+        Set the output device.
+
+        Args:
+            device: Output device - can be index (int), name (str), or AudioDevice.
+        """
+        self._device = self._resolve_device(device)
+
+
+# ==================== LOCAL AUDIO RECORDER ====================
+
+
+class LocalAudioRecorder:
+    """
+    Cross-platform local audio recording using sounddevice.
+
+    Records audio from the local machine's microphone.
+    """
+
+    def __init__(self, device: Optional[Union[int, str, AudioDevice]] = None):
+        """
+        Initialize local audio recorder.
+
+        Args:
+            device: Input device - can be index (int), name (str), or AudioDevice.
+                    If None, uses system default.
+        """
+        if not HAS_SOUNDDEVICE:
+            raise ImportError(_SOUNDDEVICE_HELP)
+
+        self._device = self._resolve_device(device)
+        self._recording = False
+        self._lock = threading.Lock()
+
+    def _resolve_device(self, device: Optional[Union[int, str, AudioDevice]]) -> Optional[int]:
+        """Resolve device parameter to device index."""
+        if device is None:
+            return None
+        if isinstance(device, AudioDevice):
+            return device.index
+        if isinstance(device, int):
+            return device
+        if isinstance(device, str):
+            # Search by name
+            for d in list_audio_input_devices():
+                if device.lower() in d.name.lower():
+                    return d.index
+            raise ValueError(f"Input device not found: {device}")
+        raise ValueError(f"Invalid device type: {type(device)}")
+
+    def record(
+        self,
+        duration: float,
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+    ) -> np.ndarray:
+        """
+        Record audio for a specified duration.
+
+        Args:
+            duration: Recording duration in seconds.
+            sample_rate: Sample rate in Hz (default: 16000).
+
+        Returns:
+            Audio data as numpy array of int16 samples.
+        """
+        with self._lock:
+            self._recording = True
+            try:
+                num_samples = int(duration * sample_rate)
+                audio_float = sd.rec(
+                    num_samples,
+                    samplerate=sample_rate,
+                    channels=DEFAULT_CHANNELS,
+                    dtype=np.float32,
+                    device=self._device,
+                )
+                sd.wait()
+
+                # Convert to int16
+                audio = (audio_float.flatten() * 32767).astype(np.int16)
+                return audio
+            finally:
+                self._recording = False
+
+    def record_until_stopped(
+        self,
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        max_duration: float = 300.0,
+    ) -> np.ndarray:
+        """
+        Start recording and continue until stop() is called.
+
+        Args:
+            sample_rate: Sample rate in Hz (default: 16000).
+            max_duration: Maximum recording duration in seconds (default: 5 minutes).
+
+        Returns:
+            Audio data as numpy array of int16 samples.
+
+        Note:
+            Call stop() from another thread to end recording early.
+        """
+        with self._lock:
+            self._recording = True
+            try:
+                num_samples = int(max_duration * sample_rate)
+                audio_float = sd.rec(
+                    num_samples,
+                    samplerate=sample_rate,
+                    channels=DEFAULT_CHANNELS,
+                    dtype=np.float32,
+                    device=self._device,
+                )
+
+                # Wait for recording to complete or stop() to be called
+                while self._recording and sd.get_stream() and sd.get_stream().active:
+                    time.sleep(0.1)
+
+                sd.stop()
+
+                # Trim to actual recorded length
+                # (approximation based on how much was filled)
+                audio = (audio_float.flatten() * 32767).astype(np.int16)
+                # Remove trailing zeros
+                nonzero = np.nonzero(audio)[0]
+                if len(nonzero) > 0:
+                    audio = audio[:nonzero[-1] + 1]
+                return audio
+            finally:
+                self._recording = False
+
+    def stop(self) -> None:
+        """Stop current recording."""
+        self._recording = False
+        try:
+            sd.stop()
+        except Exception:
+            pass
+
+    def is_recording(self) -> bool:
+        """Check if currently recording."""
+        return self._recording
+
+    @property
+    def device(self) -> Optional[int]:
+        """Get the current device index."""
+        return self._device
+
+    def set_device(self, device: Optional[Union[int, str, AudioDevice]]) -> None:
+        """
+        Set the input device.
+
+        Args:
+            device: Input device - can be index (int), name (str), or AudioDevice.
+        """
+        self._device = self._resolve_device(device)
 
 
 # ==================== ROBOT AUDIO PLAYER ====================
@@ -274,7 +623,6 @@ class RobotAudioPlayer:
             if block:
                 # Estimate playback duration and wait
                 duration = len(int_data) / sample_rate
-                import time
                 time.sleep(duration)
 
             return True
@@ -293,6 +641,152 @@ class RobotAudioPlayer:
                 self._topic.publish(msg)
             except Exception:
                 pass
+
+
+# ==================== ROBOT AUDIO RECORDER ====================
+
+
+class RobotAudioRecorder:
+    """
+    Record audio from robot's microphone via /audio_input ROS topic.
+
+    Subscribes to the robot's audio stream and buffers incoming audio.
+    """
+
+    TOPIC_NAME = "/audio_input"
+    TOPIC_TYPE = "std_msgs/msg/Int16MultiArray"
+
+    def __init__(self, client: "roslibpy.Ros"):
+        """
+        Initialize robot audio recorder.
+
+        Args:
+            client: Connected roslibpy.Ros instance.
+        """
+        if not HAS_ROSLIBPY:
+            raise ImportError("roslibpy is required for robot audio.")
+
+        self._client = client
+        self._topic = roslibpy.Topic(
+            client,
+            self.TOPIC_NAME,
+            self.TOPIC_TYPE,
+        )
+        self._buffer: List[int] = []
+        self._lock = threading.Lock()
+        self._recording = False
+        self._subscription_active = False
+
+    def _on_message(self, message: dict) -> None:
+        """Handle incoming audio message from robot."""
+        if not self._recording:
+            return
+
+        data = message.get("data", [])
+        if data:
+            with self._lock:
+                self._buffer.extend(data)
+
+    def record(
+        self,
+        duration: float,
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+    ) -> np.ndarray:
+        """
+        Record audio from robot for a specified duration.
+
+        Args:
+            duration: Recording duration in seconds.
+            sample_rate: Sample rate in Hz (default: 16000).
+
+        Returns:
+            Audio data as numpy array of int16 samples.
+        """
+        if not self._client.is_connected:
+            raise RuntimeError("Cannot record from robot: not connected")
+
+        with self._lock:
+            self._buffer.clear()
+
+        self._recording = True
+
+        # Start subscription if not active
+        if not self._subscription_active:
+            self._topic.subscribe(self._on_message)
+            self._subscription_active = True
+
+        # Wait for specified duration
+        time.sleep(duration)
+
+        self._recording = False
+
+        with self._lock:
+            audio = np.array(self._buffer, dtype=np.int16)
+            self._buffer.clear()
+
+        return audio
+
+    def start_recording(self) -> None:
+        """
+        Start continuous recording from robot.
+
+        Use get_audio() to retrieve buffered audio and stop() to end.
+        """
+        if not self._client.is_connected:
+            raise RuntimeError("Cannot record from robot: not connected")
+
+        with self._lock:
+            self._buffer.clear()
+
+        self._recording = True
+
+        if not self._subscription_active:
+            self._topic.subscribe(self._on_message)
+            self._subscription_active = True
+
+    def stop(self) -> np.ndarray:
+        """
+        Stop recording and return captured audio.
+
+        Returns:
+            Audio data as numpy array of int16 samples.
+        """
+        self._recording = False
+
+        with self._lock:
+            audio = np.array(self._buffer, dtype=np.int16)
+            self._buffer.clear()
+
+        return audio
+
+    def get_audio(self) -> np.ndarray:
+        """
+        Get currently buffered audio without stopping.
+
+        Returns:
+            Audio data as numpy array of int16 samples.
+        """
+        with self._lock:
+            return np.array(self._buffer, dtype=np.int16)
+
+    def clear_buffer(self) -> None:
+        """Clear the audio buffer."""
+        with self._lock:
+            self._buffer.clear()
+
+    def is_recording(self) -> bool:
+        """Check if currently recording."""
+        return self._recording
+
+    def close(self) -> None:
+        """Unsubscribe and clean up."""
+        self._recording = False
+        if self._subscription_active:
+            try:
+                self._topic.unsubscribe()
+            except Exception:
+                pass
+            self._subscription_active = False
 
 
 # ==================== PIPER TTS ====================
@@ -589,6 +1083,27 @@ def load_audio_file(filepath: Union[str, Path]) -> tuple[np.ndarray, int]:
             audio = audio.reshape(-1, n_channels)[:, 0]  # Take first channel
 
         return audio, sample_rate
+
+
+def save_audio_file(
+    filepath: Union[str, Path],
+    audio: np.ndarray,
+    sample_rate: int = DEFAULT_SAMPLE_RATE,
+) -> None:
+    """
+    Save audio to a WAV file.
+
+    Args:
+        filepath: Output file path.
+        audio: Audio data as numpy array (int16).
+        sample_rate: Sample rate in Hz.
+    """
+    audio_int16 = audio.astype(np.int16)
+    with wave.open(str(filepath), "wb") as wav_file:
+        wav_file.setnchannels(DEFAULT_CHANNELS)
+        wav_file.setsampwidth(DEFAULT_SAMPLE_WIDTH)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(audio_int16.tobytes())
 
 
 def resample_audio(

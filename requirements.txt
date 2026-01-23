@@ -13,9 +13,9 @@ spatialgeometry>=1.0.0
 # Real robot connection via rosbridge
 roslibpy>=1.0.0
 
-# Audio playback and TTS
-# Linux: Install ALSA first: sudo apt-get install libasound2-dev
-# Windows: Microsoft Visual C++ Build Tools may be required
-simpleaudio>=1.0.4
+# Audio playback, recording, and TTS
+# Linux: Install PortAudio first: sudo apt-get install libportaudio2 portaudio19-dev
+# Windows/macOS: No additional system requirements
+sounddevice>=0.4.6
 piper-tts>=1.2.0
 onnxruntime>=1.14.0

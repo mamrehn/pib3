@@ -1,15 +1,16 @@
 # Audio System
 
-The pib3 audio system provides unified audio playback, text-to-speech (TTS), and recording capabilities that work seamlessly across both the real robot and Webots simulation.
+The pib3 audio system provides unified audio playback, recording, text-to-speech (TTS), and device management capabilities that work seamlessly across both the real robot and Webots simulation.
 
 ## Overview
 
 The audio system consists of several key components:
 
 - **Audio Playback**: Play raw audio data or WAV files on local speakers, robot speakers, or both
+- **Audio Recording**: Record from local microphone or robot's microphone array
 - **Text-to-Speech**: Synthesize speech using Piper TTS with German and English voices
-- **Audio Recording**: Stream audio from the robot's microphone array
-- **Output Routing**: Control where audio plays using the `AudioOutput` enum
+- **Device Management**: List and select specific speakers and microphones
+- **Output/Input Routing**: Control where audio plays/records using `AudioOutput` and `AudioInput` enums
 
 ## Audio Format
 
@@ -22,25 +23,40 @@ All audio in the pib3 system uses a standardized format:
 ## Quick Start
 
 ```python
-from pib3 import Robot, AudioOutput
+from pib3 import Robot, AudioOutput, AudioInput
 import numpy as np
 
 with Robot(host="172.26.34.149") as robot:
     # Text-to-speech (German speech model and on the robot device by default)
     robot.speak("Hallo! Ich bin pib, dein freundlicher Roboter.")
-    
+
     # Play on local speakers only
     robot.speak("Testing local audio", output=AudioOutput.LOCAL)
-    
+
     # Play on both robot and laptop
     robot.speak("Playing everywhere!", output=AudioOutput.LOCAL_AND_ROBOT)
-    
+
     # Play a WAV file (on the robot device)
     robot.play_file("sound.wav", output=AudioOutput.ROBOT)
-    
-    # Generate and play a tone (on the robot device)
+
+    # Generate and play a tone
     tone = (np.sin(2 * np.pi * 440 * np.linspace(0, 1, 16000)) * 16000).astype(np.int16)
     robot.play_audio(tone, output=AudioOutput.ROBOT)
+
+    # Record from local microphone - returns numpy int16 array
+    audio_data = robot.record_audio(duration=5.0, input_source=AudioInput.LOCAL)
+
+    # Record from robot microphone
+    audio_data = robot.record_audio(duration=5.0, input_source=AudioInput.ROBOT)
+
+    # The same audio_data format works for playback!
+    robot.play_audio(audio_data)
+
+    # List available devices
+    for device in robot.get_audio_output_devices():
+        print(f"Speaker: {device}")
+    for device in robot.get_audio_input_devices():
+        print(f"Microphone: {device}")
 ```
 
 ## AudioOutput Enum
@@ -67,6 +83,28 @@ AudioOutput.LOCAL_AND_ROBOT    # Play on both simultaneously
   - `LOCAL`: Plays on your laptop/computer
   - `ROBOT`: Automatically redirects to `LOCAL` (no robot speakers in simulation)
   - `LOCAL_AND_ROBOT`: Automatically redirects to `LOCAL` (no duplication)
+
+## AudioInput Enum
+
+The `AudioInput` enum controls where audio is recorded from:
+
+```python
+from pib3 import AudioInput
+
+# Available options:
+AudioInput.LOCAL    # Record from local machine (laptop) microphone
+AudioInput.ROBOT    # Record from robot's microphone array
+```
+
+### Backend-Specific Behavior
+
+- **Real Robot**: Default is `AudioInput.ROBOT`
+  - `LOCAL`: Records from your laptop/computer microphone
+  - `ROBOT`: Records from robot via `/audio_input` ROS topic
+
+- **Webots Simulation**: Default is `AudioInput.LOCAL`
+  - `LOCAL`: Records from your laptop/computer microphone
+  - `ROBOT`: Automatically redirects to `LOCAL` (no robot microphone in simulation)
 
 ## API Reference
 
@@ -133,22 +171,6 @@ robot.play_file(
 
 **Returns:** `True` if playback succeeded
 
-**WAV File Format:**
-
-The function accepts WAV files with the following formats (automatic conversion is applied):
-
-- **Sample Rate**: Any sample rate (automatically resampled to 16000 Hz)
-- **Channels**: Mono or Stereo (stereo is automatically converted to mono by averaging channels)
-- **Bit Depth**: 
-  - 8-bit (unsigned, converted to 16-bit signed)
-  - 16-bit (signed, preferred format)
-  - 32-bit (signed, converted to 16-bit signed)
-
-> **Note:** While various formats are supported, for best performance use WAV files with:
-> - **16000 Hz sample rate**
-> - **Mono (1 channel)**
-> - **16-bit signed PCM**
-
 **Example:**
 
 ```python
@@ -157,10 +179,6 @@ robot.play_file("sounds/beep.wav", output=AudioOutput.ROBOT)
 
 # Play background music locally while robot works
 robot.play_file("music.wav", output=AudioOutput.LOCAL, block=False)
-
-# Any standard WAV format works (automatically converted)
-robot.play_file("44100hz_stereo.wav")  # Resampled to 16kHz mono
-robot.play_file("8bit_audio.wav")      # Converted to 16-bit
 ```
 
 ---
@@ -208,18 +226,219 @@ robot.speak("Hello! How are you?", voice="en_US-lessac-medium")
 
 # Play on both robot and laptop
 robot.speak("Wichtige Nachricht!", output=AudioOutput.LOCAL_AND_ROBOT)
-
-# Fire and forget (don't wait)
-robot.speak("Ich arbeite...", block=False)
 ```
 
 ---
 
-### Audio Recording
+### Recording Methods
+
+#### `record_audio()`
+
+Record audio for a specified duration.
+
+```python
+robot.record_audio(
+    duration: float,
+    sample_rate: int = 16000,
+    input_source: Optional[AudioInput] = None
+) -> Optional[np.ndarray]
+```
+
+**Parameters:**
+
+- `duration`: Recording duration in seconds
+- `sample_rate`: Sample rate in Hz (default: 16000)
+- `input_source`: Recording source (LOCAL or ROBOT). If None, uses backend default
+
+**Returns:** Audio data as numpy array of int16 samples, or None if failed
+
+**Example:**
+
+```python
+from pib3 import AudioInput
+from pib3.backends.audio import save_audio_file
+
+# Record from local microphone - returns numpy int16 array
+audio_data = robot.record_audio(duration=5.0, input_source=AudioInput.LOCAL)
+
+# Record from robot microphone
+audio_data = robot.record_audio(duration=5.0, input_source=AudioInput.ROBOT)
+
+# Save recording to file
+save_audio_file("recording.wav", audio_data)
+
+# Play back immediately - same format works for playback!
+robot.play_audio(audio_data)
+```
+
+> **Important:** `record_audio()` requires `AudioInput`, not `AudioOutput`. Passing `AudioOutput` will raise a `TypeError` with a helpful message.
+
+---
+
+#### `record_to_file()`
+
+Record audio and save directly to a WAV file.
+
+```python
+robot.record_to_file(
+    filepath: Union[str, Path],
+    duration: float,
+    sample_rate: int = 16000,
+    input_source: Optional[AudioInput] = None
+) -> bool
+```
+
+**Parameters:**
+
+- `filepath`: Output file path (WAV format)
+- `duration`: Recording duration in seconds
+- `sample_rate`: Sample rate in Hz (default: 16000)
+- `input_source`: Recording source (LOCAL or ROBOT). If None, uses backend default
+
+**Returns:** `True` if recording was saved successfully
+
+**Example:**
+
+```python
+# Record from local microphone to file
+robot.record_to_file("my_recording.wav", duration=10.0)
+
+# Record from robot microphone
+robot.record_to_file("robot_audio.wav", duration=5.0, input_source=AudioInput.ROBOT)
+```
+
+---
+
+### Device Management
+
+> **Note:** Device selection only applies to **LOCAL** audio (laptop speakers/microphones). Robot audio uses fixed ROS topics (`/audio_playback` for output, `/audio_input` for input) with no device selection.
+
+#### `get_audio_output_devices()`
+
+List available **local** audio output (speaker) devices.
+
+```python
+robot.get_audio_output_devices() -> List[AudioDevice]
+```
+
+**Returns:** List of AudioDevice objects that support output
+
+**Example:**
+
+```python
+for device in robot.get_audio_output_devices():
+    print(device)  # e.g., "[0] Built-in Speakers (output)"
+```
+
+---
+
+#### `get_audio_input_devices()`
+
+List available audio input (microphone) devices.
+
+```python
+robot.get_audio_input_devices() -> List[AudioDevice]
+```
+
+**Returns:** List of AudioDevice objects that support input
+
+**Example:**
+
+```python
+for device in robot.get_audio_input_devices():
+    print(device)  # e.g., "[1] USB Microphone (input)"
+```
+
+---
+
+#### `set_audio_output_device()`
+
+Set the audio output device for local playback.
+
+```python
+robot.set_audio_output_device(
+    device: Optional[Union[int, str, AudioDevice]]
+) -> None
+```
+
+**Parameters:**
+
+- `device`: Device index (int), name substring (str), AudioDevice object, or None for system default
+
+**Example:**
+
+```python
+# List available devices
+devices = robot.get_audio_output_devices()
+for d in devices:
+    print(d)
+
+# Select by index
+robot.set_audio_output_device(0)
+
+# Select by name (substring match)
+robot.set_audio_output_device("Speakers")
+
+# Select by AudioDevice object
+robot.set_audio_output_device(devices[0])
+
+# Reset to system default
+robot.set_audio_output_device(None)
+```
+
+---
+
+#### `set_audio_input_device()`
+
+Set the audio input device for local recording.
+
+```python
+robot.set_audio_input_device(
+    device: Optional[Union[int, str, AudioDevice]]
+) -> None
+```
+
+**Parameters:**
+
+- `device`: Device index (int), name substring (str), AudioDevice object, or None for system default
+
+**Example:**
+
+```python
+# List available devices
+devices = robot.get_audio_input_devices()
+for d in devices:
+    print(d)
+
+# Select by name
+robot.set_audio_input_device("USB Microphone")
+
+# Reset to system default
+robot.set_audio_input_device(None)
+```
+
+---
+
+#### `get_current_audio_output_device()` / `get_current_audio_input_device()`
+
+Get the currently selected device.
+
+```python
+robot.get_current_audio_output_device() -> Optional[AudioDevice]
+robot.get_current_audio_input_device() -> Optional[AudioDevice]
+```
+
+**Returns:** Currently selected AudioDevice, or system default if None was set
+
+---
+
+### Legacy Recording API
 
 #### `subscribe_audio_stream()`
 
 Subscribe to audio stream from the robot's microphone array.
+
+> **Note:** For simple recording, prefer `record_audio()`. Use this for continuous streaming or custom processing.
 
 ```python
 robot.subscribe_audio_stream(
@@ -233,16 +452,9 @@ robot.subscribe_audio_stream(
 
 **Returns:** Topic object (call `.unsubscribe()` to stop streaming)
 
-**Audio Format:**
-- Sample rate: 16000 Hz
-- Channels: 1 (Mono)
-- Bit depth: 16-bit signed integers
-- Chunk size: ~1024 samples per message
-
 **Example:**
 
 ```python
-import numpy as np
 from pib3 import AudioStreamReceiver
 
 # Using AudioStreamReceiver helper
@@ -256,32 +468,29 @@ sub.unsubscribe()
 
 # Save to WAV file
 receiver.save_wav("recording.wav")
-
-# Or get as numpy array
-audio_data = receiver.get_audio()
-print(f"Recorded {receiver.duration:.1f} seconds")
-```
-
-**Manual callback example:**
-
-```python
-audio_buffer = []
-
-def on_audio(samples):
-    audio_buffer.extend(samples)
-    print(f"Received {len(samples)} samples")
-
-sub = robot.subscribe_audio_stream(on_audio)
-time.sleep(5)
-sub.unsubscribe()
-
-# Convert to numpy array
-audio = np.array(audio_buffer, dtype=np.int16)
 ```
 
 ---
 
 ### Helper Classes
+
+#### `AudioDevice`
+
+Represents an audio device (speaker or microphone).
+
+```python
+from pib3 import AudioDevice
+
+# Properties:
+device.index       # int: Device index for sounddevice
+device.name        # str: Human-readable device name
+device.channels    # int: Number of channels supported
+device.sample_rate # float: Default sample rate
+device.is_input    # bool: True if this is an input (microphone) device
+device.is_output   # bool: True if this is an output (speaker) device
+```
+
+---
 
 #### `AudioStreamReceiver`
 
@@ -309,19 +518,6 @@ receiver = AudioStreamReceiver(
 - `duration` - Duration of buffered audio in seconds
 - `sample_count` - Number of samples in buffer
 
-**Example:**
-
-```python
-receiver = AudioStreamReceiver()
-sub = robot.subscribe_audio_stream(receiver.on_audio)
-
-time.sleep(10)
-sub.unsubscribe()
-
-print(f"Recorded {receiver.duration:.1f}s ({receiver.sample_count} samples)")
-receiver.save_wav("recording.wav")
-```
-
 ---
 
 ## ROS Topics
@@ -330,100 +526,58 @@ The audio system uses the following ROS topics for communication with the robot:
 
 ### `/audio_playback`
 
-**Type:** `std_msgs/msg/Int16MultiArray`  
-**Direction:** Client → Robot  
+**Type:** `std_msgs/msg/Int16MultiArray`
+**Direction:** Client → Robot
 **Purpose:** Send audio data to robot for playback through speakers
 
-**Message Format:**
-```python
-{
-    "layout": {"dim": [], "data_offset": 0},
-    "data": [int16, int16, ...]  # Audio samples
-}
-```
+### `/audio_input`
 
-This topic is used internally by `RobotAudioPlayer` when `output=AudioOutput.ROBOT`.
-
----
+**Type:** `std_msgs/msg/Int16MultiArray`
+**Direction:** Robot → Client
+**Purpose:** Stream audio from robot's microphone array to client
 
 ### `/audio_stream`
 
-**Type:** `std_msgs/msg/Int16MultiArray`  
-**Direction:** Robot → Client  
-**Purpose:** Stream audio from robot's microphone array
-
-**Message Format:**
-```python
-{
-    "layout": {...},
-    "data": [int16, int16, ...]  # Audio samples (~1024 per message)
-}
-```
-
-Subscribe to this topic using `robot.subscribe_audio_stream()`.
+**Type:** `std_msgs/msg/Int16MultiArray`
+**Direction:** Robot → Client
+**Purpose:** Legacy topic for audio streaming (use `/audio_input` for new code)
 
 ---
 
 ## Installation Requirements
 
-### Core Audio (Required)
+Audio functionality is included in the core pib3 package:
 
 ```bash
 pip install pib3
 ```
 
-### Local Playback (Optional but Recommended)
+### Platform-Specific Requirements
 
-For playing audio on your local machine:
+#### Linux
 
-```bash
-# Linux (install system dependency first)
-sudo apt-get install libasound2-dev
-pip install simpleaudio
-
-# macOS
-pip install simpleaudio
-
-# Windows (may need Visual C++ Build Tools)
-pip install simpleaudio
-```
-
-### Text-to-Speech (Optional)
-
-For TTS functionality:
+PortAudio is required for audio playback and recording:
 
 ```bash
-pip install piper-tts
+sudo apt-get install libportaudio2 portaudio19-dev
+pip install pib3
 ```
 
----
-
-## Platform-Specific Notes
-
-### Linux
-
-Local audio playback requires ALSA development libraries:
-
-```bash
-sudo apt-get install libasound2-dev
-pip install simpleaudio
-```
-
-### macOS
+#### macOS
 
 No additional system dependencies required:
 
 ```bash
-pip install simpleaudio
+pip install pib3
 ```
 
-### Windows
+#### Windows
 
-May require Microsoft Visual C++ Build Tools for `simpleaudio`:
+No additional system dependencies required:
 
-1. Download from: https://visualstudio.microsoft.com/visual-cpp-build-tools/
-2. Install the build tools
-3. `pip install simpleaudio`
+```bash
+pip install pib3
+```
 
 ---
 
@@ -440,46 +594,57 @@ with Robot(host="172.26.34.149") as robot:
     sample_rate = 16000
     duration = 2.0
     t = np.linspace(0, duration, int(sample_rate * duration))
-    
+
     # Frequency sweep from 200Hz to 800Hz
     freq = np.linspace(200, 800, len(t))
     audio = (np.sin(2 * np.pi * freq * t) * 16000).astype(np.int16)
-    
+
     # Apply fade in/out
     fade_samples = int(0.1 * sample_rate)
     audio[:fade_samples] *= np.linspace(0, 1, fade_samples)
     audio[-fade_samples:] *= np.linspace(1, 0, fade_samples)
-    
+
     robot.play_audio(audio, output=AudioOutput.ROBOT)
 ```
 
-### Recording and Playback
+### Recording and Playback Round-Trip
 
 ```python
-from pib3 import Robot, AudioStreamReceiver, AudioOutput
-import time
+from pib3 import Robot, AudioOutput, AudioInput
 
 with Robot(host="172.26.34.149") as robot:
-    # Record audio from robot
-    receiver = AudioStreamReceiver()
-    sub = robot.subscribe_audio_stream(receiver.on_audio)
-    
+    # Record from robot microphone
     robot.speak("Ich höre jetzt zu. Bitte sprechen Sie.")
-    time.sleep(5)
-    sub.unsubscribe()
-    
-    # Play back the recording
-    audio = receiver.get_audio()
+    audio_data = robot.record_audio(duration=5.0, input_source=AudioInput.ROBOT)
+
+    # Play back the recording - same format works for playback!
     robot.speak("Das haben Sie gesagt:")
-    robot.play_audio(audio, output=AudioOutput.ROBOT)
+    robot.play_audio(audio_data, output=AudioOutput.ROBOT)
 ```
 
-### Multi-Language TTS
+### Device Selection Example
 
 ```python
-# Switch between languages
-robot.speak("Hallo! Ich spreche Deutsch.", voice="de_DE-thorsten-high")
-robot.speak("Hello! I speak English.", voice="en_US-lessac-medium")
+from pib3 import Robot
+
+with Robot(host="172.26.34.149") as robot:
+    # List and select output device
+    print("Available speakers:")
+    for device in robot.get_audio_output_devices():
+        print(f"  {device}")
+
+    robot.set_audio_output_device("Headphones")  # Select by name
+
+    # List and select input device
+    print("\nAvailable microphones:")
+    for device in robot.get_audio_input_devices():
+        print(f"  {device}")
+
+    robot.set_audio_input_device(0)  # Select by index
+
+    # Now record and play with selected devices
+    audio_data = robot.record_audio(duration=3.0, input_source=AudioInput.LOCAL)
+    robot.play_audio(audio_data, output=AudioOutput.LOCAL)  # Same format!
 ```
 
 ---
@@ -488,40 +653,44 @@ robot.speak("Hello! I speak English.", voice="en_US-lessac-medium")
 
 Complete example scripts are available in the `examples/` directory:
 
-- [`audio_example_simple.py`](file:///home/amr/repositories/b3_pib_inverse_kinematic_pip_package/examples/audio_example_simple.py) - Basic audio playback and TTS
-- [`audio_example_advanced.py`](file:///home/amr/repositories/b3_pib_inverse_kinematic_pip_package/examples/audio_example_advanced.py) - Recording, TTS, and advanced features
+- `audio_example_simple.py` - Basic audio playback, TTS, and recording
+- `audio_example_advanced.py` - Device selection, recording, and advanced features
 
 Run them with:
 
 ```bash
 # Real robot
-python examples/audio_example_simple.py --host 172.26.34.149
+python examples/audio_example_advanced.py --host 172.26.34.149
 
 # Webots simulation
-python examples/audio_example_simple.py --webots
+python examples/audio_example_advanced.py --webots
 
-# Specify output destination
-python examples/audio_example_simple.py --output local
-python examples/audio_example_simple.py --output robot
-python examples/audio_example_simple.py --output both
+# List available devices
+python examples/audio_example_advanced.py --demo devices
+
+# Record from local microphone
+python examples/audio_example_advanced.py --demo record --input local
+
+# Record from robot microphone
+python examples/audio_example_advanced.py --demo record --input robot
 ```
 
 ---
 
 ## Troubleshooting
 
-### No audio on local machine
+### No audio playback or recording
 
-**Problem:** `simpleaudio not available` warning
+**Problem:** `sounddevice not available` warning
 
 **Solution:**
 ```bash
 # Linux
-sudo apt-get install libasound2-dev
-pip install simpleaudio
+sudo apt-get install libportaudio2 portaudio19-dev
+pip install --force-reinstall pib3
 
 # macOS/Windows
-pip install simpleaudio
+pip install --force-reinstall pib3
 ```
 
 ---
@@ -551,14 +720,25 @@ Voice models are downloaded automatically on first use (~20-50MB per voice).
 
 ---
 
+### Recording returns empty or None
+
+**Problem:** `record_audio()` returns empty array or None
+
+**Checklist:**
+1. Check if input device is available: `robot.get_audio_input_devices()`
+2. Verify microphone permissions (especially on macOS)
+3. Try selecting a specific device: `robot.set_audio_input_device(0)`
+4. For robot recording, ensure `/audio_input` topic is publishing
+
+---
+
 ### Audio quality issues
 
 **Problem:** Distorted or choppy audio
 
 **Solutions:**
 - Ensure audio is 16kHz, mono, int16 format
-- Check network latency (for robot playback)
-- Reduce audio chunk size for streaming
+- Check network latency (for robot playback/recording)
 - Verify sample rate matches (16000 Hz)
 
 ---
@@ -568,4 +748,3 @@ Voice models are downloaded automatically on first use (~20-50MB per voice).
 - [Backends API](backends/base.md) - Base backend interface
 - [Robot Backend](backends/robot.md) - Real robot backend
 - [Webots Backend](backends/webots.md) - Simulation backend
-- [Examples](file:///home/amr/repositories/b3_pib_inverse_kinematic_pip_package/examples/) - Complete example scripts
