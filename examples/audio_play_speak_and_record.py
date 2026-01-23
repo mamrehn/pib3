@@ -120,16 +120,16 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(f"Recording {args.duration:.1f}s of audio...")
             # For local backend, use LOCAL input; for robot, use ROBOT input
             if backend_name == "robot":
-                audio = backend.record_audio(duration=args.duration, input_source=AudioInput.ROBOT)
+                audio_data = backend.record_audio(duration=args.duration, input_source=AudioInput.ROBOT)
             else:
-                audio = backend.record_audio(duration=args.duration, input_source=AudioInput.LOCAL)
+                audio_data = backend.record_audio(duration=args.duration, input_source=AudioInput.LOCAL)
             
-            if audio is None or len(audio) == 0:
+            if audio_data is None or len(audio_data) == 0:
                 print("No audio received")
                 exit_code = 3
             else:
-                print(f"Recorded {len(audio)} samples — playing back...")
-                ok = backend.play_audio(audio, output=output)
+                print(f"Recorded {len(audio_data)} samples — playing back...")
+                ok = backend.play_audio(audio_data, output=output)
                 print("Playback result:", "OK" if ok else "FAILED")
                 exit_code = 0 if ok else 2
 

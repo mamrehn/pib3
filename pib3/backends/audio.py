@@ -873,12 +873,16 @@ class PiperTTS:
             base_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
 
             # Map voice name to path
+            # URL structure: {lang_prefix}/{locale}/{speaker}/{quality}/
+            # e.g., de/de_DE/thorsten/high/ for voice de_DE-thorsten-high
             voice_parts = self._voice.split("-")
             if len(voice_parts) >= 3:
-                lang = voice_parts[0]  # e.g., "de_DE"
+                locale = voice_parts[0]  # e.g., "de_DE"
                 name = voice_parts[1]  # e.g., "thorsten"
                 quality = voice_parts[2]  # e.g., "high"
-                voice_path = f"{lang}/{name}/{quality}"
+                # Extract language prefix from locale (e.g., "de" from "de_DE")
+                lang_prefix = locale.split("_")[0]
+                voice_path = f"{lang_prefix}/{locale}/{name}/{quality}"
             else:
                 voice_path = self._voice
 
@@ -928,28 +932,26 @@ class PiperTTS:
             raise RuntimeError("Failed to initialize Piper TTS")
 
         try:
-            # Synthesize to WAV in memory
+            # Synthesize to WAV in memory using Piper's synthesize_wav
             wav_buffer = io.BytesIO()
-
             with wave.open(wav_buffer, "wb") as wav_file:
-                self._piper.synthesize(text, wav_file)
+                self._piper.synthesize_wav(text, wav_file)
 
             # Read back the audio data
             wav_buffer.seek(0)
             with wave.open(wav_buffer, "rb") as wav_file:
                 frames = wav_file.readframes(wav_file.getnframes())
-                audio = np.frombuffer(frames, dtype=np.int16)
+                audio_data = np.frombuffer(frames, dtype=np.int16)
                 native_rate = wav_file.getframerate()
 
             # Resample if needed
             if native_rate != sample_rate:
-                # Simple linear resampling
-                duration = len(audio) / native_rate
+                duration = len(audio_data) / native_rate
                 new_length = int(duration * sample_rate)
-                indices = np.linspace(0, len(audio) - 1, new_length)
-                audio = np.interp(indices, np.arange(len(audio)), audio).astype(np.int16)
+                indices = np.linspace(0, len(audio_data) - 1, new_length)
+                audio_data = np.interp(indices, np.arange(len(audio_data)), audio_data).astype(np.int16)
 
-            return audio
+            return audio_data
 
         except Exception as e:
             raise RuntimeError(f"TTS synthesis failed: {e}") from e
