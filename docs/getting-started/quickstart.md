@@ -139,6 +139,34 @@ trajectory = pib3.generate_trajectory("drawing.png", config=config)
 
 ---
 
+## Audio System
+
+Play audio, record from microphones, and use text-to-speech:
+
+```python
+from pib3 import Robot, AudioOutput, AudioInput
+
+with Robot(host="172.26.34.149") as robot:
+    # Text-to-speech (German by default)
+    robot.speak("Hallo, ich bin pib!")
+
+    # Play on local speakers
+    robot.speak("Hello!", output=AudioOutput.LOCAL)
+
+    # Play a WAV file on the robot
+    robot.play_file("sound.wav", output=AudioOutput.ROBOT)
+
+    # Record 5 seconds from local microphone
+    audio_data = robot.record_audio(duration=5.0, input_source=AudioInput.LOCAL)
+
+    # Play recorded audio back on robot
+    robot.play_audio(audio_data, output=AudioOutput.ROBOT)
+```
+
+See the [Audio System API](../api/audio.md) for complete documentation.
+
+---
+
 ## Joint Names
 
 | Group | Joints |
@@ -160,4 +188,4 @@ trajectory = pib3.generate_trajectory("drawing.png", config=config)
 
 ---
 
-**Next:** [Calibration](calibration.md) | [Image to Trajectory](../tutorials/image-to-trajectory.md) | [Controlling the Robot](../tutorials/controlling-robot.md)
+**Next:** [Calibration](calibration.md) | [Image to Trajectory](../tutorials/image-to-trajectory.md) | [Controlling the Robot](../tutorials/controlling-robot.md) | [Audio System](../api/audio.md)

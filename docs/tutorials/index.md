@@ -16,7 +16,9 @@ Master the joint control API. Learn percentage-based control, pose saving/restor
 
 Access OAK-D Lite camera streaming, AI object detection, and IMU sensor data. Includes on-demand activation patterns.
 
+### [Audio System](../api/audio.md)
 
+Play audio files, record from microphones, and use text-to-speech on the robot. Supports local and robot audio devices.
 
 Use browser-based 3D visualization. Run trajectories, use interactive mode, and add visual elements.
 
@@ -56,15 +58,15 @@ Before starting the tutorials, ensure you have:
 graph LR
     A[Installation] --> B[Quick Start]
     B --> C[Image to Trajectory]
-
-    D --> E[Controlling Robot]
-    E --> F[Camera, AI & IMU]
+    C --> D[Controlling Robot]
+    D --> E[Camera, AI & IMU]
+    E --> F[Audio System]
     F --> G[Calibration]
     G --> H[Custom Configurations]
 ```
 
 1. **Start here**: [Image to Trajectory](image-to-trajectory.md) - Core functionality
-
-3. **Robot Control**: [Controlling the Robot](controlling-robot.md) - When you have access
-4. **Sensors**: [Camera, AI & IMU](camera-ai-imu.md) - Vision and sensors
+2. **Robot Control**: [Controlling the Robot](controlling-robot.md) - When you have access
+3. **Sensors**: [Camera, AI & IMU](camera-ai-imu.md) - Vision and sensors
+4. **Audio**: [Audio System](../api/audio.md) - Playback, recording, TTS
 5. **Advanced**: [Custom Configurations](custom-configurations.md) - Fine-tune behavior

@@ -44,9 +44,9 @@ pib3/
 ├── types.py             # Core types (Stroke, Sketch)
 ├── image.py             # Image → Sketch conversion
 ├── trajectory.py        # Sketch → Trajectory + IK solver
+├── audio.py             # Audio playback, recording, TTS
 ├── backends/
 │   ├── base.py          # RobotBackend ABC
-
 │   ├── webots.py        # Webots simulator
 │   └── robot.py         # Real robot (rosbridge)
 ├── tools/
@@ -65,6 +65,7 @@ sequenceDiagram
     participant image.py
     participant trajectory.py
     participant Backend
+    participant audio.py
 
     User->>image.py: image_to_sketch("drawing.png")
     image.py->>image.py: Load & grayscale
@@ -81,6 +82,15 @@ sequenceDiagram
     User->>Backend: run_trajectory(trajectory)
     Backend->>Backend: Convert to backend format
     Backend->>Backend: Execute waypoints
+
+    User->>audio.py: speak("Hello!")
+    audio.py->>audio.py: TTS synthesis (Piper)
+    audio.py->>Backend: Play audio data
+    Backend->>Backend: Stream to speaker
+
+    User->>audio.py: record_audio(duration=5.0)
+    audio.py->>Backend: Capture from microphone
+    audio.py-->>User: Audio data (numpy int16)
 ```
 
 ## Core Components
@@ -138,6 +148,11 @@ class RobotBackend(ABC):
 
     # Trajectory
     def run_trajectory(self, trajectory: Trajectory, rate_hz: float = 20.0) -> bool: ...
+
+    # Audio
+    def speak(self, text: str, output: AudioOutput = AudioOutput.ROBOT) -> None: ...
+    def play_audio(self, audio_data: np.ndarray, output: AudioOutput = AudioOutput.ROBOT) -> None: ...
+    def record_audio(self, duration: float, input_source: AudioInput = AudioInput.LOCAL) -> np.ndarray: ...
 ```
 
 See the [Base Backend API](../api/backends/base.md) for complete documentation.

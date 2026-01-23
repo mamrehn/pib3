@@ -28,6 +28,12 @@
 
     Control joints using simple percentages (0-100%) instead of radians.
 
+-   :material-volume-high:{ .lg .middle } **Audio System**
+
+    ---
+
+    Play audio, record from microphones, and use text-to-speech on the robot.
+
 </div>
 
 ## Features
@@ -36,8 +42,9 @@
 - **Joint Enum**: IDE tab completion for joint names (`Joint.ELBOW_LEFT`)
 - **Percentage Control**: Use 0-100% values that work across all backends
 - **Real Robot Support**: Connect via rosbridge websocket
-
 - **Webots Integration**: Full simulator support
+- **Audio Playback & Recording**: Play sounds, record from microphones, text-to-speech
+- **Camera & AI**: Stream camera images and run AI detection models
 
 ## Quick Example
 
@@ -92,7 +99,8 @@ Learn how to use pib3 effectively:
 
 - [Image to Trajectory](tutorials/image-to-trajectory.md) - Convert images to robot movements
 - [Controlling the Robot](tutorials/controlling-robot.md) - Master the joint control API
-
+- [Camera, AI & IMU](tutorials/camera-ai-imu.md) - Stream camera, run AI models, read sensors
+- [Audio System](api/audio.md) - Play audio, record, text-to-speech
 - [Working with Sketches](tutorials/working-with-sketches.md) - Manipulate sketches programmatically
 - [Custom Configurations](tutorials/custom-configurations.md) - Fine-tune all parameters
 
@@ -101,6 +109,8 @@ Learn how to use pib3 effectively:
 - [Core Types](api/types.md) - Joint enum, Stroke, Sketch, Trajectory
 - [Configuration](api/config.md) - All configuration options
 - [Backends](api/backends/base.md) - Robot, Webots
+- [Audio System](api/audio.md) - Playback, recording, text-to-speech
+- [Camera & AI](tutorials/camera-ai-imu.md) - Camera streaming, AI detection, IMU sensors
 
 ## Project Links
 

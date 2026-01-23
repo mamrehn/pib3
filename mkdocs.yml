@@ -116,10 +116,10 @@ nav:
       - Configuration: api/config.md
       - Image Processing: api/image.md
       - Trajectory Generation: api/trajectory.md
+      - Audio System: api/audio.md
       - Backends:
           - Base Backend: api/backends/base.md
           - Real Robot: api/backends/robot.md
-
           - Webots Simulation: api/backends/webots.md
       - Tools: api/tools.md
       - Hand Poses: api/hand-poses.md

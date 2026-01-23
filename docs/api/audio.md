@@ -649,30 +649,49 @@ with Robot(host="172.26.34.149") as robot:
 
 ---
 
-## Examples
+## Complete Example
 
-Complete example scripts are available in the `examples/` directory:
+Here's a complete example demonstrating the main audio features:
 
-- `audio_example_simple.py` - Basic audio playback, TTS, and recording
-- `audio_example_advanced.py` - Device selection, recording, and advanced features
+```python
+from pib3 import Robot, AudioOutput, AudioInput
+import numpy as np
 
-Run them with:
-
-```bash
-# Real robot
-python examples/audio_example_advanced.py --host 172.26.34.149
-
-# Webots simulation
-python examples/audio_example_advanced.py --webots
-
-# List available devices
-python examples/audio_example_advanced.py --demo devices
-
-# Record from local microphone
-python examples/audio_example_advanced.py --demo record --input local
-
-# Record from robot microphone
-python examples/audio_example_advanced.py --demo record --input robot
+with Robot(host="172.26.34.149") as robot:
+    # 1. Text-to-speech (German by default)
+    robot.speak("Hallo, ich bin pib!")
+    
+    # 2. Play on different outputs
+    robot.speak("On robot speakers", output=AudioOutput.ROBOT)
+    robot.speak("On local speakers", output=AudioOutput.LOCAL)
+    robot.speak("On both!", output=AudioOutput.LOCAL_AND_ROBOT)
+    
+    # 3. Play a WAV file
+    robot.play_file("notification.wav", output=AudioOutput.ROBOT)
+    
+    # 4. Generate and play a tone (440Hz for 1 second)
+    sample_rate = 16000
+    duration = 1.0
+    t = np.linspace(0, duration, int(sample_rate * duration))
+    tone = (np.sin(2 * np.pi * 440 * t) * 16000).astype(np.int16)
+    robot.play_audio(tone, output=AudioOutput.LOCAL)
+    
+    # 5. Record from microphone
+    print("Recording for 3 seconds...")
+    audio_data = robot.record_audio(duration=3.0, input_source=AudioInput.LOCAL)
+    print(f"Recorded {len(audio_data)} samples")
+    
+    # 6. Play back recording
+    robot.play_audio(audio_data, output=AudioOutput.LOCAL)
+    
+    # 7. List available devices
+    print("Output devices:")
+    for device in robot.get_audio_output_devices():
+        print(f"  {device}")
+    
+    print("Input devices:")
+    for device in robot.get_audio_input_devices():
+        print(f"  {device}")
 ```
 
 ---
