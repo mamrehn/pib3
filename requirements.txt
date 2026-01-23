@@ -16,6 +16,6 @@ roslibpy>=1.0.0
 # Audio playback, recording, and TTS
 # Linux: Install PortAudio first: sudo apt-get install libportaudio2 portaudio19-dev
 # Windows/macOS: No additional system requirements
-sounddevice>=0.4.6
+sounddevice>=0.5.5  # 0.5.5 fixes callback exception on Python 3.13
 piper-tts>=1.2.0
 onnxruntime>=1.14.0
