@@ -105,8 +105,7 @@ class RealRobotBackend(RobotBackend):
             port: Rosbridge websocket port.
             timeout: Connection timeout in seconds.
         """
-        self.host = host
-        self.port = port
+        super().__init__(host=host, port=port)
         self.timeout = timeout
         self._client = None
         self._service = None
