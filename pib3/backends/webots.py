@@ -156,6 +156,60 @@ class WebotsBackend(RobotBackend):
                 else:
                     logger.warning(f"Proximal motor not found: {proximal_motor_name}")
 
+        # Reset all motors to true zero to clear saved scene offsets.
+        # Webots uses absolute motor positions (relative to proto definition),
+        # so setPosition(0.0) moves to the true mechanical zero regardless
+        # of saved .wbt joint positions.
+        self._reset_to_zero()
+
+    def _reset_to_zero(self) -> None:
+        """Reset all motors to true mechanical zero and wait for convergence.
+
+        When a Webots world is saved with joints at non-zero positions,
+        motors start at those positions. Since Webots setPosition() uses
+        absolute positioning (relative to the proto/URDF joint definition),
+        commanding 0.0 moves each joint to its true zero.
+        """
+        # Step once so sensors produce valid readings
+        self._robot.step(self._timestep)
+
+        # Log initial positions for diagnostics
+        for name, motor in self._motors.items():
+            sensor = motor.getPositionSensor()
+            if sensor is not None:
+                pos = sensor.getValue()
+                if abs(pos) > 0.01:
+                    logger.warning(
+                        f"Joint {name} starts at {pos:.4f} rad "
+                        f"({pos * 180 / 3.14159:.1f} deg) — resetting to zero"
+                    )
+
+        # Command all motors to absolute zero
+        for motor in self._motors.values():
+            motor.setPosition(0.0)
+        for motor in self._proximal_motors.values():
+            motor.setPosition(0.0)
+
+        # Step simulation until all motors converge (or timeout)
+        tolerance = 0.01  # radians
+        max_steps = int(5000 / self._timestep)  # 5 seconds max
+
+        for _ in range(max_steps):
+            self._robot.step(self._timestep)
+
+            all_at_zero = True
+            for motor in self._motors.values():
+                sensor = motor.getPositionSensor()
+                if sensor is not None and abs(sensor.getValue()) > tolerance:
+                    all_at_zero = False
+                    break
+
+            if all_at_zero:
+                logger.info("All motors reached zero position.")
+                return
+
+        logger.warning("Timeout waiting for motors to reach zero position.")
+
     def disconnect(self) -> None:
         """Cleanup (no-op for Webots, robot lifecycle managed by simulator)."""
         # self._motors = {}
