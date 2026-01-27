@@ -263,7 +263,6 @@ def _solve_ik_point(
     tool_offset,
     arm_joint_indices: List[int],
     joint_limits: List[Tuple[float, float]],
-    path_joints: List[int],
     config: IKConfig,
     target_orientation: Optional[np.ndarray] = None,
     orientation_weight: float = 0.5,
@@ -271,15 +270,20 @@ def _solve_ik_point(
     """
     Solve IK for a single point using gradient descent.
 
+    Only the arm joints are used as IK degrees of freedom.  Finger joints
+    stay fixed — they are part of the kinematic chain (for forward
+    kinematics to the TCP) but are never moved by the solver.
+
     Args:
         robot: Robot model.
         target_pos: Target position [x, y, z].
         q_init: Initial joint configuration.
         end_link: End effector link name.
         tool_offset: SE3 transform from end link to tool tip.
-        arm_joint_indices: Indices of arm joints.
+        arm_joint_indices: URDF indices of the arm joints to actuate.
+            Must correspond to the first N columns of the reduced
+            Jacobian returned by robot.jacob0(…, end=end_link).
         joint_limits: Joint limits [(lower, upper), ...].
-        path_joints: Joints in the kinematic path.
         config: IK configuration.
         target_orientation: Optional target orientation as rotation matrix (3x3).
             If provided, IK will try to match this orientation.
@@ -391,8 +395,7 @@ def _solve_ik_point(
                 dq_arm = J_arm.T @ np.linalg.solve(JJT, pos_error * current_step_size)
 
             # Update arm joints with limit clamping
-            for i, col in enumerate(arm_cols):
-                joint_idx = path_joints[col]
+            for i, joint_idx in enumerate(arm_joint_indices):
                 new_val = q_work[joint_idx] + dq_arm[i]
 
                 if joint_idx < len(joint_limits):
@@ -624,38 +627,47 @@ def sketch_to_trajectory(
 
     if arm == "left":
         arm_joints = LEFT_ARM_JOINTS
-        finger_joints = LEFT_FINGER_JOINTS
         tcp_link_finger = LEFT_TCP_LINK
         tcp_link_pencil = LEFT_TCP_LINK_PENCIL
     else:
         arm_joints = RIGHT_ARM_JOINTS
-        finger_joints = RIGHT_FINGER_JOINTS
         tcp_link_finger = RIGHT_TCP_LINK
         tcp_link_pencil = RIGHT_TCP_LINK_PENCIL
 
     arm_joint_indices = list(arm_joints.values())
 
-    # Configure TCP and tool offset based on grip style
+    # Configure TCP and tool offset based on grip style.
+    # Only the 6 arm joints are IK degrees of freedom; finger joints stay
+    # fixed at the pose set by _set_initial_arm_pose.  Forward kinematics
+    # still runs through the finger chain to reach the TCP.
     if grip_style == "pencil_grip":
-        # Pencil grip: use palm as reference, pencil tip ~80mm from grip
-        # Pencil extends from palm toward pinky side (negative Y in palm frame)
-        # and forward (positive X)
         tcp_link = tcp_link_pencil
         tool_offset = sm.SE3(0.04, -0.06, 0)  # 40mm forward, 60mm toward pinky
-        # For pencil grip, don't include finger joints in IK (fingers are fixed)
-        path_joints = arm_joint_indices
     else:
         # Index finger drawing: use finger tip as TCP
         tcp_link = tcp_link_finger
         tool_offset = sm.SE3(0, 0.027, 0)  # 27mm in Y (finger tip direction)
-        path_joints = arm_joint_indices + finger_joints
 
     # Initialize configuration
     if initial_q is not None:
         # Use provided initial configuration
         if isinstance(initial_q, Trajectory):
-            # Use last waypoint from trajectory
-            q_current = initial_q.waypoints[-1].copy()
+            # Trajectory may be filtered (only drawing arm joints).
+            # Expand back to full robot configuration using direct index
+            # mapping (avoids ambiguity from duplicate motor names in
+            # URDF_TO_MOTOR_NAME, e.g. joints 11 & 12 both named
+            # 'index_left_stretch').
+            q_current = np.zeros(robot.n)
+            q_current = _set_initial_arm_pose(q_current, arm, grip_style)
+            last_wp = initial_q.waypoints[-1]
+            traj_arm = initial_q.metadata.get('arm', arm)
+            if traj_arm == 'left':
+                traj_joint_indices = list(range(2, 19))
+            else:
+                traj_joint_indices = list(range(19, 36))
+            for j, urdf_idx in enumerate(traj_joint_indices):
+                if j < len(last_wp):
+                    q_current[urdf_idx] = last_wp[j]
         elif isinstance(initial_q, dict):
             # Convert dict of joint names to array
             q_current = np.zeros(robot.n)
@@ -665,7 +677,7 @@ def sketch_to_trajectory(
                 if name in joint_name_to_idx:
                     q_current[joint_name_to_idx[name]] = value
         else:
-            # Assume numpy array
+            # Assume numpy array (full robot configuration)
             q_current = np.asarray(initial_q, dtype=np.float64).copy()
             if q_current.shape[0] != robot.n:
                 raise ValueError(
@@ -737,7 +749,6 @@ def sketch_to_trajectory(
             tool_offset,
             arm_joint_indices,
             joint_limits,
-            path_joints,
             config.ik,
             target_orientation=target_orientation,
             orientation_weight=orientation_weight,
@@ -764,8 +775,15 @@ def sketch_to_trajectory(
     else:
         q_array = np.array(q_traj)
 
-    # Create joint name mapping
-    joint_names = [URDF_TO_MOTOR_NAME.get(i, f"joint_{i}") for i in range(robot.n)]
+    # Filter trajectory to only include the drawing arm + hand joints.
+    # This prevents the non-drawing arm from being commanded during playback.
+    if arm == "left":
+        drawing_joint_indices = list(range(2, 19))   # left arm (2-7) + hand (8-18)
+    else:
+        drawing_joint_indices = list(range(19, 36))  # right arm (19-24) + hand (25-35)
+
+    joint_names = [URDF_TO_MOTOR_NAME.get(i, f"joint_{i}") for i in drawing_joint_indices]
+    q_array = q_array[:, drawing_joint_indices]
 
     # Create trajectory
     trajectory = Trajectory(
