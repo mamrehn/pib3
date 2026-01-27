@@ -530,9 +530,13 @@ def _set_initial_arm_pose(
     q[arm_joints['elbow']] = 1.0
     q[arm_joints['wrist']] = 1.0
 
-    # Same forearm position for both grip styles
-    # Let IK solver find the right configuration
-    q[arm_joints['forearm']] = 0.0
+    # Forearm rotation sets wrist orientation:
+    # - index_finger: horizontal wrist (0.0)
+    # - pencil_grip: vertical wrist (π/2)
+    if grip_style == "pencil_grip":
+        q[arm_joints['forearm']] = np.pi / 2
+    else:
+        q[arm_joints['forearm']] = 0.0
 
     if grip_style == "pencil_grip":
         # Pencil grip: all fingers curled in power grip (thumb over fingers)
