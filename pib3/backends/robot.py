@@ -109,10 +109,15 @@ class RealRobotBackend(RobotBackend):
         self.timeout = timeout
         self._client = None
         self._service = None
+        self._motor_settings_service = None
         self._position_subscriber = None
+        self._motor_settings_subscriber = None
         # Joint positions received from robot via /joint_trajectory topic
         self._joint_positions: Dict[str, float] = {}
         self._joint_positions_lock = threading.Lock()
+        # Motor settings received from robot via /motor_settings topic
+        self._motor_settings: Dict[str, Dict] = {}
+        self._motor_settings_lock = threading.Lock()
 
         # Unified audio system
         self._robot_audio_player: Optional[RobotAudioPlayer] = None
@@ -176,11 +181,16 @@ class RealRobotBackend(RobotBackend):
                 f"Check that rosbridge_server is running."
             )
 
-        # Initialize service client
+        # Initialize service clients
         self._service = roslibpy.Service(
             self._client,
             '/apply_joint_trajectory',
             'datatypes/ApplyJointTrajectory'
+        )
+        self._motor_settings_service = roslibpy.Service(
+            self._client,
+            '/apply_motor_settings',
+            'datatypes/ApplyMotorSettings'
         )
 
         # Subscribe to /joint_trajectory for position feedback
@@ -191,6 +201,21 @@ class RealRobotBackend(RobotBackend):
             'trajectory_msgs/msg/JointTrajectory'
         )
         self._position_subscriber.subscribe(self._on_joint_trajectory)
+
+        # Subscribe to /motor_settings for settings feedback
+        self._motor_settings_subscriber = roslibpy.Topic(
+            self._client,
+            '/motor_settings',
+            'datatypes/MotorSettings'
+        )
+        self._motor_settings_subscriber.subscribe(self._on_motor_settings)
+
+    def _on_motor_settings(self, message: dict) -> None:
+        """Callback for motor settings updates from /motor_settings topic."""
+        motor_name = message.get('motor_name')
+        if motor_name:
+            with self._motor_settings_lock:
+                self._motor_settings[motor_name] = message
 
     def _on_joint_trajectory(self, message: dict) -> None:
         """Callback for position updates from /joint_trajectory topic.
@@ -222,6 +247,13 @@ class RealRobotBackend(RobotBackend):
                 pass
             self._position_subscriber = None
 
+        if self._motor_settings_subscriber is not None:
+            try:
+                self._motor_settings_subscriber.unsubscribe()
+            except Exception:
+                pass
+            self._motor_settings_subscriber = None
+
         if self._client is not None:
             try:
                 self._client.terminate()
@@ -229,14 +261,225 @@ class RealRobotBackend(RobotBackend):
                 pass
             self._client = None
             self._service = None
+            self._motor_settings_service = None
 
         with self._joint_positions_lock:
             self._joint_positions.clear()
+
+        with self._motor_settings_lock:
+            self._motor_settings.clear()
 
     @property
     def is_connected(self) -> bool:
         """Check if connected to robot."""
         return self._client is not None and self._client.is_connected
+
+    def set_motor_settings(
+        self,
+        motors: Union[str, List[str], "Joint"],
+        use_defaults: bool = False,
+        timeout: float = 5.0,
+        **settings,
+    ) -> bool:
+        """
+        Apply motor settings (velocity, acceleration, etc.) to one or more motors.
+
+        Uses the /apply_motor_settings ROS service.
+
+        Args:
+            motors: Motor name(s) to configure. Can be:
+                - Single motor name: "elbow_left"
+                - Joint enum: Joint.ELBOW_LEFT
+                - List of names: ["elbow_left", "wrist_left"]
+                - Group name: "left_arm", "right_hand", "head" (from MOTOR_GROUPS)
+            use_defaults: If True, merge with DEFAULT_MOTOR_SETTINGS first.
+            timeout: Service call timeout in seconds.
+            **settings: Motor settings to apply. Available options:
+                - turned_on (bool): Enable/disable motor
+                - visible (bool): Motor visibility
+                - invert (bool): Invert motor direction
+                - velocity (int): Motor velocity (default: 16000)
+                - acceleration (int): Acceleration (default: 10000)
+                - deceleration (int): Deceleration (default: 5000)
+                - pulse_width_min (int): Min PWM pulse width (default: 700)
+                - pulse_width_max (int): Max PWM pulse width (default: 2500)
+                - period (int): PWM period (default: 19500)
+                - rotation_range_min (int): Min angle in centidegrees (default: -9000)
+                - rotation_range_max (int): Max angle in centidegrees (default: 9000)
+
+        Returns:
+            True if settings were applied successfully to all motors.
+
+        Example:
+            >>> # Set velocity for single motor
+            >>> robot.set_motor_settings(Joint.ELBOW_LEFT, velocity=8000)
+
+            >>> # Set velocity for entire arm
+            >>> robot.set_motor_settings("left_arm", velocity=8000, acceleration=5000)
+
+            >>> # Apply default settings to all hand motors
+            >>> robot.set_motor_settings("left_hand", use_defaults=True)
+
+            >>> # Multiple motors
+            >>> robot.set_motor_settings(["elbow_left", "wrist_left"], velocity=10000)
+        """
+        from ..dh_model import MOTOR_GROUPS, DEFAULT_MOTOR_SETTINGS
+        from ..types import Joint
+
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        if self._motor_settings_service is None:
+            raise RuntimeError("Motor settings service not initialized")
+
+        # Resolve motor names
+        motor_names: List[str] = []
+
+        if isinstance(motors, Joint):
+            motor_names = [motors.value]
+        elif isinstance(motors, str):
+            # Check if it's a group name
+            if motors in MOTOR_GROUPS:
+                motor_names = MOTOR_GROUPS[motors]
+            else:
+                motor_names = [motors]
+        elif isinstance(motors, list):
+            for m in motors:
+                if isinstance(m, Joint):
+                    motor_names.append(m.value)
+                elif isinstance(m, str):
+                    if m in MOTOR_GROUPS:
+                        motor_names.extend(MOTOR_GROUPS[m])
+                    else:
+                        motor_names.append(m)
+                else:
+                    raise TypeError(f"Unsupported motor type: {type(m)}")
+        else:
+            raise TypeError(f"Unsupported motors argument type: {type(motors)}")
+
+        # Build settings dict
+        if use_defaults:
+            final_settings = dict(DEFAULT_MOTOR_SETTINGS)
+            final_settings.update(settings)
+        else:
+            final_settings = settings
+
+        if not final_settings:
+            logger.warning("No settings provided to set_motor_settings()")
+            return True
+
+        # Apply settings to each motor
+        import roslibpy
+
+        all_success = True
+        for motor_name in motor_names:
+            motor_settings = {"motor_name": motor_name}
+            motor_settings.update(final_settings)
+
+            request = roslibpy.ServiceRequest({"motor_settings": motor_settings})
+
+            try:
+                response = self._motor_settings_service.call(request, timeout=timeout)
+                applied = bool(response.get("settings_applied", False))
+                persisted = bool(response.get("settings_persisted", False))
+                success = applied or persisted
+
+                if not success:
+                    logger.warning(
+                        f"Motor settings not applied for {motor_name}: {response}"
+                    )
+                    all_success = False
+                else:
+                    logger.debug(f"Motor settings applied for {motor_name}")
+
+            except Exception as e:
+                logger.error(f"Failed to apply motor settings for {motor_name}: {e}")
+                all_success = False
+
+        return all_success
+
+    def get_motor_settings(
+        self,
+        motors: Optional[Union[str, List[str], "Joint"]] = None,
+        use_defaults: bool = False,
+    ) -> Dict[str, Dict]:
+        """
+        Get motor settings for one or more motors.
+
+        Returns cached settings received from the /motor_settings topic.
+        If no settings have been received yet, returns defaults if requested.
+
+        Args:
+            motors: Motor name(s) to query. Can be:
+                - None: Return all cached settings
+                - Single motor name: "elbow_left"
+                - Joint enum: Joint.ELBOW_LEFT
+                - List of names: ["elbow_left", "wrist_left"]
+                - Group name: "left_arm", "right_hand", "head" (from MOTOR_GROUPS)
+            use_defaults: If True, return DEFAULT_MOTOR_SETTINGS for motors
+                         that have no cached settings.
+
+        Returns:
+            Dict mapping motor names to their settings dicts.
+            Settings may include: turned_on, visible, invert, velocity,
+            acceleration, deceleration, pulse_width_min, pulse_width_max,
+            period, rotation_range_min, rotation_range_max.
+
+        Example:
+            >>> # Get all cached settings
+            >>> settings = robot.get_motor_settings()
+
+            >>> # Get settings for specific motor
+            >>> settings = robot.get_motor_settings(Joint.ELBOW_LEFT)
+
+            >>> # Get settings for arm group, with defaults for missing motors
+            >>> settings = robot.get_motor_settings("left_arm", use_defaults=True)
+        """
+        from ..dh_model import MOTOR_GROUPS, DEFAULT_MOTOR_SETTINGS
+        from ..types import Joint
+
+        # Resolve motor names
+        motor_names: Optional[List[str]] = None
+
+        if motors is not None:
+            motor_names = []
+            if isinstance(motors, Joint):
+                motor_names = [motors.value]
+            elif isinstance(motors, str):
+                if motors in MOTOR_GROUPS:
+                    motor_names = MOTOR_GROUPS[motors]
+                else:
+                    motor_names = [motors]
+            elif isinstance(motors, list):
+                for m in motors:
+                    if isinstance(m, Joint):
+                        motor_names.append(m.value)
+                    elif isinstance(m, str):
+                        if m in MOTOR_GROUPS:
+                            motor_names.extend(MOTOR_GROUPS[m])
+                        else:
+                            motor_names.append(m)
+                    else:
+                        raise TypeError(f"Unsupported motor type: {type(m)}")
+            else:
+                raise TypeError(f"Unsupported motors argument type: {type(motors)}")
+
+        # Get cached settings
+        result: Dict[str, Dict] = {}
+
+        with self._motor_settings_lock:
+            if motor_names is None:
+                # Return all cached settings
+                result = {k: dict(v) for k, v in self._motor_settings.items()}
+            else:
+                # Return settings for specified motors
+                for name in motor_names:
+                    if name in self._motor_settings:
+                        result[name] = dict(self._motor_settings[name])
+                    elif use_defaults:
+                        result[name] = {"motor_name": name, **DEFAULT_MOTOR_SETTINGS}
+
+        return result
 
     def _get_joint_radians(
         self,
