@@ -6,7 +6,7 @@ import math
 import threading
 import time
 import time
-from typing import Callable, Dict, List, Optional, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -14,8 +14,110 @@ logger = logging.getLogger(__name__)
 
 from .base import RobotBackend
 from .audio import AudioOutput, AudioInput, RobotAudioPlayer, RobotAudioRecorder, DEFAULT_SAMPLE_RATE
-from ..config import RobotConfig
+from ..config import RobotConfig, LowLatencyConfig
 from ..types import ImuType, AiTaskType
+
+# Type alias for Tinkerforge motor mapping: motor_name -> (bricklet_uid, channel)
+TinkerforgeMotorMapping = Dict[str, Tuple[str, int]]
+
+
+# Standard PIB servo channel assignments (same wiring for all robots)
+# Maps motor names to their channel index on the servo bricklet.
+# The bricklet UIDs differ per robot, but channel assignments are consistent.
+PIB_SERVO_CHANNELS = {
+    # Servo Bricklet 1 (right arm) - channels
+    "shoulder_horizontal_right": 9,
+    "upper_arm_right_rotation": 9,  # Same as shoulder_horizontal_right
+    "elbow_right": 8,
+    "lower_arm_right_rotation": 7,
+    # Right hand (if on same bricklet)
+    "thumb_right_opposition": 0,
+    "thumb_right_stretch": 1,
+    "index_right_stretch": 2,
+    "middle_right_stretch": 3,
+    "ring_right_stretch": 4,
+    "pinky_right_stretch": 5,
+
+    # Servo Bricklet 2 (shoulders vertical) - channels
+    "shoulder_vertical_right": 1,
+    "shoulder_vertical_left": 9,
+
+    # Servo Bricklet 3 (left arm + hand) - channels
+    "shoulder_horizontal_left": 9,
+    "upper_arm_left_rotation": 9,  # Same as shoulder_horizontal_left
+    "elbow_left": 8,
+    "lower_arm_left_rotation": 7,
+    "wrist_left": 6,
+    "thumb_left_opposition": 0,
+    "thumb_left_stretch": 1,
+    "index_left_stretch": 2,
+    "middle_left_stretch": 3,
+    "ring_left_stretch": 4,
+    "pinky_left_stretch": 5,
+}
+
+
+def build_motor_mapping(
+    servo1_uid: str,
+    servo2_uid: str,
+    servo3_uid: str,
+) -> TinkerforgeMotorMapping:
+    """
+    Build motor mapping from servo bricklet UIDs.
+
+    Uses the standard PIB wiring where:
+    - servo1: Right arm
+    - servo2: Shoulder verticals (both arms)
+    - servo3: Left arm + left hand
+
+    Args:
+        servo1_uid: UID of servo bricklet for right arm.
+        servo2_uid: UID of servo bricklet for shoulder verticals.
+        servo3_uid: UID of servo bricklet for left arm + hand.
+
+    Returns:
+        Complete motor mapping dict for LowLatencyConfig.
+
+    Example:
+        >>> uids = robot.discover_servo_bricklets()
+        >>> # Determine which UID is which by testing
+        >>> mapping = build_motor_mapping(
+        ...     servo1_uid=uids[0],  # Right arm
+        ...     servo2_uid=uids[1],  # Shoulders
+        ...     servo3_uid=uids[2],  # Left arm
+        ... )
+        >>> robot.configure_motor_mapping(mapping)
+    """
+    return {
+        # Servo 1 - Right arm
+        "shoulder_horizontal_right": (servo1_uid, 9),
+        "upper_arm_right_rotation": (servo1_uid, 9),
+        "elbow_right": (servo1_uid, 8),
+        "lower_arm_right_rotation": (servo1_uid, 7),
+        "thumb_right_opposition": (servo1_uid, 0),
+        "thumb_right_stretch": (servo1_uid, 1),
+        "index_right_stretch": (servo1_uid, 2),
+        "middle_right_stretch": (servo1_uid, 3),
+        "ring_right_stretch": (servo1_uid, 4),
+        "pinky_right_stretch": (servo1_uid, 5),
+
+        # Servo 2 - Shoulder verticals
+        "shoulder_vertical_right": (servo2_uid, 1),
+        "shoulder_vertical_left": (servo2_uid, 9),
+
+        # Servo 3 - Left arm + hand
+        "shoulder_horizontal_left": (servo3_uid, 9),
+        "upper_arm_left_rotation": (servo3_uid, 9),
+        "elbow_left": (servo3_uid, 8),
+        "lower_arm_left_rotation": (servo3_uid, 7),
+        "wrist_left": (servo3_uid, 6),
+        "thumb_left_opposition": (servo3_uid, 0),
+        "thumb_left_stretch": (servo3_uid, 1),
+        "index_left_stretch": (servo3_uid, 2),
+        "middle_left_stretch": (servo3_uid, 3),
+        "ring_left_stretch": (servo3_uid, 4),
+        "pinky_left_stretch": (servo3_uid, 5),
+    }
 
 
 # Mapping from trajectory joint names to real robot motor names (for apply_joint_trajectory)
@@ -96,6 +198,7 @@ class RealRobotBackend(RobotBackend):
         host: str = "172.26.34.149",
         port: int = 9090,
         timeout: float = 5.0,
+        low_latency: Optional[LowLatencyConfig] = None,
     ):
         """
         Initialize real robot backend.
@@ -104,6 +207,8 @@ class RealRobotBackend(RobotBackend):
             host: Robot IP address.
             port: Rosbridge websocket port.
             timeout: Connection timeout in seconds.
+            low_latency: Configuration for direct Tinkerforge motor control.
+                If enabled, motor commands bypass ROS for lower latency.
         """
         super().__init__(host=host, port=port)
         self.timeout = timeout
@@ -123,10 +228,21 @@ class RealRobotBackend(RobotBackend):
         self._robot_audio_player: Optional[RobotAudioPlayer] = None
         self._robot_audio_recorder: Optional[RobotAudioRecorder] = None
 
+        # Low-latency Tinkerforge direct control
+        self._low_latency_config = low_latency or LowLatencyConfig()
+        self._tinkerforge_conn = None
+        self._tinkerforge_servos: Dict[str, "BrickletServoV2"] = {}
+        self._tinkerforge_motor_map: TinkerforgeMotorMapping = {}
+
     @classmethod
     def from_config(cls, config: RobotConfig) -> "RealRobotBackend":
         """Create backend from RobotConfig."""
-        return cls(host=config.host, port=config.port, timeout=config.timeout)
+        return cls(
+            host=config.host,
+            port=config.port,
+            timeout=config.timeout,
+            low_latency=config.low_latency,
+        )
 
     def _to_backend_format(self, radians: np.ndarray) -> np.ndarray:
         """Convert radians to centidegrees."""
@@ -210,6 +326,10 @@ class RealRobotBackend(RobotBackend):
         )
         self._motor_settings_subscriber.subscribe(self._on_motor_settings)
 
+        # Connect Tinkerforge if low-latency mode is enabled
+        if self._low_latency_config.enabled:
+            self._connect_tinkerforge()
+
     def _on_motor_settings(self, message: dict) -> None:
         """Callback for motor settings updates from /motor_settings topic."""
         motor_name = message.get('motor_name')
@@ -238,8 +358,430 @@ class RealRobotBackend(RobotBackend):
             except (ValueError, IndexError, TypeError):
                 pass
 
+    # ==================== LOW-LATENCY TINKERFORGE METHODS ====================
+
+    def _connect_tinkerforge(self) -> None:
+        """Connect to Tinkerforge brick daemon for direct motor control.
+
+        Establishes connection and discovers servo bricklets.
+        """
+        try:
+            from tinkerforge.ip_connection import IPConnection
+            from tinkerforge.bricklet_servo_v2 import BrickletServoV2
+        except ImportError:
+            logger.warning(
+                "tinkerforge package not installed. Low-latency mode disabled. "
+                "Install with: pip install tinkerforge"
+            )
+            self._low_latency_config.enabled = False
+            return
+
+        tf_host = self._low_latency_config.tinkerforge_host or self.host
+        tf_port = self._low_latency_config.tinkerforge_port
+
+        try:
+            self._tinkerforge_conn = IPConnection()
+            self._tinkerforge_conn.connect(tf_host, tf_port)
+            logger.info(f"Connected to Tinkerforge daemon at {tf_host}:{tf_port}")
+
+            # Use provided mapping or default
+            motor_mapping = (
+                self._low_latency_config.motor_mapping
+                or DEFAULT_TINKERFORGE_MOTOR_MAPPING
+            )
+
+            if not motor_mapping:
+                logger.warning(
+                    "No Tinkerforge motor mapping configured. "
+                    "Use LowLatencyConfig.motor_mapping to specify motor-to-bricklet mappings. "
+                    "Format: {'motor_name': ('BRICKLET_UID', channel)}"
+                )
+                # Try auto-discovery of servo bricklets
+                self._auto_discover_servos()
+            else:
+                self._tinkerforge_motor_map = motor_mapping
+                # Initialize servo bricklet objects
+                self._init_servo_bricklets()
+
+        except Exception as e:
+            logger.error(f"Failed to connect to Tinkerforge: {e}")
+            self._low_latency_config.enabled = False
+            self._tinkerforge_conn = None
+
+    def _auto_discover_servos(self) -> None:
+        """Auto-discover connected Tinkerforge servo bricklets.
+
+        Note: This discovers bricklets but cannot automatically map them to motor names.
+        The discovered UIDs should be used to configure motor_mapping.
+        """
+        if self._tinkerforge_conn is None:
+            return
+
+        self._discovered_servo_uids: List[str] = []
+
+        def enumerate_callback(uid, connected_uid, position, hardware_version,
+                               firmware_version, device_identifier, enumeration_type):
+            # Servo Bricklet V2 device identifier is 2157
+            if device_identifier == 2157:
+                self._discovered_servo_uids.append(uid)
+                logger.info(f"Discovered Servo Bricklet V2: UID={uid}, position={position}")
+
+        self._tinkerforge_conn.register_callback(
+            self._tinkerforge_conn.CALLBACK_ENUMERATE,
+            enumerate_callback
+        )
+        self._tinkerforge_conn.enumerate()
+
+        # Wait briefly for enumeration responses
+        time.sleep(0.5)
+
+        if self._discovered_servo_uids:
+            logger.info(
+                f"Found {len(self._discovered_servo_uids)} Servo Bricklet(s): {self._discovered_servo_uids}. "
+                f"Configure LowLatencyConfig.motor_mapping with these UIDs."
+            )
+        else:
+            logger.warning(
+                "No Servo Bricklets discovered. Ensure bricklets are connected and "
+                "Tinkerforge Brick Daemon is running."
+            )
+
+    def discover_servo_bricklets(self, timeout: float = 1.0) -> List[str]:
+        """
+        Discover connected Tinkerforge servo bricklets and return their UIDs.
+
+        This is a convenience method to help configure motor_mapping.
+        Connect to the robot first, then call this to find available bricklet UIDs.
+
+        Args:
+            timeout: Time to wait for enumeration responses (seconds).
+
+        Returns:
+            List of discovered Servo Bricklet V2 UIDs.
+
+        Example:
+            >>> with pib3.Robot(host="172.26.34.149") as robot:
+            ...     # First, connect to Tinkerforge
+            ...     robot._connect_tinkerforge()
+            ...     # Discover available bricklets
+            ...     uids = robot.discover_servo_bricklets()
+            ...     print(f"Found servo bricklets: {uids}")
+            ...     # Then configure mapping based on your robot's wiring
+            ...     robot.configure_motor_mapping({
+            ...         "elbow_left": (uids[0], 8),
+            ...         # ... etc
+            ...     })
+        """
+        if self._tinkerforge_conn is None:
+            # Try to connect if not already connected
+            if not self._low_latency_config.enabled:
+                self._low_latency_config.enabled = True
+            self._connect_tinkerforge()
+
+        if self._tinkerforge_conn is None:
+            logger.warning("Cannot discover bricklets: Tinkerforge not connected")
+            return []
+
+        discovered = []
+
+        def enumerate_callback(uid, connected_uid, position, hardware_version,
+                               firmware_version, device_identifier, enumeration_type):
+            # Servo Bricklet V2 device identifier is 2157
+            if device_identifier == 2157 and uid not in discovered:
+                discovered.append(uid)
+                logger.info(f"Discovered Servo Bricklet V2: UID={uid}, position={position}")
+
+        self._tinkerforge_conn.register_callback(
+            self._tinkerforge_conn.CALLBACK_ENUMERATE,
+            enumerate_callback
+        )
+        self._tinkerforge_conn.enumerate()
+
+        # Wait for enumeration responses
+        time.sleep(timeout)
+
+        return discovered
+
+    @property
+    def discovered_servo_uids(self) -> List[str]:
+        """Get list of discovered Servo Bricklet UIDs from last auto-discovery."""
+        return getattr(self, '_discovered_servo_uids', [])
+
+    def _init_servo_bricklets(self, auto_configure: bool = True) -> None:
+        """Initialize servo bricklet objects from the motor mapping.
+
+        Args:
+            auto_configure: If True, automatically configure all servo channels
+                with default PWM and motion settings after initialization.
+        """
+        if self._tinkerforge_conn is None:
+            return
+
+        try:
+            from tinkerforge.bricklet_servo_v2 import BrickletServoV2
+        except ImportError:
+            return
+
+        # Get unique bricklet UIDs from the mapping
+        unique_uids = set()
+        for motor_name, (uid, channel) in self._tinkerforge_motor_map.items():
+            unique_uids.add(uid)
+
+        # Create servo bricklet objects
+        for uid in unique_uids:
+            try:
+                servo = BrickletServoV2(uid, self._tinkerforge_conn)
+                self._tinkerforge_servos[uid] = servo
+                logger.debug(f"Initialized Servo Bricklet V2: {uid}")
+            except Exception as e:
+                logger.error(f"Failed to initialize Servo Bricklet {uid}: {e}")
+
+        # Auto-configure all channels with default settings
+        if auto_configure and self._tinkerforge_servos:
+            self.configure_all_servo_channels()
+            logger.info("Auto-configured all servo channels with default settings")
+
+    def _disconnect_tinkerforge(self) -> None:
+        """Disconnect from Tinkerforge brick daemon."""
+        if self._tinkerforge_conn is not None:
+            try:
+                self._tinkerforge_conn.disconnect()
+            except Exception:
+                pass
+            self._tinkerforge_conn = None
+            self._tinkerforge_servos.clear()
+            self._tinkerforge_motor_map.clear()
+
+    @property
+    def low_latency_available(self) -> bool:
+        """Check if low-latency mode is available and connected."""
+        return (
+            self._low_latency_config.enabled
+            and self._tinkerforge_conn is not None
+            and bool(self._tinkerforge_motor_map)
+            and bool(self._tinkerforge_servos)
+        )
+
+    @property
+    def low_latency_enabled(self) -> bool:
+        """Get whether low-latency mode is currently enabled."""
+        return self._low_latency_config.enabled
+
+    @low_latency_enabled.setter
+    def low_latency_enabled(self, value: bool) -> None:
+        """Enable or disable low-latency mode at runtime.
+
+        If enabling and not yet connected to Tinkerforge, attempts connection.
+        """
+        if value and not self._low_latency_config.enabled:
+            self._low_latency_config.enabled = True
+            if self._tinkerforge_conn is None and self.is_connected:
+                self._connect_tinkerforge()
+        elif not value:
+            self._low_latency_config.enabled = False
+
+    @property
+    def low_latency_sync_to_ros(self) -> bool:
+        """Get whether low-latency mode syncs positions back to ROS topics."""
+        return self._low_latency_config.sync_to_ros
+
+    @low_latency_sync_to_ros.setter
+    def low_latency_sync_to_ros(self, value: bool) -> None:
+        """Set whether to update local position cache after direct control.
+
+        When True, the local position cache is updated after low-latency motor
+        commands, ensuring get_joint() returns correct values. This does NOT
+        publish to ROS topics (that would cause double motor commands).
+        """
+        self._low_latency_config.sync_to_ros = value
+
+    def configure_motor_mapping(
+        self,
+        mapping: TinkerforgeMotorMapping,
+        reinitialize: bool = True,
+    ) -> None:
+        """
+        Configure Tinkerforge motor-to-bricklet mapping at runtime.
+
+        This allows setting up motor mappings after connection, useful when
+        the mapping isn't known at construction time.
+
+        Args:
+            mapping: Dict mapping motor names to (bricklet_uid, channel) tuples.
+                Example: {"elbow_left": ("ABC", 0), "wrist_left": ("ABC", 1)}
+            reinitialize: If True, reinitialize servo bricklet connections.
+
+        Example:
+            >>> robot.configure_motor_mapping({
+            ...     "shoulder_vertical_left": ("XYZ", 0),
+            ...     "shoulder_horizontal_left": ("XYZ", 1),
+            ...     "upper_arm_left_rotation": ("XYZ", 2),
+            ...     "elbow_left": ("XYZ", 3),
+            ...     "lower_arm_left_rotation": ("XYZ", 4),
+            ...     "wrist_left": ("XYZ", 5),
+            ... })
+            >>> robot.low_latency_enabled = True
+        """
+        self._tinkerforge_motor_map.update(mapping)
+
+        if reinitialize and self._tinkerforge_conn is not None:
+            self._init_servo_bricklets()
+
+    def configure_servo_channel(
+        self,
+        motor_name: str,
+        pulse_width_min: int = 700,
+        pulse_width_max: int = 2500,
+        velocity: int = 9000,
+        acceleration: int = 9000,
+        deceleration: int = 9000,
+    ) -> bool:
+        """
+        Configure Tinkerforge servo channel settings for a motor.
+
+        This configures the PWM pulse width range and motion parameters
+        for a specific motor. Should be called once after connecting,
+        before using low-latency mode.
+
+        Args:
+            motor_name: Name of the motor to configure.
+            pulse_width_min: Minimum PWM pulse width in microseconds (default: 700).
+            pulse_width_max: Maximum PWM pulse width in microseconds (default: 2500).
+            velocity: Maximum velocity in 0.01°/s (default: 9000 = 90°/s).
+            acceleration: Acceleration in 0.01°/s² (default: 9000).
+            deceleration: Deceleration in 0.01°/s² (default: 9000).
+
+        Returns:
+            True if configuration was successful.
+
+        Example:
+            >>> robot.configure_servo_channel("elbow_left",
+            ...     pulse_width_min=700,
+            ...     pulse_width_max=2500,
+            ...     velocity=9000,
+            ...     acceleration=9000,
+            ...     deceleration=9000
+            ... )
+        """
+        if motor_name not in self._tinkerforge_motor_map:
+            logger.warning(f"Motor {motor_name} not in Tinkerforge mapping")
+            return False
+
+        uid, channel = self._tinkerforge_motor_map[motor_name]
+        servo = self._tinkerforge_servos.get(uid)
+
+        if servo is None:
+            logger.warning(f"Servo bricklet {uid} not initialized")
+            return False
+
+        try:
+            servo.set_pulse_width(channel, pulse_width_min, pulse_width_max)
+            servo.set_motion_configuration(channel, velocity, acceleration, deceleration)
+            logger.debug(
+                f"Configured servo {motor_name}: pulse_width=[{pulse_width_min}, {pulse_width_max}], "
+                f"motion=[{velocity}, {acceleration}, {deceleration}]"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to configure servo {motor_name}: {e}")
+            return False
+
+    def configure_all_servo_channels(
+        self,
+        pulse_width_min: int = 700,
+        pulse_width_max: int = 2500,
+        velocity: int = 9000,
+        acceleration: int = 9000,
+        deceleration: int = 9000,
+    ) -> bool:
+        """
+        Configure all mapped servo channels with the same settings.
+
+        Convenience method to initialize all servos with default settings.
+        Call this after configure_motor_mapping() and before using low-latency mode.
+
+        Args:
+            pulse_width_min: Minimum PWM pulse width in microseconds (default: 700).
+            pulse_width_max: Maximum PWM pulse width in microseconds (default: 2500).
+            velocity: Maximum velocity in 0.01°/s (default: 9000 = 90°/s).
+            acceleration: Acceleration in 0.01°/s² (default: 9000).
+            deceleration: Deceleration in 0.01°/s² (default: 9000).
+
+        Returns:
+            True if all channels were configured successfully.
+        """
+        all_success = True
+        for motor_name in self._tinkerforge_motor_map:
+            success = self.configure_servo_channel(
+                motor_name,
+                pulse_width_min=pulse_width_min,
+                pulse_width_max=pulse_width_max,
+                velocity=velocity,
+                acceleration=acceleration,
+                deceleration=deceleration,
+            )
+            all_success = all_success and success
+        return all_success
+
+    def _set_motor_direct(
+        self,
+        motor_name: str,
+        position_centidegrees: int,
+        velocity_centideg: Optional[int] = None,
+    ) -> bool:
+        """
+        Set motor position directly via Tinkerforge (low-latency mode).
+
+        Args:
+            motor_name: Name of the motor.
+            position_centidegrees: Target position in centidegrees (1/100 degree).
+            velocity_centideg: Optional velocity in centidegrees/second.
+
+        Returns:
+            True if command was sent successfully.
+        """
+        if motor_name not in self._tinkerforge_motor_map:
+            logger.debug(
+                f"Motor {motor_name} not in Tinkerforge mapping, falling back to ROS"
+            )
+            return False
+
+        uid, channel = self._tinkerforge_motor_map[motor_name]
+        servo = self._tinkerforge_servos.get(uid)
+
+        if servo is None:
+            logger.warning(f"Servo bricklet {uid} not initialized")
+            return False
+
+        try:
+            # Tinkerforge Servo V2 position is in units of 0.01° (same as centidegrees)
+            # Velocity is in 0.01°/s
+
+            # Enable the servo channel if not already enabled
+            servo.set_enable(channel, True)
+
+            # Set velocity if provided (overrides motion_configuration velocity)
+            if velocity_centideg is not None:
+                servo.set_velocity(channel, abs(velocity_centideg))
+
+            # Set position
+            servo.set_position(channel, position_centidegrees)
+
+            logger.debug(
+                f"Direct motor set: {motor_name} -> {position_centidegrees} centideg "
+                f"(bricklet={uid}, channel={channel})"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to set motor {motor_name} directly: {e}")
+            return False
+
     def disconnect(self) -> None:
         """Close connection to robot."""
+        # Disconnect Tinkerforge first
+        self._disconnect_tinkerforge()
+
         if self._position_subscriber is not None:
             try:
                 self._position_subscriber.unsubscribe()
@@ -573,19 +1115,29 @@ class RealRobotBackend(RobotBackend):
         self,
         positions_radians: Dict[str, float],
         velocity_centideg: Optional[float] = None,
+        low_latency: Optional[bool] = None,
     ) -> bool:
         """
-        Set joint positions via apply_joint_trajectory service.
+        Set joint positions via apply_joint_trajectory service or direct Tinkerforge.
 
-        Sends each joint as a separate service call because the PIB robot's
-        ROS implementation processes one joint per call.
+        When low_latency mode is enabled and available, sends commands directly
+        to Tinkerforge servo bricklets, bypassing the ROS/rosbridge stack for
+        reduced latency (~5-20ms vs ~100-200ms).
 
         Args:
             positions_radians: Dict mapping motor names to positions in radians.
             velocity_centideg: Velocity in centidegrees/sec. If None, uses default.
+            low_latency: Override low_latency setting for this call.
+                - None: Use configured default (LowLatencyConfig.enabled)
+                - True: Force low-latency mode (if available)
+                - False: Force ROS mode
 
         Returns:
             True if all joints were set successfully.
+
+        Note:
+            When using low_latency mode, the new position will NOT be visible
+            in ROS topics unless sync_to_ros is enabled in LowLatencyConfig.
         """
         if not self.is_connected:
             return False
@@ -593,6 +1145,63 @@ class RealRobotBackend(RobotBackend):
         if velocity_centideg is None:
             velocity_centideg = self.DEFAULT_VELOCITY_CENTIDEG
 
+        # Determine whether to use low-latency mode
+        use_low_latency = (
+            low_latency if low_latency is not None
+            else self._low_latency_config.enabled
+        )
+        use_low_latency = use_low_latency and self.low_latency_available
+
+        all_successful = True
+        motors_via_ros = {}  # Motors that couldn't be set directly
+
+        if use_low_latency:
+            # Try direct Tinkerforge control first
+            for joint_name, position in positions_radians.items():
+                motor_name = JOINT_TO_ROBOT_MOTOR.get(joint_name, joint_name)
+                centidegrees = self._radians_to_centidegrees(position)
+
+                success = self._set_motor_direct(
+                    motor_name,
+                    centidegrees,
+                    velocity_centideg=int(velocity_centideg),
+                )
+
+                if not success:
+                    # Motor not in Tinkerforge mapping, queue for ROS
+                    motors_via_ros[joint_name] = position
+                elif self._low_latency_config.sync_to_ros:
+                    # Optionally sync to ROS topic for visibility
+                    self._sync_position_to_ros(motor_name, centidegrees, velocity_centideg)
+
+            # Fall back to ROS for motors not in Tinkerforge mapping
+            if motors_via_ros:
+                ros_success = self._set_joints_via_ros(motors_via_ros, velocity_centideg)
+                all_successful = all_successful and ros_success
+
+            return all_successful
+
+        # Standard ROS path
+        return self._set_joints_via_ros(positions_radians, velocity_centideg)
+
+    def _set_joints_via_ros(
+        self,
+        positions_radians: Dict[str, float],
+        velocity_centideg: float,
+    ) -> bool:
+        """
+        Set joint positions via ROS apply_joint_trajectory service.
+
+        Sends each joint as a separate service call because the PIB robot's
+        ROS implementation processes one joint per call.
+
+        Args:
+            positions_radians: Dict mapping motor names to positions in radians.
+            velocity_centideg: Velocity in centidegrees/sec.
+
+        Returns:
+            True if all joints were set successfully.
+        """
         import roslibpy
 
         all_successful = True
@@ -636,6 +1245,29 @@ class RealRobotBackend(RobotBackend):
                 all_successful = False
 
         return all_successful
+
+    def _sync_position_to_ros(
+        self,
+        motor_name: str,
+        centidegrees: int,
+        velocity_centideg: float,
+    ) -> None:
+        """
+        Update internal position cache after direct motor set.
+
+        NOTE: We do NOT publish to /joint_trajectory topic because that topic
+        is bidirectional - publishing would trigger a second motor command
+        through the ROS node, causing the motor to move twice.
+
+        Instead, we just update our local position cache so get_joint() returns
+        the correct value after a low-latency set.
+        """
+        # Update local position cache (convert centidegrees back to radians)
+        radians = self._centidegrees_to_radians(centidegrees)
+        with self._joint_positions_lock:
+            self._joint_positions[motor_name] = radians
+
+        logger.debug(f"Updated local cache for {motor_name}: {centidegrees} centideg")
 
     def _execute_waypoints(
         self,

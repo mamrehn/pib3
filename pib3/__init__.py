@@ -32,6 +32,7 @@ from .types import Joint, Sketch, Stroke, HandPose, LEFT_HAND_JOINTS, RIGHT_HAND
 from .config import (
     ImageConfig,
     IKConfig,
+    LowLatencyConfig,
     PaperConfig,
     RobotConfig,
     TrajectoryConfig,
@@ -56,6 +57,9 @@ from .backends import (
     RobotBackend,
     WebotsBackend,
     RealRobotBackend,
+    # Low-latency motor control helpers
+    build_motor_mapping,
+    PIB_SERVO_CHANNELS,
     # Unified audio system - enums
     AudioOutput,
     AudioInput,
@@ -89,6 +93,7 @@ __all__ = [
     # Config
     "ImageConfig",
     "IKConfig",
+    "LowLatencyConfig",
     "PaperConfig",
     "RobotConfig",
     "TrajectoryConfig",
@@ -100,6 +105,9 @@ __all__ = [
     "RobotBackend",
     "WebotsBackend",
     "RealRobotBackend",
+    # Low-latency motor control
+    "build_motor_mapping",
+    "PIB_SERVO_CHANNELS",
     # Aliases
     "Webots",
     "Robot",

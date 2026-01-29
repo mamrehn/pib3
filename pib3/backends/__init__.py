@@ -2,7 +2,7 @@
 
 from .base import RobotBackend
 from .webots import WebotsBackend
-from .robot import RealRobotBackend, rle_decode
+from .robot import RealRobotBackend, rle_decode, build_motor_mapping, PIB_SERVO_CHANNELS
 from .audio import (
     # Unified audio system - enums
     AudioOutput,
@@ -35,6 +35,9 @@ __all__ = [
     "WebotsBackend",
     "RealRobotBackend",
     "rle_decode",
+    # Low-latency motor control helpers
+    "build_motor_mapping",
+    "PIB_SERVO_CHANNELS",
     # Unified audio system - enums
     "AudioOutput",
     "AudioInput",

@@ -13,6 +13,7 @@ Configuration is organized into specialized dataclasses:
 | `IKConfig` | Inverse kinematics solver |
 | `ImageConfig` | Image processing |
 | `RobotConfig` | Robot connection |
+| `LowLatencyConfig` | Direct Tinkerforge motor control |
 
 ## TrajectoryConfig
 
@@ -215,3 +216,59 @@ config = RobotConfig(
 # Create backend from config
 robot = RealRobotBackend.from_config(config)
 ```
+
+---
+
+## LowLatencyConfig
+
+Configuration for direct Tinkerforge motor control, bypassing ROS.
+
+::: pib3.config.LowLatencyConfig
+    options:
+      show_root_heading: true
+      show_source: true
+
+### Usage
+
+```python
+from pib3 import LowLatencyConfig, RobotConfig, build_motor_mapping
+
+# Build motor mapping from servo bricklet UIDs
+mapping = build_motor_mapping(
+    servo1_uid="ABC1",  # Right arm
+    servo2_uid="ABC2",  # Shoulder verticals
+    servo3_uid="ABC3",  # Left arm + hand
+)
+
+# Enable low-latency mode
+low_latency = LowLatencyConfig(
+    enabled=True,
+    motor_mapping=mapping,
+)
+
+# Create robot config
+config = RobotConfig(
+    host="172.26.34.149",
+    low_latency=low_latency,
+)
+```
+
+### Parameter Guide
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `enabled` | `False` | Enable direct Tinkerforge control |
+| `tinkerforge_host` | `None` | Daemon host (defaults to robot IP) |
+| `tinkerforge_port` | `4223` | Daemon port |
+| `motor_mapping` | `None` | Maps motor names to `(uid, channel)` |
+| `sync_to_ros` | `True` | Update local cache after commands |
+| `command_timeout` | `0.5` | Command timeout in seconds |
+
+### Performance
+
+| Mode | Latency | Use Case |
+|------|---------|----------|
+| Standard (ROS) | 100-200ms | Trajectory playback |
+| Low-latency | 5-20ms | Real-time control |
+
+See the [Low-Latency Tutorial](../tutorials/low-latency-mode.md) for complete examples.

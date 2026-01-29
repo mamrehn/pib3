@@ -1,7 +1,7 @@
 """Configuration dataclasses for pib3 package."""
 
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Dict, Literal, Optional
 
 
 @dataclass
@@ -87,6 +87,32 @@ class TrajectoryConfig:
 
 
 @dataclass
+class LowLatencyConfig:
+    """Configuration for low-latency direct Tinkerforge motor control.
+
+    Bypasses ROS/rosbridge for motor commands, sending directly to
+    Tinkerforge servo bricklets for reduced latency (~5-20ms vs ~100-200ms).
+
+    Attributes:
+        enabled: Enable low-latency mode for motor commands.
+        tinkerforge_host: Tinkerforge brick daemon host (usually robot IP).
+        tinkerforge_port: Tinkerforge brick daemon port (default: 4223).
+        motor_mapping: Dict mapping motor names to (bricklet_uid, channel) tuples.
+            If None, uses auto-discovery or default mapping.
+        sync_to_ros: If True, update local position cache after setting.
+            This ensures get_joint() returns correct values after low-latency sets.
+            Note: Does NOT publish to ROS topics (that would cause double commands).
+        command_timeout: Timeout for direct motor commands in seconds.
+    """
+    enabled: bool = False
+    tinkerforge_host: Optional[str] = None  # Defaults to RobotConfig.host
+    tinkerforge_port: int = 4223
+    motor_mapping: Optional[Dict[str, tuple]] = None
+    sync_to_ros: bool = True  # Default to True - keeps local cache updated
+    command_timeout: float = 0.5
+
+
+@dataclass
 class RobotConfig:
     """Configuration for real robot connection via rosbridge.
 
@@ -94,7 +120,9 @@ class RobotConfig:
         host: Robot IP address.
         port: Rosbridge websocket port.
         timeout: Connection timeout in seconds.
+        low_latency: Configuration for direct Tinkerforge motor control.
     """
     host: str = "172.26.34.149"
     port: int = 9090
     timeout: float = 5.0
+    low_latency: LowLatencyConfig = field(default_factory=LowLatencyConfig)

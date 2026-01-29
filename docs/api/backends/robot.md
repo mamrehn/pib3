@@ -36,6 +36,7 @@ Robot(
     host: str = "172.26.34.149",
     port: int = 9090,
     timeout: float = 5.0,
+    low_latency: Optional[LowLatencyConfig] = None,
 )
 ```
 
@@ -46,11 +47,12 @@ Robot(
 | `host` | `str` | `"172.26.34.149"` | IP address of the robot. |
 | `port` | `int` | `9090` | Rosbridge websocket port. |
 | `timeout` | `float` | `5.0` | Connection timeout in seconds. |
+| `low_latency` | `LowLatencyConfig` | `None` | Optional low-latency motor control config. |
 
 **Example:**
 
 ```python
-from pib3 import Robot
+from pib3 import Robot, LowLatencyConfig, build_motor_mapping
 
 # Default connection
 robot = Robot()
@@ -63,6 +65,13 @@ robot = Robot(
     host="192.168.1.100",
     port=9090,
     timeout=10.0,
+)
+
+# With low-latency mode
+mapping = build_motor_mapping("UID1", "UID2", "UID3")
+robot = Robot(
+    host="192.168.1.100",
+    low_latency=LowLatencyConfig(enabled=True, motor_mapping=mapping),
 )
 ```
 
@@ -449,6 +458,89 @@ from pib3.backends import rle_decode
 
 mask = rle_decode(result['mask_rle'])  # Returns np.ndarray (height, width)
 ```
+
+---
+
+## Low-Latency Mode
+
+Bypass ROS for direct Tinkerforge motor control with ~5-20ms latency (vs ~100-200ms via ROS).
+
+### Quick Setup
+
+```python
+from pib3 import Robot, LowLatencyConfig, build_motor_mapping
+
+# Discover servo bricklet UIDs
+with Robot(host="172.26.34.149") as robot:
+    uids = robot.discover_servo_bricklets()
+    print(f"Found: {uids}")  # e.g., ['29Fy', '29F5', '29F3']
+
+# Build mapping and enable
+mapping = build_motor_mapping(uids[0], uids[1], uids[2])
+config = LowLatencyConfig(enabled=True, motor_mapping=mapping)
+
+with Robot(host="172.26.34.149", low_latency=config) as robot:
+    robot.set_joint("elbow_left", 0.5, unit="rad")  # Direct control
+```
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `low_latency_available` | `bool` | True if connected and configured |
+| `low_latency_enabled` | `bool` | Get/set enabled state |
+| `low_latency_sync_to_ros` | `bool` | Get/set cache sync setting |
+| `discovered_servo_uids` | `List[str]` | UIDs from last discovery |
+
+### Methods
+
+#### discover_servo_bricklets()
+
+```python
+def discover_servo_bricklets(timeout: float = 1.0) -> List[str]
+```
+
+Returns list of Servo Bricklet V2 UIDs.
+
+#### configure_motor_mapping()
+
+```python
+def configure_motor_mapping(
+    mapping: Dict[str, Tuple[str, int]],
+    reinitialize: bool = True,
+) -> None
+```
+
+Configure motor-to-bricklet mapping at runtime. Auto-configures servo channels.
+
+#### configure_servo_channel()
+
+```python
+def configure_servo_channel(
+    motor_name: str,
+    pulse_width_min: int = 700,
+    pulse_width_max: int = 2500,
+    velocity: int = 9000,
+    acceleration: int = 9000,
+    deceleration: int = 9000,
+) -> bool
+```
+
+Configure individual servo channel settings.
+
+### Helper Functions
+
+```python
+from pib3 import build_motor_mapping, PIB_SERVO_CHANNELS
+
+# Build complete mapping from 3 UIDs
+mapping = build_motor_mapping("UID1", "UID2", "UID3")
+
+# Reference standard channel assignments
+print(PIB_SERVO_CHANNELS["elbow_left"])  # 8
+```
+
+See the [Low-Latency Tutorial](../../tutorials/low-latency-mode.md) for complete examples.
 
 ---
 
