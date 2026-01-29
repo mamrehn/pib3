@@ -268,158 +268,78 @@ def _solve_ik_point(
     orientation_weight: float = 0.5,
 ) -> Tuple[np.ndarray, bool]:
     """
-    Solve IK for a single point using gradient descent.
+    Solve IK using roboticstoolbox's ikine_LM() with expert DH parameters.
+
+    Uses the calibrated DH model from dh_model.py with Levenberg-Marquardt
+    optimization. Targets are transformed to shoulder-relative coordinates
+    to ensure compatibility between URDF world frame and DH model.
 
     Only the arm joints are used as IK degrees of freedom.  Finger joints
     stay fixed — they are part of the kinematic chain (for forward
     kinematics to the TCP) but are never moved by the solver.
 
     Args:
-        robot: Robot model.
-        target_pos: Target position [x, y, z].
+        robot: URDF robot model (used for shoulder position).
+        target_pos: Target position [x, y, z] in meters (world frame).
         q_init: Initial joint configuration.
         end_link: End effector link name.
         tool_offset: SE3 transform from end link to tool tip.
         arm_joint_indices: URDF indices of the arm joints to actuate.
-            Must correspond to the first N columns of the reduced
-            Jacobian returned by robot.jacob0(…, end=end_link).
-        joint_limits: Joint limits [(lower, upper), ...].
+        joint_limits: Joint limits (unused - DH model has built-in limits).
         config: IK configuration.
         target_orientation: Optional target orientation as rotation matrix (3x3).
-            If provided, IK will try to match this orientation.
-        orientation_weight: Weight for orientation error (0-1). Position is weighted 1.0.
+        orientation_weight: Weight for orientation error (0-1).
 
     Returns:
         (q_solution, success)
     """
-    import spatialmath as sm
+    from spatialmath import SE3
 
-    arm_cols = list(range(len(arm_joint_indices)))
-    target_pos_array = np.array(target_pos)
-    q_work = q_init.copy()
+    from .dh_model import get_dh_robot, get_shoulder_position
 
-    # Determine if we're doing position-only or position+orientation IK
+    # Determine which arm based on joint indices
+    arm = "left" if arm_joint_indices[0] < 10 else "right"
+
+    # Get shoulder position to compute relative target
+    shoulder_pos = get_shoulder_position(robot, arm)
+
+    # Compute target relative to shoulder, convert to mm
+    target_rel_mm = (np.array(target_pos) - shoulder_pos) * 1000
+
+    # Get calibrated DH robot
+    dh_robot = get_dh_robot(arm, tool_offset)
+
+    # Build target SE3 and mask for ikine_LM
     use_orientation = target_orientation is not None and orientation_weight > 0
+    if use_orientation:
+        target_se3 = SE3.Rt(target_orientation, target_rel_mm)
+        mask = [1, 1, 1, 1, 1, 1]
+    else:
+        # Position-only IK (most common for drawing)
+        target_se3 = SE3(target_rel_mm)
+        mask = [1, 1, 1, 0, 0, 0]
 
-    # Adaptive step size control
-    current_step_size = config.step_size
-    prev_error = float('inf')
-    stagnant_count = 0
-    min_step_size = config.step_size * 0.01  # Minimum 1% of original
+    # Extract initial guess from current arm configuration
+    q0 = np.array([q_init[idx] for idx in arm_joint_indices])
 
     try:
-        for iteration in range(config.max_iterations):
-            # Get current link frame position
-            T_link = robot.fkine(q_work, end=end_link)
-            if isinstance(T_link, np.ndarray):
-                T_link = sm.SE3(T_link)
+        sol = dh_robot.ikine_LM(
+            target_se3,
+            q0=q0,
+            mask=mask,
+            tol=config.tolerance * 1000,  # convert m tolerance to mm
+            ilimit=config.max_iterations,
+        )
 
-            # Apply tool offset: T_tool = T_link * tool_offset
-            T_tool = T_link * tool_offset
-            curr_tool_pos = T_tool.t
+        if not sol.success:
+            return q_init, False
 
-            # Position error
-            pos_error = target_pos_array - curr_tool_pos
-            pos_error_norm = np.linalg.norm(pos_error)
+        # Build full configuration with DH solution
+        q_solution = q_init.copy()
+        for i, idx in enumerate(arm_joint_indices):
+            q_solution[idx] = sol.q[i]
 
-            # Orientation error (if using orientation control)
-            if use_orientation:
-                # Current orientation (rotation matrix)
-                R_current = T_tool.R
-                R_target = target_orientation
-
-                # Use 5-DOF constraint: position (3) + Z-axis direction (2)
-                # We only care that the pen points down, not rotation around its axis
-                # Extract Z-axis (pointing direction) from rotation matrices
-                z_current = R_current[:, 2]  # 3rd column = Z-axis direction
-                z_target = R_target[:, 2]
-
-                # Orientation error: cross product gives rotation axis needed
-                # This naturally represents 2-DOF (tilt angles), ignoring roll
-                orient_error_3d = np.cross(z_target, z_current)
-
-                # Scale by orientation weight
-                orient_error = orient_error_3d * orientation_weight
-
-                # Combined error (still 6D for Jacobian, but orient only has 2 effective DOF)
-                error_6d = np.concatenate([pos_error, orient_error])
-                error_norm = pos_error_norm  # Use position error for convergence check
-            else:
-                error_norm = pos_error_norm
-
-            if error_norm < config.tolerance:
-                # Success - validate joint limits
-                for idx in arm_joint_indices:
-                    if idx < len(joint_limits):
-                        lower, upper = joint_limits[idx]
-                        if q_work[idx] < lower or q_work[idx] > upper:
-                            return q_init, False
-                return q_work, True
-
-            # Adaptive step size: reduce if error is not decreasing
-            if error_norm >= prev_error - 1e-6:
-                # Error not decreasing - reduce step size
-                stagnant_count += 1
-                if stagnant_count > 5 and current_step_size > min_step_size:
-                    current_step_size *= 0.7
-                    stagnant_count = 0
-            else:
-                # Error decreasing - reset counter, slowly increase step size
-                stagnant_count = 0
-                if current_step_size < config.step_size:
-                    current_step_size = min(current_step_size * 1.05, config.step_size)
-
-            prev_error = error_norm
-
-            # Compute Jacobian
-            J_full = robot.jacob0(q_work, end=end_link)
-
-            if use_orientation:
-                # Use full 6-DOF Jacobian
-                J_arm = J_full[:, arm_cols]
-                # Apply weighting: position weight = 1.0, orientation weight as specified
-                W = np.diag([1.0, 1.0, 1.0, orientation_weight, orientation_weight, orientation_weight])
-                J_weighted = W @ J_arm
-                error_weighted = W @ error_6d
-
-                # Damped least squares
-                JJT = J_weighted @ J_weighted.T + config.damping * np.eye(6)
-                dq_arm = J_weighted.T @ np.linalg.solve(JJT, error_weighted * current_step_size)
-            else:
-                # Position-only IK (3-DOF)
-                J_pos = J_full[:3, :]
-                J_arm = J_pos[:, arm_cols]
-
-                # Damped least squares
-                JJT = J_arm @ J_arm.T + config.damping * np.eye(3)
-                dq_arm = J_arm.T @ np.linalg.solve(JJT, pos_error * current_step_size)
-
-            # Update arm joints with limit clamping
-            for i, joint_idx in enumerate(arm_joint_indices):
-                new_val = q_work[joint_idx] + dq_arm[i]
-
-                if joint_idx < len(joint_limits):
-                    lower, upper = joint_limits[joint_idx]
-                    new_val = max(lower, min(upper, new_val))
-
-                q_work[joint_idx] = new_val
-
-        # Check if we got close enough
-        T_final = robot.fkine(q_work, end=end_link)
-        if isinstance(T_final, np.ndarray):
-            T_final = sm.SE3(T_final)
-        T_final_tool = T_final * tool_offset
-        final_error = np.linalg.norm(target_pos_array - T_final_tool.t)
-
-        if final_error < 0.005:  # 5mm tolerance
-            for idx in arm_joint_indices:
-                if idx < len(joint_limits):
-                    lower, upper = joint_limits[idx]
-                    if q_work[idx] < lower or q_work[idx] > upper:
-                        return q_init, False
-            return q_work, True
-
-        return q_init, False
+        return q_solution, True
 
     except Exception:
         return q_init, False
