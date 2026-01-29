@@ -41,6 +41,15 @@ from .config import (
 from .image import image_to_sketch
 from .trajectory import Trajectory, sketch_to_trajectory
 
+# DH kinematics (expert API for vision/IK applications)
+from .dh_model import (
+    CAMERA_TRANSFORM,
+    DEFAULT_TOOL_TRANSFORM,
+    MOTOR_GROUPS,
+    camera_to_base,
+    base_to_camera,
+)
+
 # Backends
 from .backends import (
     RobotBackend,
@@ -110,6 +119,12 @@ __all__ = [
     "PiperTTS",
     "load_audio_file",
     "save_audio_file",
+    # DH kinematics (expert API)
+    "CAMERA_TRANSFORM",
+    "DEFAULT_TOOL_TRANSFORM",
+    "MOTOR_GROUPS",
+    "camera_to_base",
+    "base_to_camera",
 ]
 
 
