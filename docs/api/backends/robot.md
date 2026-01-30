@@ -463,7 +463,7 @@ mask = rle_decode(result['mask_rle'])  # Returns np.ndarray (height, width)
 
 ## Low-Latency Mode
 
-Bypass ROS for direct Tinkerforge motor control with ~5-20ms latency (vs ~100-200ms via ROS).
+Bypass ROS for direct Tinkerforge motor control with ~5-20ms latency (vs ~100-200ms via ROS). When enabled, both `get_joint()`/`get_joints()` and `set_joint()`/`set_joints()` use direct Tinkerforge communication.
 
 ### Quick Setup
 
@@ -480,7 +480,8 @@ mapping = build_motor_mapping(uids[0], uids[1], uids[2])
 config = LowLatencyConfig(enabled=True, motor_mapping=mapping)
 
 with Robot(host="172.26.34.149", low_latency=config) as robot:
-    robot.set_joint("elbow_left", 0.5, unit="rad")  # Direct control
+    robot.set_joint("elbow_left", 0.5, unit="rad")  # Direct write
+    pos = robot.get_joint("elbow_left", unit="rad")  # Direct read
 ```
 
 ### Properties

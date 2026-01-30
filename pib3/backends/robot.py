@@ -777,6 +777,43 @@ class RealRobotBackend(RobotBackend):
             logger.error(f"Failed to set motor {motor_name} directly: {e}")
             return False
 
+    def _get_motor_direct(self, motor_name: str) -> Optional[int]:
+        """
+        Get motor position directly via Tinkerforge (low-latency mode).
+
+        Reads the actual servo position from the potentiometer feedback,
+        not the commanded position.
+
+        Args:
+            motor_name: Name of the motor.
+
+        Returns:
+            Current position in centidegrees (1/100 degree), or None if unavailable.
+        """
+        if motor_name not in self._tinkerforge_motor_map:
+            return None
+
+        uid, channel = self._tinkerforge_motor_map[motor_name]
+        servo = self._tinkerforge_servos.get(uid)
+
+        if servo is None:
+            return None
+
+        try:
+            # get_current_position returns the actual measured position
+            # from the servo's potentiometer feedback in centidegrees
+            position = servo.get_current_position(channel)
+
+            logger.debug(
+                f"Direct motor read: {motor_name} = {position} centideg "
+                f"(bricklet={uid}, channel={channel})"
+            )
+            return position
+
+        except Exception as e:
+            logger.error(f"Failed to read motor {motor_name} directly: {e}")
+            return None
+
     def disconnect(self) -> None:
         """Close connection to robot."""
         # Disconnect Tinkerforge first
@@ -1031,16 +1068,32 @@ class RealRobotBackend(RobotBackend):
         """
         Get current position of a single joint in radians.
 
-        Position is received via subscription to /joint_trajectory topic.
+        When low-latency mode is enabled and the motor is in the Tinkerforge
+        mapping, reads directly from the servo bricklet. Otherwise, uses
+        the ROS subscription cache.
 
         Args:
             motor_name: Name of motor (e.g., "elbow_left").
             timeout: Max time to wait for position data (seconds).
                     If None, uses DEFAULT_GET_JOINTS_TIMEOUT (5.0s).
+                    Note: timeout is ignored in low-latency mode (reads are instant).
 
         Returns:
             Current position in radians, or None if unavailable.
         """
+        # Try low-latency direct read first
+        if self.low_latency_enabled and self.low_latency_available:
+            centidegrees = self._get_motor_direct(motor_name)
+            if centidegrees is not None:
+                radians = self._centidegrees_to_radians(centidegrees)
+                # Update local cache for consistency
+                if self._low_latency_config.sync_to_ros:
+                    with self._joint_positions_lock:
+                        self._joint_positions[motor_name] = radians
+                return radians
+            # Fall through to ROS if motor not in Tinkerforge mapping
+
+        # Fall back to ROS subscription cache
         if timeout is None:
             timeout = self.DEFAULT_GET_JOINTS_TIMEOUT
 
@@ -1062,23 +1115,66 @@ class RealRobotBackend(RobotBackend):
         """
         Get current positions of multiple joints in radians.
 
-        Positions are received via subscription to /joint_trajectory topic.
+        When low-latency mode is enabled, reads directly from Tinkerforge
+        servo bricklets for mapped motors. Motors not in the mapping fall
+        back to the ROS subscription cache.
 
         Args:
             motor_names: List of motor names to query. If None, returns all
-                        available positions.
+                        available positions (from mapping + ROS cache).
             timeout: Max time to wait for position data (seconds).
                     If None, uses DEFAULT_GET_JOINTS_TIMEOUT (5.0s).
+                    Note: timeout only applies to ROS fallback reads.
 
         Returns:
             Dict mapping motor names to positions in radians.
             May contain fewer joints than requested if timeout expires.
         """
+        result: Dict[str, float] = {}
+        remaining_motors: Optional[List[str]] = None
+
+        # Try low-latency direct reads first
+        if self.low_latency_enabled and self.low_latency_available:
+            if motor_names is None:
+                # Read all motors in the Tinkerforge mapping
+                motors_to_read = list(self._tinkerforge_motor_map.keys())
+            else:
+                motors_to_read = motor_names
+
+            for motor_name in motors_to_read:
+                centidegrees = self._get_motor_direct(motor_name)
+                if centidegrees is not None:
+                    radians = self._centidegrees_to_radians(centidegrees)
+                    result[motor_name] = radians
+                    # Update local cache for consistency
+                    if self._low_latency_config.sync_to_ros:
+                        with self._joint_positions_lock:
+                            self._joint_positions[motor_name] = radians
+
+            # Determine which motors still need ROS fallback
+            if motor_names is not None:
+                remaining_motors = [m for m in motor_names if m not in result]
+                if not remaining_motors:
+                    return result  # All motors read via low-latency
+            elif result:
+                # If no specific motors requested, merge with ROS cache
+                with self._joint_positions_lock:
+                    for name, pos in self._joint_positions.items():
+                        if name not in result:
+                            result[name] = pos
+                return result
+
+        # Fall back to ROS subscription cache for remaining motors
         if timeout is None:
             timeout = self.DEFAULT_GET_JOINTS_TIMEOUT
 
         # Determine which joints we're waiting for
-        expected_joints = set(motor_names) if motor_names else None
+        if remaining_motors is not None:
+            expected_joints = set(remaining_motors)
+        elif motor_names is not None:
+            expected_joints = set(motor_names)
+        else:
+            expected_joints = None
 
         # Wait for requested joints to have data
         start = time.time()
@@ -1087,26 +1183,27 @@ class RealRobotBackend(RobotBackend):
                 if expected_joints is None:
                     # Return all available if we have any
                     if self._joint_positions:
-                        return dict(self._joint_positions)
+                        result.update(self._joint_positions)
+                        return result
                 else:
                     available_joints = set(self._joint_positions.keys())
                     if expected_joints <= available_joints:
                         # All expected joints are available
-                        return {
-                            name: self._joint_positions[name]
-                            for name in expected_joints
-                        }
+                        for name in expected_joints:
+                            result[name] = self._joint_positions[name]
+                        return result
             time.sleep(0.05)  # Poll every 50ms
 
         # Timeout expired - return whatever we have
         with self._joint_positions_lock:
             if motor_names is None:
-                return dict(self._joint_positions)
-            return {
-                name: self._joint_positions[name]
-                for name in motor_names
-                if name in self._joint_positions
-            }
+                result.update(self._joint_positions)
+            else:
+                for name in (remaining_motors or motor_names):
+                    if name in self._joint_positions:
+                        result[name] = self._joint_positions[name]
+
+        return result
 
     # Default velocity for motor movements (centidegrees per second)
     DEFAULT_VELOCITY_CENTIDEG = 10000  # 100 degrees/sec

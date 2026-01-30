@@ -16,7 +16,7 @@ This adds ~100-200ms latency per command. Low-latency mode bypasses ROS:
 Python → Tinkerforge (direct)
 ```
 
-Reducing latency to ~5-20ms per command.
+Reducing latency to ~5-20ms for both **reading** and **writing** motor positions.
 
 ## When to Use Low-Latency Mode
 
@@ -204,6 +204,48 @@ robot.set_joint("elbow_left", 0.5, unit="rad", low_latency=False)
 # Force low-latency mode (if available)
 robot.set_joint("elbow_left", 0.5, unit="rad", low_latency=True)
 ```
+
+---
+
+## Reading Positions
+
+When low-latency mode is enabled, `get_joint()` and `get_joints()` also read directly from the Tinkerforge servo bricklets instead of waiting for ROS messages.
+
+### Automatic Low-Latency Reading
+
+```python
+with pib3.Robot(host="172.26.34.149", low_latency=config) as robot:
+    # Both reading and writing use low-latency mode
+    robot.set_joint("elbow_left", 0.5, unit="rad")  # Direct write
+    pos = robot.get_joint("elbow_left", unit="rad")  # Direct read (~5ms)
+```
+
+### Reading Multiple Joints
+
+```python
+# Read all mapped motors directly
+positions = robot.get_joints(unit="rad")
+
+# Read specific motors
+arm_positions = robot.get_joints(
+    ["elbow_left", "wrist_left", "shoulder_vertical_left"],
+    unit="rad",
+)
+```
+
+### Mixed Mode Reading
+
+Motors not in the Tinkerforge mapping fall back to ROS:
+
+```python
+positions = robot.get_joints([
+    "elbow_left",      # Low-latency (in mapping)
+    "turn_head_motor", # Falls back to ROS (not in mapping)
+], unit="rad")
+```
+
+!!! note "Actual vs. Commanded Position"
+    Low-latency reads return the **actual measured position** from the servo's potentiometer feedback, not the last commanded position. This is useful for detecting mechanical issues or external forces on the arm.
 
 ---
 
