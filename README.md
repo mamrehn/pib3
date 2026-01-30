@@ -27,6 +27,20 @@ venv\Scripts\activate  # OR on Linux: source ./venv/bin/activate
 pip install -U "pib3 @ git+https://github.com/mamrehn/pib3.git"
 ```
 
+### Windows prerequisites
+
+If you are installing on Windows and encounter build or compilation errors (commonly when installing packages with native extensions such as `roboticstoolbox`), install the Microsoft Visual C++ Build Tools first:
+
+https://visualstudio.microsoft.com/de/visual-cpp-build-tools/
+
+Also ensure `pip`, `setuptools`, and `wheel` are up-to-date before installing:
+
+```bash
+python -m pip install --upgrade pip setuptools wheel
+```
+
+Installing the build tools and upgrading these packaging utilities often resolves common Windows installation issues.
+
 ## Quick Start
 
 ### Digital Twin - Same Code Everywhere
