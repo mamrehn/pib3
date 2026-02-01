@@ -51,9 +51,13 @@ import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from .robot import RealRobotBackend
+    from ..types import AIModel
 
 logger = logging.getLogger(__name__)
 
@@ -854,6 +858,234 @@ class AIDetectionReceiver:
             return len(self._results)
 
 
+# ==================== SUBSYSTEM CLASSES ====================
+
+
+class AISubsystem:
+    """
+    AI inference subsystem for the robot's OAK-D Lite camera.
+
+    Provides simple access to AI model results without manual subscription management.
+    The subsystem automatically handles subscription lifecycle.
+
+    Accessed via `robot.ai`:
+        >>> robot.ai.set_model(AIModel.HAND)
+        >>> for hand in robot.ai.get_hand_landmarks():
+        ...     print(f"{hand.handedness}: {hand.finger_angles.index:.0f}°")
+        >>> print(f"FPS: {robot.ai.fps:.1f}")
+    """
+
+    def __init__(self, robot: "RealRobotBackend"):
+        """
+        Initialize AI subsystem.
+
+        Args:
+            robot: Parent robot backend instance.
+        """
+        self._robot = robot
+        self._receiver = AIDetectionReceiver()
+        self._subscription = None
+        self._current_model: Optional[str] = None
+
+    def _ensure_subscribed(self) -> None:
+        """Ensure we're subscribed to AI detections."""
+        if self._subscription is None and self._robot.is_connected:
+            self._subscription = self._robot.subscribe_ai_detections(
+                self._receiver.on_detection
+            )
+
+    def set_model(self, model: "Union[AIModel, str]", timeout: float = 5.0) -> bool:
+        """
+        Switch AI model on the OAK-D Lite camera.
+
+        Args:
+            model: AI model to load (AIModel enum or string name).
+            timeout: Max time to wait for model switch confirmation.
+
+        Returns:
+            True if model switch confirmed, False if timeout.
+
+        Example:
+            >>> robot.ai.set_model(AIModel.HAND)
+            >>> robot.ai.set_model(AIModel.YOLOV8N)
+        """
+        # Import here to avoid circular import
+        from ..types import AIModel
+
+        model_name = model.value if isinstance(model, AIModel) else str(model)
+        success = self._robot.set_ai_model(model_name, timeout)
+        if success:
+            self._current_model = model_name
+            self._receiver.clear()  # Clear old results from different model
+            self._ensure_subscribed()
+        return success
+
+    @property
+    def model(self) -> Optional[str]:
+        """Currently active AI model name."""
+        return self._current_model
+
+    @property
+    def fps(self) -> float:
+        """Current inference frames per second."""
+        return self._receiver.fps
+
+    @property
+    def avg_latency_ms(self) -> float:
+        """Average inference latency in milliseconds."""
+        return self._receiver.avg_latency_ms
+
+    def get_detections(self, timeout: float = 5.0) -> List[Detection]:
+        """
+        Get object detections from detection models (YOLO, MobileNet-SSD, etc.).
+
+        Waits automatically for results if buffer is empty.
+
+        Args:
+            timeout: How long to wait for results. Use 0 for non-blocking.
+
+        Returns:
+            List of Detection objects.
+        """
+        self._ensure_subscribed()
+        return self._receiver.get_detections(timeout)
+
+    def get_hand_landmarks(self, timeout: float = 5.0) -> List[HandLandmarks]:
+        """
+        Get hand tracking results with finger angles.
+
+        Waits automatically for results if buffer is empty.
+
+        Args:
+            timeout: How long to wait for results. Use 0 for non-blocking.
+
+        Returns:
+            List of HandLandmarks objects with finger angles.
+
+        Example:
+            >>> robot.ai.set_model(AIModel.HAND)
+            >>> for hand in robot.ai.get_hand_landmarks():
+            ...     print(f"{hand.handedness}: index={hand.finger_angles.index:.0f}°")
+            ...     servos = hand.finger_angles.to_servo_values()
+            ...     robot.set_joints({"index_left_stretch": servos["index"]})
+        """
+        self._ensure_subscribed()
+        return self._receiver.get_hand_landmarks(timeout)
+
+    def get_poses(self, timeout: float = 5.0) -> List[PoseKeypoints]:
+        """
+        Get body pose estimation results.
+
+        Waits automatically for results if buffer is empty.
+
+        Args:
+            timeout: How long to wait for results. Use 0 for non-blocking.
+
+        Returns:
+            List of PoseKeypoints objects.
+        """
+        self._ensure_subscribed()
+        return self._receiver.get_poses(timeout)
+
+    def clear(self) -> None:
+        """Clear buffered results."""
+        self._receiver.clear()
+
+    def stop(self) -> None:
+        """Stop AI inference (unsubscribe from detections)."""
+        if self._subscription is not None:
+            try:
+                self._subscription.unsubscribe()
+            except Exception:
+                pass
+            self._subscription = None
+
+
+class CameraSubsystem:
+    """
+    RGB camera subsystem for the robot's OAK-D Lite camera.
+
+    Provides access to raw camera frames (separate from AI inference results).
+
+    Accessed via `robot.camera`:
+        >>> frame = robot.camera.get_frame()
+        >>> if frame:
+        ...     img = frame.to_numpy()  # Requires OpenCV
+    """
+
+    def __init__(self, robot: "RealRobotBackend"):
+        """
+        Initialize camera subsystem.
+
+        Args:
+            robot: Parent robot backend instance.
+        """
+        self._robot = robot
+        self._receiver = CameraFrameReceiver()
+        self._subscription = None
+
+    def _ensure_subscribed(self) -> None:
+        """Ensure we're subscribed to camera frames."""
+        if self._subscription is None and self._robot.is_connected:
+            self._subscription = self._robot.subscribe_camera_image(
+                self._receiver.on_frame
+            )
+
+    def get_frame(self, timeout: float = 5.0) -> Optional[CameraFrame]:
+        """
+        Get the latest camera frame.
+
+        Args:
+            timeout: How long to wait for a frame if none available.
+
+        Returns:
+            CameraFrame object or None if timeout.
+        """
+        self._ensure_subscribed()
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            frame = self._receiver.get_latest()
+            if frame:
+                return frame
+            time.sleep(0.05)
+        return self._receiver.get_latest()
+
+    def get_frames(self) -> List[CameraFrame]:
+        """Get all buffered frames and clear the buffer."""
+        self._ensure_subscribed()
+        return self._receiver.get_all()
+
+    @property
+    def frame_count(self) -> int:
+        """Total number of frames received."""
+        return self._receiver.frame_count
+
+    def configure(
+        self,
+        fps: Optional[int] = None,
+        quality: Optional[int] = None,
+        resolution: Optional[tuple] = None,
+    ) -> None:
+        """
+        Configure camera settings.
+
+        Args:
+            fps: Frames per second (e.g., 30).
+            quality: JPEG quality 1-100 (e.g., 80).
+            resolution: (width, height) tuple (e.g., (1280, 720)).
+        """
+        self._robot.set_camera_config(fps, quality, resolution)
+
+    def stop(self) -> None:
+        """Stop camera streaming."""
+        if self._subscription is not None:
+            try:
+                self._subscription.unsubscribe()
+            except Exception:
+                pass
+            self._subscription = None
+
+
 # ==================== UTILITY FUNCTIONS ====================
 
 
@@ -918,6 +1150,7 @@ def parse_ai_result(data: dict) -> Union[List[Detection], List[HandLandmarks], L
         poses = []
         if "keypoints" in result:
             poses.append(PoseKeypoints.from_keypoints_list(result["keypoints"]))
+
         elif "detections" in result:
             for det in result["detections"]:
                 if "keypoints" in det:

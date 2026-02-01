@@ -20,6 +20,13 @@ Quick Start:
 
     >>> with pib3.Robot(host="172.26.34.149") as robot:
     ...     robot.run_trajectory(trajectory)
+    >>>
+    >>> # AI detection via subsystem API:
+    >>> from pib3 import Robot, AIModel
+    >>> with Robot(host="...") as robot:
+    ...     robot.ai.set_model(AIModel.HAND)
+    ...     for hand in robot.ai.get_hand_landmarks():
+    ...         print(f"{hand.handedness}: {hand.finger_angles.index:.0f}°")
 """
 
 from pathlib import Path
@@ -28,38 +35,19 @@ from typing import Optional, Union
 # Core types
 from .types import Joint, Sketch, Stroke, HandPose, LEFT_HAND_JOINTS, RIGHT_HAND_JOINTS, AIModel
 
-# Configuration
-from .config import (
-    ImageConfig,
-    IKConfig,
-    LowLatencyConfig,
-    PaperConfig,
-    RobotConfig,
-    TrajectoryConfig,
-)
+# Configuration - only TrajectoryConfig at top level for simplicity
+# Other configs accessible via pib3.config module
+from .config import TrajectoryConfig
 
 # Core functions
 from .image import image_to_sketch
 from .trajectory import Trajectory, sketch_to_trajectory
-
-# DH kinematics (expert API for vision/IK applications)
-from .dh_model import (
-    CAMERA_TRANSFORM,
-    DEFAULT_TOOL_TRANSFORM,
-    MOTOR_GROUPS,
-    DEFAULT_MOTOR_SETTINGS,
-    camera_to_base,
-    base_to_camera,
-)
 
 # Backends
 from .backends import (
     RobotBackend,
     WebotsBackend,
     RealRobotBackend,
-    # Low-latency motor control helpers
-    build_motor_mapping,
-    PIB_SERVO_CHANNELS,
     # Camera/AI types
     Detection,
     HandLandmarks,
@@ -69,17 +57,12 @@ from .backends import (
     CameraFrameReceiver,
     AIDetectionReceiver,
     COCO_LABELS,
-    # Unified audio system - enums
-    AudioOutput,
-    AudioInput,
-    # Device management
+    # Audio device management
     AudioDevice,
     list_audio_devices,
-    list_audio_input_devices,
-    list_audio_output_devices,
-    # Recording/playback utilities
-    AudioStreamReceiver,
+    # TTS
     PiperTTS,
+    # Audio utilities
     load_audio_file,
     save_audio_file,
 )
@@ -100,12 +83,7 @@ __all__ = [
     "Sketch",
     "Trajectory",
     "AIModel",
-    # Config
-    "ImageConfig",
-    "IKConfig",
-    "LowLatencyConfig",
-    "PaperConfig",
-    "RobotConfig",
+    # Config - only TrajectoryConfig for simplicity
     "TrajectoryConfig",
     # Functions
     "image_to_sketch",
@@ -115,9 +93,6 @@ __all__ = [
     "RobotBackend",
     "WebotsBackend",
     "RealRobotBackend",
-    # Low-latency motor control
-    "build_motor_mapping",
-    "PIB_SERVO_CHANNELS",
     # Camera/AI types
     "Detection",
     "HandLandmarks",
@@ -134,26 +109,14 @@ __all__ = [
     "HandPose",
     "LEFT_HAND_JOINTS",
     "RIGHT_HAND_JOINTS",
-    # Unified audio system - enums
-    "AudioOutput",
-    "AudioInput",
-    # Device management
+    # Audio device management
     "AudioDevice",
     "list_audio_devices",
-    "list_audio_input_devices",
-    "list_audio_output_devices",
-    # Recording/playback utilities
-    "AudioStreamReceiver",
+    # TTS
     "PiperTTS",
+    # Audio utilities
     "load_audio_file",
     "save_audio_file",
-    # DH kinematics (expert API)
-    "CAMERA_TRANSFORM",
-    "DEFAULT_TOOL_TRANSFORM",
-    "MOTOR_GROUPS",
-    "DEFAULT_MOTOR_SETTINGS",
-    "camera_to_base",
-    "base_to_camera",
 ]
 
 

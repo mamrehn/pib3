@@ -194,29 +194,65 @@ class AudioDevice:
         return f"[{self.index}] {self.name} ({', '.join(device_type)})"
 
 
-def list_audio_devices() -> List[AudioDevice]:
+def list_audio_devices(
+    input: bool = True,
+    output: bool = True,
+) -> List[AudioDevice]:
     """
-    List all available audio devices.
+    List available audio devices.
+
+    Args:
+        input: Include input (microphone) devices.
+        output: Include output (speaker) devices.
 
     Returns:
-        List of AudioDevice objects.
+        List of AudioDevice objects matching the criteria.
 
     Raises:
         ImportError: If sounddevice is not available.
+
+    Example:
+        >>> # List all devices
+        >>> devices = list_audio_devices()
+        >>>
+        >>> # List only microphones
+        >>> mics = list_audio_devices(input=True, output=False)
+        >>>
+        >>> # List only speakers
+        >>> speakers = list_audio_devices(input=False, output=True)
     """
     if not HAS_SOUNDDEVICE:
         raise ImportError(_SOUNDDEVICE_HELP)
 
     devices = []
     for i, dev in enumerate(sd.query_devices()):
-        devices.append(AudioDevice(
-            index=i,
-            name=dev['name'],
-            channels=max(dev['max_input_channels'], dev['max_output_channels']),
-            sample_rate=dev['default_samplerate'],
-            is_input=dev['max_input_channels'] > 0,
-            is_output=dev['max_output_channels'] > 0,
-        ))
+        is_input = dev['max_input_channels'] > 0
+        is_output = dev['max_output_channels'] > 0
+
+        # Filter based on requested device types
+        if not input and is_input and not is_output:
+            continue
+        if not output and is_output and not is_input:
+            continue
+        if not input and not output:
+            continue
+
+        # Include device if it matches requested type
+        include = False
+        if input and is_input:
+            include = True
+        if output and is_output:
+            include = True
+
+        if include:
+            devices.append(AudioDevice(
+                index=i,
+                name=dev['name'],
+                channels=max(dev['max_input_channels'], dev['max_output_channels']),
+                sample_rate=dev['default_samplerate'],
+                is_input=is_input,
+                is_output=is_output,
+            ))
     return devices
 
 
@@ -224,20 +260,24 @@ def list_audio_input_devices() -> List[AudioDevice]:
     """
     List available audio input (microphone) devices.
 
+    .. deprecated:: Use list_audio_devices(input=True, output=False) instead.
+
     Returns:
         List of AudioDevice objects that support input.
     """
-    return [d for d in list_audio_devices() if d.is_input]
+    return list_audio_devices(input=True, output=False)
 
 
 def list_audio_output_devices() -> List[AudioDevice]:
     """
     List available audio output (speaker) devices.
 
+    .. deprecated:: Use list_audio_devices(input=False, output=True) instead.
+
     Returns:
         List of AudioDevice objects that support output.
     """
-    return [d for d in list_audio_devices() if d.is_output]
+    return list_audio_devices(input=False, output=True)
 
 
 def get_default_audio_input_device() -> Optional[AudioDevice]:

@@ -234,6 +234,44 @@ class RealRobotBackend(RobotBackend):
         self._tinkerforge_servos: Dict[str, "BrickletServoV2"] = {}
         self._tinkerforge_motor_map: TinkerforgeMotorMapping = {}
 
+        # Subsystems (lazy-initialized)
+        self._ai_subsystem = None
+        self._camera_subsystem = None
+        self._audio_subsystem = None
+
+    # ==================== SUBSYSTEM PROPERTIES ====================
+
+    @property
+    def ai(self) -> "AISubsystem":
+        """
+        AI inference subsystem for object detection, hand tracking, and pose estimation.
+
+        Example:
+            >>> robot.ai.set_model(AIModel.HAND)
+            >>> for hand in robot.ai.get_hand_landmarks():
+            ...     print(f"{hand.handedness}: {hand.finger_angles.index:.0f}°")
+            >>> print(f"FPS: {robot.ai.fps:.1f}")
+        """
+        if self._ai_subsystem is None:
+            from .camera import AISubsystem
+            self._ai_subsystem = AISubsystem(self)
+        return self._ai_subsystem
+
+    @property
+    def camera(self) -> "CameraSubsystem":
+        """
+        RGB camera subsystem for raw frame access.
+
+        Example:
+            >>> frame = robot.camera.get_frame()
+            >>> if frame:
+            ...     img = frame.to_numpy()  # Requires OpenCV
+        """
+        if self._camera_subsystem is None:
+            from .camera import CameraSubsystem
+            self._camera_subsystem = CameraSubsystem(self)
+        return self._camera_subsystem
+
     @classmethod
     def from_config(cls, config: RobotConfig) -> "RealRobotBackend":
         """Create backend from RobotConfig."""
