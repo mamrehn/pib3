@@ -245,7 +245,12 @@ positions = robot.get_joints([
 ```
 
 !!! note "Actual vs. Commanded Position"
-    Low-latency reads return the **actual measured position** from the servo's potentiometer feedback, not the last commanded position. This is useful for detecting mechanical issues or external forces on the arm.
+    Low-latency reads return the **actual measured position** from the servo's potentiometer feedback, not the last commanded position. This is useful for:
+    
+    - Detecting mechanical issues (motor slippage, loose gears)
+    - Sensing external forces on the arm (collision detection)
+    - Verifying the arm reached its target position
+    - Implementing compliant control where the arm responds to physical interaction
 
 ---
 

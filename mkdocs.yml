@@ -107,7 +107,7 @@ nav:
       - Image to Trajectory: tutorials/image-to-trajectory.md
       - Controlling the Robot: tutorials/controlling-robot.md
       - Camera, AI & IMU: tutorials/camera-ai-imu.md
-
+      - Low-Latency Mode: tutorials/low-latency-mode.md
       - Working with Sketches: tutorials/working-with-sketches.md
       - Custom Configurations: tutorials/custom-configurations.md
   - API Reference:
@@ -116,7 +116,9 @@ nav:
       - Configuration: api/config.md
       - Image Processing: api/image.md
       - Trajectory Generation: api/trajectory.md
+      - AI & Camera Subsystems: api/ai-camera-subsystems.md
       - Audio System: api/audio.md
+      - Kinematics: api/kinematics.md
       - Backends:
           - Base Backend: api/backends/base.md
           - Real Robot: api/backends/robot.md

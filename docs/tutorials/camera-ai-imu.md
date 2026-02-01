@@ -41,6 +41,80 @@ sub.unsubscribe()
 
 ---
 
+## Quick Start: Subsystem API (Recommended)
+
+For most use cases, use the simplified subsystem APIs instead of raw subscriptions. The subsystems automatically manage subscriptions and provide typed results.
+
+### AI Subsystem (`robot.ai`)
+
+```python
+from pib3 import Robot, AIModel
+
+with Robot(host="192.168.178.71") as robot:
+    # Set AI model (waits for confirmation)
+    robot.ai.set_model(AIModel.YOLOV8N)
+    
+    # Get detections (waits automatically for results)
+    for det in robot.ai.get_detections():
+        print(f"{det.label}: {det.confidence:.0%} at {det.bbox.center}")
+    
+    # Check performance
+    print(f"FPS: {robot.ai.fps:.1f}")
+```
+
+### Hand Tracking with Servo Control
+
+```python
+from pib3 import Robot, AIModel
+
+with Robot(host="192.168.178.71") as robot:
+    robot.ai.set_model(AIModel.HAND)
+    
+    for hand in robot.ai.get_hand_landmarks():
+        print(f"{hand.handedness}: index={hand.finger_angles.index:.0f}°")
+        
+        # Convert finger angles to robot servo percentages
+        servos = hand.finger_angles.to_servo_values()
+        
+        # Mirror to robot hand
+        if hand.handedness.value == "left":
+            robot.set_joints({
+                "index_left_stretch": servos["index"],
+                "middle_left_stretch": servos["middle"],
+            })
+```
+
+### Camera Subsystem (`robot.camera`)
+
+```python
+from pib3 import Robot
+
+with Robot(host="192.168.178.71") as robot:
+    # Get latest frame
+    frame = robot.camera.get_frame()
+    if frame:
+        print(f"Frame {frame.frame_id}: {len(frame.jpeg_bytes)} bytes")
+        
+        # Decode to numpy (requires OpenCV)
+        img = frame.to_numpy()
+        
+        # Configure camera
+        robot.camera.configure(fps=30, quality=80)
+```
+
+!!! tip "API Reference"
+    For complete details on subsystem methods and types, see the 
+    [AI & Camera Subsystems](../api/ai-camera-subsystems.md) API reference.
+
+---
+
+## Low-Level API: Raw Subscriptions
+
+The following sections cover the raw subscription API for advanced use cases 
+(custom buffering, multiple callbacks, etc.).
+
+---
+
 ## Camera Streaming
 
 ### Basic Camera Streaming

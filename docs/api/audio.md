@@ -492,6 +492,44 @@ device.is_output   # bool: True if this is an output (speaker) device
 
 ---
 
+### Standalone Device Functions
+
+These functions work without a robot connection and can be used for device discovery.
+
+#### `list_audio_devices()`
+
+List available audio devices with optional filtering.
+
+```python
+from pib3 import list_audio_devices
+
+# List all devices
+all_devices = list_audio_devices()
+
+# List only input devices (microphones)
+inputs = list_audio_devices(input=True, output=False)
+
+# List only output devices (speakers)
+outputs = list_audio_devices(input=False, output=True)
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `input` | `bool` | `True` | Include input (microphone) devices |
+| `output` | `bool` | `True` | Include output (speaker) devices |
+
+**Returns:** `List[AudioDevice]`
+
+!!! note "Deprecated Functions"
+    The following functions are deprecated and will be removed in a future version:
+    
+    - `list_audio_input_devices()` → Use `list_audio_devices(input=True, output=False)`
+    - `list_audio_output_devices()` → Use `list_audio_devices(input=False, output=True)`
+
+---
+
 #### `AudioStreamReceiver`
 
 Helper class for buffering and saving audio from the robot's microphone.

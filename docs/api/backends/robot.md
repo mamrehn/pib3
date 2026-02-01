@@ -77,6 +77,39 @@ robot = Robot(
 
 ---
 
+## Subsystem Properties
+
+The robot provides high-level subsystem APIs for simplified access to AI and camera features.
+
+### `robot.ai`
+
+Access the [AI subsystem](../ai-camera-subsystems.md#aisubsystem-robotai) for AI inference with auto-managed subscriptions.
+
+```python
+with Robot(host="172.26.34.149") as robot:
+    robot.ai.set_model(AIModel.HAND)
+    for hand in robot.ai.get_hand_landmarks():
+        print(f"{hand.handedness}: index={hand.finger_angles.index:.0f}°")
+```
+
+### `robot.camera`
+
+Access the [camera subsystem](../ai-camera-subsystems.md#camerasubsystem-robotcamera) for camera streaming with auto-managed subscriptions.
+
+```python
+with Robot(host="172.26.34.149") as robot:
+    frame = robot.camera.get_frame()
+    if frame:
+        img = frame.to_numpy()  # Requires OpenCV
+```
+
+!!! tip "Subsystems vs Raw Subscriptions"
+    For most use cases, use `robot.ai` and `robot.camera` instead of the low-level 
+    `subscribe_ai_detections()` and `subscribe_camera_image()` methods. The subsystems 
+    automatically manage subscription lifecycle and provide typed return values.
+
+---
+
 ## Connection
 
 ### connect()

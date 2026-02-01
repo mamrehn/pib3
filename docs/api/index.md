@@ -13,9 +13,17 @@ pib3
 │
 ├── Core Types
 │   ├── Joint                    # Enum for joint names (IDE autocomplete)
+│   ├── AIModel                  # Enum for AI models (YOLOV8N, HAND, POSE, etc.)
 │   ├── Stroke                   # Single continuous line
 │   ├── Sketch                   # Collection of strokes
 │   └── Trajectory               # Robot joint positions
+│
+├── AI/Camera Types
+│   ├── Detection                # Object detection result
+│   ├── HandLandmarks            # Hand tracking with finger angles
+│   ├── FingerAngles             # Finger bend angles → servo values
+│   ├── PoseKeypoints            # Body pose estimation
+│   └── CameraFrame              # Single camera frame
 │
 ├── Configuration
 │   ├── TrajectoryConfig         # Main configuration
@@ -25,8 +33,13 @@ pib3
 │
 ├── Backends
 │   ├── Robot / RealRobotBackend # Real robot via rosbridge
-
+│   │   ├── robot.ai             # AI subsystem (simplified API)
+│   │   └── robot.camera         # Camera subsystem (simplified API)
 │   └── Webots / WebotsBackend   # Webots simulator
+│
+├── Kinematics
+│   ├── PibLeft / PibRight       # DH models for arm kinematics
+│   └── camera_to_base()         # Coordinate transformations
 │
 └── Hand Poses
     ├── HandPose                 # Preset hand poses (enum)
@@ -55,14 +68,21 @@ pib3
 | [`Sketch`](types.md#pib3.types.Sketch) | Collection of strokes |
 | [`Trajectory`](trajectory.md#pib3.trajectory.Trajectory) | Robot joint positions over time |
 | [`Joint`](types.md) | Enum for joint names with IDE autocomplete |
+| [`AIModel`](ai-camera-subsystems.md#aimodel-enum) | Enum for AI models with IDE autocomplete |
 
 ### Backends
 
 | Backend | Description |
 |---------|-------------|
 | [`RealRobotBackend`](backends/robot.md) | Control real PIB robot |
-
 | [`WebotsBackend`](backends/webots.md) | Webots simulator |
+
+### AI/Camera Subsystems
+
+| Subsystem | Description |
+|-----------|-------------|
+| [`robot.ai`](ai-camera-subsystems.md#aisubsystem-robotai) | AI inference with auto-managed subscriptions |
+| [`robot.camera`](ai-camera-subsystems.md#camerasubsystem-robotcamera) | Camera streaming with auto-managed subscriptions |
 
 ## Import Examples
 
@@ -130,5 +150,17 @@ with Robot(host="172.26.34.149") as robot:
     ---
 
     Audio playback, TTS, and recording
+
+-   :material-robot: **[AI & Camera Subsystems](ai-camera-subsystems.md)**
+
+    ---
+
+    Simplified AI inference and camera APIs
+
+-   :material-axis-arrow: **[Kinematics](kinematics.md)**
+
+    ---
+
+    DH models and coordinate transformations
 
 </div>
