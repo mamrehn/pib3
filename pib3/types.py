@@ -21,6 +21,43 @@ class AiTaskType(str, Enum):
     POSE = "pose"
 
 
+class AIModel(str, Enum):
+    """Available AI models on the OAK-D Lite camera.
+
+    Use these enum values instead of strings for better IDE support:
+        >>> robot.set_ai_model(AIModel.HAND)
+        >>> robot.set_ai_model(AIModel.YOLOV8N)
+
+    String values still work for backward compatibility:
+        >>> robot.set_ai_model("hand")  # Also valid
+    """
+
+    # Detection models
+    MOBILENET_SSD = "mobilenet-ssd"
+    YOLOV6N = "yolov6n"
+    YOLOV8N = "yolov8n"
+    YOLO11S = "yolo11s"
+    YOLO11N = "yolo11n"
+
+    # Hand tracking
+    HAND = "hand"
+
+    # Pose estimation
+    POSE_YOLO = "pose_yolo"
+    POSE = "pose"
+
+    # Segmentation
+    DEEPLABV3 = "deeplabv3"
+    YOLOV8N_SEG = "yolov8n-seg"
+    FASTSAM = "fastsam"
+
+    # Gaze estimation
+    GAZE = "gaze"
+
+    # Line detection
+    LINES = "lines"
+
+
 class Joint(str, Enum):
     """PIB robot joint names for IDE tab completion.
 

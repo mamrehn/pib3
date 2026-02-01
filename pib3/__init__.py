@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 # Core types
-from .types import Joint, Sketch, Stroke, HandPose, LEFT_HAND_JOINTS, RIGHT_HAND_JOINTS
+from .types import Joint, Sketch, Stroke, HandPose, LEFT_HAND_JOINTS, RIGHT_HAND_JOINTS, AIModel
 
 # Configuration
 from .config import (
@@ -60,6 +60,15 @@ from .backends import (
     # Low-latency motor control helpers
     build_motor_mapping,
     PIB_SERVO_CHANNELS,
+    # Camera/AI types
+    Detection,
+    HandLandmarks,
+    FingerAngles,
+    PoseKeypoints,
+    BoundingBox,
+    CameraFrameReceiver,
+    AIDetectionReceiver,
+    COCO_LABELS,
     # Unified audio system - enums
     AudioOutput,
     AudioInput,
@@ -90,6 +99,7 @@ __all__ = [
     "Stroke",
     "Sketch",
     "Trajectory",
+    "AIModel",
     # Config
     "ImageConfig",
     "IKConfig",
@@ -108,6 +118,15 @@ __all__ = [
     # Low-latency motor control
     "build_motor_mapping",
     "PIB_SERVO_CHANNELS",
+    # Camera/AI types
+    "Detection",
+    "HandLandmarks",
+    "FingerAngles",
+    "PoseKeypoints",
+    "BoundingBox",
+    "CameraFrameReceiver",
+    "AIDetectionReceiver",
+    "COCO_LABELS",
     # Aliases
     "Webots",
     "Robot",

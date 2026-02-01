@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 from .base import RobotBackend
 from .audio import AudioOutput, AudioInput, RobotAudioPlayer, RobotAudioRecorder, DEFAULT_SAMPLE_RATE
 from ..config import RobotConfig, LowLatencyConfig
-from ..types import ImuType, AiTaskType
+from ..types import ImuType, AiTaskType, AIModel
 
 # Type alias for Tinkerforge motor mapping: motor_name -> (bricklet_uid, channel)
 TinkerforgeMotorMapping = Dict[str, Tuple[str, int]]
@@ -1559,16 +1559,38 @@ class RealRobotBackend(RobotBackend):
 
         Inference only runs while subscribed (on-demand activation).
         Results format depends on the currently loaded model type
-        (detection, classification, segmentation, or pose).
+        (detection, pose, hand, segmentation, etc.).
+
+        For typed results, use with AIDetectionReceiver from pib3.backends.camera:
+
+            >>> from pib3.backends import AIDetectionReceiver
+            >>> receiver = AIDetectionReceiver()
+            >>> sub = robot.subscribe_ai_detections(receiver.on_detection)
+            >>> time.sleep(5)
+            >>> sub.unsubscribe()
+            >>>
+            >>> # Get typed Detection objects
+            >>> for det in receiver.get_detections():
+            ...     print(f"{det.label}: {det.confidence:.2f}")
+            >>>
+            >>> # Get typed HandLandmarks with finger angles
+            >>> for hand in receiver.get_hand_landmarks():
+            ...     print(f"{hand.handedness}: angles={hand.finger_angles}")
+            >>>
+            >>> # Check FPS/latency
+            >>> print(f"FPS: {receiver.fps:.1f}, Latency: {receiver.avg_latency_ms:.1f}ms")
 
         Args:
             callback: Called with detection dict containing:
-                - model: str - Model name (e.g., "mobilenet-ssd")
-                - type: str - "detection", "classification", "segmentation", "pose"
+                - model: str - Model name (e.g., "yolov6n", "hand", "pose_yolo")
+                - type: str - "detection", "hand", "pose", "instance-segmentation"
                 - frame_id: int - Frame sequence number
                 - timestamp_ns: int - Timestamp in nanoseconds
                 - latency_ms: float - Inference latency
-                - result: dict - Model-specific results
+                - result: dict - Model-specific results:
+                    - detection: {"detections": [{"label", "confidence", "bbox"}]}
+                    - hand: {"keypoints": [...], "finger_angles": {...}, "handedness": {...}}
+                    - pose: {"keypoints": [...]} or {"detections": [...with keypoints...]}
 
         Returns:
             Topic object (call .unsubscribe() when done to stop inference).
@@ -1578,6 +1600,9 @@ class RealRobotBackend(RobotBackend):
             ...     if data['type'] == 'detection':
             ...         for det in data['result']['detections']:
             ...             print(f"Found class {det['label']} at {det['bbox']}")
+            ...     elif data['type'] == 'hand':
+            ...         angles = data['result'].get('finger_angles', {})
+            ...         print(f"Index angle: {angles.get('index', 0):.1f}°")
             >>> sub = robot.subscribe_ai_detections(on_detection)
         """
         if not self.is_connected:
@@ -1640,7 +1665,11 @@ class RealRobotBackend(RobotBackend):
         topic.unsubscribe()
         return result
 
-    def set_ai_model(self, model_name: str, timeout: float = 5.0) -> bool:
+    def set_ai_model(
+        self,
+        model: Union[AIModel, str],
+        timeout: float = 5.0,
+    ) -> bool:
         """
         Switch AI model on the OAK-D Lite camera (synchronous).
 
@@ -1651,8 +1680,13 @@ class RealRobotBackend(RobotBackend):
         as the pipeline rebuilds with the new neural network.
 
         Args:
-            model_name: One of the available model names
-                (e.g., "mobilenet-ssd", "yolov8n", "deeplabv3").
+            model: AI model to load. Can be an AIModel enum value or string.
+                Use AIModel enum for IDE autocompletion:
+                    >>> robot.set_ai_model(AIModel.HAND)
+                    >>> robot.set_ai_model(AIModel.YOLOV8N)
+                Or use string names:
+                    >>> robot.set_ai_model("hand")
+                    >>> robot.set_ai_model("yolov8n")
             timeout: Maximum time to wait for model switch confirmation
                 (default: 5.0 seconds).
 
@@ -1660,14 +1694,17 @@ class RealRobotBackend(RobotBackend):
             True if model switch confirmed, False if timeout occurred.
 
         Example:
-            >>> models = robot.get_available_ai_models()
-            >>> print(list(models.keys()))
-            ['mobilenet-ssd', 'yolov8n', 'yolo11s', ...]
-            >>> robot.set_ai_model("yolov8n")
-            True
+            >>> from pib3 import Robot, AIModel
+            >>> with Robot(host="...") as robot:
+            ...     robot.set_ai_model(AIModel.HAND)
+            ...     robot.set_ai_model(AIModel.YOLOV8N)
+            ...     robot.set_ai_model("mobilenet-ssd")  # String also works
         """
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
+
+        # Convert AIModel enum to string value
+        model_name = model.value if isinstance(model, AIModel) else str(model)
 
         import threading
         import roslibpy
@@ -1708,7 +1745,7 @@ class RealRobotBackend(RobotBackend):
 
     def set_ai_config(
         self,
-        model: Optional[str] = None,
+        model: Optional[Union[AIModel, str]] = None,
         confidence: Optional[float] = None,
         segmentation_mode: Optional[str] = None,
         segmentation_target_class: Optional[int] = None,
@@ -1717,7 +1754,7 @@ class RealRobotBackend(RobotBackend):
         Configure AI inference settings.
 
         Args:
-            model: Model name to switch to.
+            model: Model to switch to (AIModel enum or string).
             confidence: Detection confidence threshold (0.0-1.0).
             segmentation_mode: "bbox" (lightweight) or "mask" (detailed RLE).
             segmentation_target_class: Class ID for mask mode segmentation.
@@ -1732,7 +1769,8 @@ class RealRobotBackend(RobotBackend):
 
         config = {}
         if model is not None:
-            config['model'] = model
+            # Convert AIModel enum to string value
+            config['model'] = model.value if isinstance(model, AIModel) else str(model)
         if confidence is not None:
             config['confidence'] = confidence
         if segmentation_mode is not None:

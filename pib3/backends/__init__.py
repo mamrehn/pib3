@@ -3,6 +3,28 @@
 from .base import RobotBackend
 from .webots import WebotsBackend
 from .robot import RealRobotBackend, rle_decode, build_motor_mapping, PIB_SERVO_CHANNELS
+from .camera import (
+    # Dataclasses
+    BoundingBox,
+    Detection,
+    Keypoint,
+    FingerAngles,
+    HandLandmarks,
+    PoseKeypoints,
+    AIModelInfo,
+    CameraFrame,
+    # Enums
+    AiModelType,
+    Handedness,
+    # Receivers
+    CameraFrameReceiver,
+    AIDetectionReceiver,
+    # Utilities
+    rle_decode as camera_rle_decode,
+    parse_ai_result,
+    # Constants
+    COCO_LABELS,
+)
 from .audio import (
     # Unified audio system - enums
     AudioOutput,
@@ -38,6 +60,25 @@ __all__ = [
     # Low-latency motor control helpers
     "build_motor_mapping",
     "PIB_SERVO_CHANNELS",
+    # Camera/AI dataclasses
+    "BoundingBox",
+    "Detection",
+    "Keypoint",
+    "FingerAngles",
+    "HandLandmarks",
+    "PoseKeypoints",
+    "AIModelInfo",
+    "CameraFrame",
+    # Camera/AI enums
+    "AiModelType",
+    "Handedness",
+    # Camera/AI receivers
+    "CameraFrameReceiver",
+    "AIDetectionReceiver",
+    # Camera/AI utilities
+    "camera_rle_decode",
+    "parse_ai_result",
+    "COCO_LABELS",
     # Unified audio system - enums
     "AudioOutput",
     "AudioInput",
