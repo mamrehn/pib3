@@ -269,19 +269,17 @@ def run_hand_test(
     """Run tests on one hand, with parallel ROS readout."""
     print_separator(f"Testing {hand} Hand")
 
-    # Test write to first finger
-    test_motor = motors[0]
-    print(f"\n  Using {test_motor} for write test...")
+    # Test write to ALL finger motors
+    for motor in motors:
+        print(f"\n  Moving {motor} to 50% (neutral)...")
+        robot.set_joint(motor, 50.0, unit="percent")
 
-    # Move to known position
-    robot.set_joint(test_motor, 50.0, unit="percent")
-
-    # Test write (with parallel ROS monitoring)
-    success = test_low_latency_write(robot, test_motor, [30.0, 70.0, 50.0], monitor)
-    if success:
-        print(f"  [OK] Write test passed for {test_motor}")
-    else:
-        print(f"  [FAIL] Write test failed for {test_motor}")
+    for motor in motors:
+        success = test_low_latency_write(robot, motor, [30.0, 70.0, 50.0], monitor)
+        if success:
+            print(f"  [OK] Write test passed for {motor}")
+        else:
+            print(f"  [FAIL] Write test failed for {motor}")
 
     # Test read
     positions = test_low_latency_read(robot, motors)
