@@ -119,14 +119,14 @@ def print_separator(title: str = ""):
         print("-" * 60)
 
 
-def test_discover_bricklets(robot: Robot) -> List[str]:
-    """Test servo bricklet discovery."""
-    print_separator("Step 1: Discovering Servo Bricklets")
+def discover_bricklets(robot: Robot, timeout: float = 2.0) -> List[str]:
+    """Discover servo bricklet UIDs via the existing connection."""
+    print_separator("Discovering Servo Bricklets")
 
-    uids = robot.discover_servo_bricklets(timeout=2.0)
+    uids = robot.discover_servo_bricklets(timeout=timeout)
 
     if not uids:
-        print("[FAIL] No servo bricklets found!")
+        print("[WARN] No servo bricklets found via discovery.")
         print("       Make sure Tinkerforge Brick Daemon is running on the robot.")
         return []
 
@@ -268,40 +268,16 @@ def main():
     print(f"Robot host: {args.host}")
     print(f"Testing: {'Left hand only' if args.left_only else 'Right hand only' if args.right_only else 'Both hands'}")
 
-    # First connect without low-latency to discover UIDs
-    print_separator("Connecting to Robot")
+    servo1_uid = args.servo1_uid
+    servo2_uid = args.servo2_uid
+    servo3_uid = args.servo3_uid
 
-    try:
-        with Robot(host=args.host) as robot:
-            print(f"[OK] Connected to robot at {args.host}")
+    print(f"\nUsing UIDs:")
+    print(f"  Servo 1 (right arm): {servo1_uid}")
+    print(f"  Servo 2 (shoulders): {servo2_uid}")
+    print(f"  Servo 3 (left arm):  {servo3_uid}")
 
-            # Discover bricklets if UIDs not provided
-            if not all([args.servo1_uid, args.servo2_uid, args.servo3_uid]):
-                uids = test_discover_bricklets(robot)
-                if len(uids) < 3:
-                    print("\n[ERROR] Need 3 servo bricklets. Provide UIDs manually with --servo1-uid etc.")
-                    return 1
-
-                servo1_uid = args.servo1_uid or uids[0]
-                servo2_uid = args.servo2_uid or uids[1]
-                servo3_uid = args.servo3_uid or uids[2]
-            else:
-                servo1_uid = args.servo1_uid
-                servo2_uid = args.servo2_uid
-                servo3_uid = args.servo3_uid
-
-            print(f"\nUsing UIDs:")
-            print(f"  Servo 1 (right arm): {servo1_uid}")
-            print(f"  Servo 2 (shoulders): {servo2_uid}")
-            print(f"  Servo 3 (left arm):  {servo3_uid}")
-
-    except Exception as e:
-        print(f"[ERROR] Failed to connect: {e}")
-        return 1
-
-    # Now connect with low-latency mode
-    print_separator("Step 2: Enabling Low-Latency Mode")
-
+    # Build motor mapping and config up front
     mapping = build_motor_mapping(servo1_uid, servo2_uid, servo3_uid)
 
     # Filter to only hand motors for safety
@@ -314,11 +290,18 @@ def main():
         sync_to_ros=True,
     )
 
+    # Single connection: rosbridge + Tinkerforge low-latency
     try:
         with Robot(host=args.host, low_latency=config) as robot:
-            print(f"[OK] Low-latency mode enabled")
-            print(f"     low_latency_available: {robot.low_latency_available}")
-            print(f"     low_latency_enabled: {robot.low_latency_enabled}")
+            print(f"[OK] Connected to robot at {args.host}")
+
+            # Discover bricklets (uses the already-open Tinkerforge connection)
+            discover_bricklets(robot)
+
+            # Low-latency status
+            print_separator("Low-Latency Status")
+            print(f"  low_latency_available: {robot.low_latency_available}")
+            print(f"  low_latency_enabled: {robot.low_latency_enabled}")
 
             # Start ROS topic monitor
             monitor = ROSTopicMonitor(robot)
@@ -333,7 +316,7 @@ def main():
                 run_hand_test(robot, "Right", RIGHT_HAND_MOTORS)
 
             # Test ROS topic population
-            print_separator("Step 3: Testing ROS Topic Population")
+            print_separator("Testing ROS Topic Population")
             print("\nThis tests whether low-latency commands appear in ROS topics.")
             print("Expected: NO updates (low-latency bypasses ROS to avoid double commands)\n")
 
