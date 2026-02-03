@@ -118,8 +118,8 @@ class RobotBackend(ABC):
         ...     saved_pose = robot.get_joints()
         ...     robot.set_joints(saved_pose)
         ...
-        ...     # Set and wait for completion
-        ...     success = robot.set_joint(Joint.ELBOW_LEFT, 50.0, async_=False)
+        ...     # Fire-and-forget (don't wait for completion)
+        ...     robot.set_joint(Joint.ELBOW_LEFT, 50.0, async_=True)
     """
 
     # Motor names available on PIB robot
@@ -919,8 +919,8 @@ class RobotBackend(ABC):
         motor_name: MotorNameType,
         position: float,
         unit: UnitType = "percent",
-        async_: bool = True,
-        timeout: float = 1.0,
+        async_: bool = False,
+        timeout: float = 2.0,
         tolerance: Optional[float] = None,
     ) -> bool:
         """
@@ -930,7 +930,8 @@ class RobotBackend(ABC):
             motor_name: Motor name as string or Joint enum (e.g., Joint.ELBOW_LEFT).
             position: Target position in specified unit.
             unit: Unit for position ("percent", "deg", or "rad"). Default: "percent".
-            async_: If True, return immediately. If False, wait for completion.
+            async_: If True, return immediately. If False (default), wait for
+                completion by polling the actual position until it matches.
             timeout: Max wait time when async_=False (seconds).
             tolerance: Position tolerance. Defaults to 2%, 3°, or 0.05 rad.
 
@@ -939,9 +940,9 @@ class RobotBackend(ABC):
 
         Example:
             >>> from pib3 import Joint
-            >>> backend.set_joint(Joint.ELBOW_LEFT, 50.0)  # 50% of range
+            >>> backend.set_joint(Joint.ELBOW_LEFT, 50.0)  # waits for completion
             >>> backend.set_joint(Joint.ELBOW_LEFT, -30.0, unit="deg")
-            >>> backend.set_joint(Joint.ELBOW_LEFT, 50.0, async_=False)  # wait
+            >>> backend.set_joint(Joint.ELBOW_LEFT, 50.0, async_=True)  # fire-and-forget
         """
         motor_str = str(motor_name.value if isinstance(motor_name, Joint) else motor_name)
         return self.set_joints(
@@ -956,8 +957,8 @@ class RobotBackend(ABC):
         self,
         positions: Union[Dict[MotorNameType, float], Sequence[float], HandPose],
         unit: UnitType = "percent",
-        async_: bool = True,
-        timeout: float = 1.0,
+        async_: bool = False,
+        timeout: float = 2.0,
         tolerance: Optional[float] = None,
     ) -> bool:
         """
@@ -968,7 +969,8 @@ class RobotBackend(ABC):
                       sequence of positions for all MOTOR_NAMES in order,
                       or a HandPose enum member.
             unit: Unit for positions ("percent", "deg", or "rad"). Default: "percent".
-            async_: If True, return immediately. If False, wait for completion.
+            async_: If True, return immediately. If False (default), wait for
+                completion by polling actual positions until they match.
             timeout: Max wait time when async_=False (seconds).
             tolerance: Position tolerance. Defaults to 2%, 3°, or 0.05 rad.
 
@@ -980,7 +982,7 @@ class RobotBackend(ABC):
             >>> backend.set_joints({
             ...     Joint.SHOULDER_VERTICAL_LEFT: 50.0,
             ...     Joint.ELBOW_LEFT: 0.0,
-            ... })
+            ... })  # waits for completion
             >>> backend.set_joints({Joint.ELBOW_LEFT: -30.0}, unit="deg")
             >>> backend.set_joints(HandPose.LEFT_CLOSED)  # Hand pose preset
         """

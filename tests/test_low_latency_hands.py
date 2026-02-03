@@ -174,17 +174,40 @@ def discover_bricklets(robot: Robot, timeout: float = 2.0) -> List[str]:
     return uids
 
 
-def test_low_latency_write(robot: Robot, motor: str, positions: List[float]) -> bool:
-    """Test low-latency write to a single motor."""
+def test_low_latency_write(
+    robot: Robot,
+    motor: str,
+    positions: List[float],
+    monitor: Optional[ROSTopicMonitor] = None,
+) -> bool:
+    """Test low-latency write to a single motor, with parallel ROS readout."""
     print(f"\n  Testing write to {motor}...")
 
     for pos in positions:
         try:
-            # async_=False waits for motor to reach target position
-            reached = robot.set_joint(motor, pos, unit="percent", async_=False, timeout=2.0)
+            # Clear ROS monitor to check if this command propagates
+            if monitor:
+                monitor.clear()
+            before = time.time()
+
+            reached = robot.set_joint(motor, pos, unit="percent")
             current = robot.get_joint(motor, unit="percent")
             status = "OK" if reached else "TIMEOUT"
-            print(f"    Set {pos:.0f}% -> Read {current:.1f}% [{status}]")
+
+            # Check if ROS topic received the update
+            ros_status = ""
+            if monitor:
+                time.sleep(0.1)  # Brief wait for ROS message propagation
+                updates = monitor.get_updates_since(before)
+                ros_positions = {}
+                for u in updates:
+                    ros_positions.update(u.get("positions", {}))
+                if motor in ros_positions:
+                    ros_status = f" | ROS: {ros_positions[motor]:.1f}"
+                else:
+                    ros_status = " | ROS: no update"
+
+            print(f"    Set {pos:.0f}% -> Tinkerforge: {current:.1f}% [{status}]{ros_status}")
         except Exception as e:
             print(f"    [ERROR] {e}")
             return False
@@ -219,9 +242,9 @@ def test_ros_topic_population(
     monitor.clear()
     before_time = time.time()
 
-    # Send a low-latency command (synchronous)
-    robot.set_joint(motor, 30.0, unit="percent", async_=False, timeout=2.0)
-    robot.set_joint(motor, 70.0, unit="percent", async_=False, timeout=2.0)
+    # Send a low-latency command
+    robot.set_joint(motor, 30.0, unit="percent")
+    robot.set_joint(motor, 70.0, unit="percent")
 
     # Check if ROS topic received updates
     updates = monitor.get_updates_since(before_time)
@@ -237,19 +260,24 @@ def test_ros_topic_population(
         return False
 
 
-def run_hand_test(robot: Robot, hand: str, motors: List[str]):
-    """Run tests on one hand."""
+def run_hand_test(
+    robot: Robot,
+    hand: str,
+    motors: List[str],
+    monitor: Optional[ROSTopicMonitor] = None,
+):
+    """Run tests on one hand, with parallel ROS readout."""
     print_separator(f"Testing {hand} Hand")
 
     # Test write to first finger
     test_motor = motors[0]
     print(f"\n  Using {test_motor} for write test...")
 
-    # Move to known position (synchronous)
-    robot.set_joint(test_motor, 50.0, unit="percent", async_=False, timeout=2.0)
+    # Move to known position
+    robot.set_joint(test_motor, 50.0, unit="percent")
 
-    # Test write
-    success = test_low_latency_write(robot, test_motor, [30.0, 70.0, 50.0])
+    # Test write (with parallel ROS monitoring)
+    success = test_low_latency_write(robot, test_motor, [30.0, 70.0, 50.0], monitor)
     if success:
         print(f"  [OK] Write test passed for {test_motor}")
     else:
@@ -351,14 +379,14 @@ def main():
             monitor.start()
             time.sleep(0.5)  # Wait for subscription
 
-            # Run tests
+            # Run tests (with parallel ROS monitoring)
             if not args.right_only:
-                run_hand_test(robot, "Left", LEFT_HAND_MOTORS)
+                run_hand_test(robot, "Left", LEFT_HAND_MOTORS, monitor)
 
             if not args.left_only:
-                run_hand_test(robot, "Right", RIGHT_HAND_MOTORS)
+                run_hand_test(robot, "Right", RIGHT_HAND_MOTORS, monitor)
 
-            # Test ROS topic population
+            # Dedicated ROS topic population test
             print_separator("Testing ROS Topic Population")
             print("\nThis tests whether low-latency commands appear in ROS topics.")
             print("Expected: NO updates (low-latency bypasses ROS to avoid double commands)\n")

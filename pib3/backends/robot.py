@@ -233,6 +233,8 @@ class RealRobotBackend(RobotBackend):
         self._tinkerforge_conn = None
         self._tinkerforge_servos: Dict[str, "BrickletServoV2"] = {}
         self._tinkerforge_motor_map: TinkerforgeMotorMapping = {}
+        # Cache enabled state to avoid redundant USB calls: {(uid, channel): bool}
+        self._servo_enabled_cache: Dict[Tuple[str, int], bool] = {}
 
         # Subsystems (lazy-initialized)
         self._ai_subsystem = None
@@ -576,6 +578,8 @@ class RealRobotBackend(RobotBackend):
 
         # Auto-configure all channels with default settings
         if auto_configure and self._tinkerforge_servos:
+            # Initialize cache for all mapped motors as False (unknown/disabled)
+            self._servo_enabled_cache.clear()
             self.configure_all_servo_channels()
             logger.info("Auto-configured all servo channels with default settings")
 
@@ -589,6 +593,7 @@ class RealRobotBackend(RobotBackend):
             self._tinkerforge_conn = None
             self._tinkerforge_servos.clear()
             self._tinkerforge_motor_map.clear()
+            self._servo_enabled_cache.clear()
 
     @property
     def low_latency_available(self) -> bool:
@@ -673,6 +678,9 @@ class RealRobotBackend(RobotBackend):
         velocity: int = 9000,
         acceleration: int = 9000,
         deceleration: int = 9000,
+        period: int = 19500,
+        degree_min: int = -9000,
+        degree_max: int = 9000,
     ) -> bool:
         """
         Configure Tinkerforge servo channel settings for a motor.
@@ -688,6 +696,9 @@ class RealRobotBackend(RobotBackend):
             velocity: Maximum velocity in 0.01°/s (default: 9000 = 90°/s).
             acceleration: Acceleration in 0.01°/s² (default: 9000).
             deceleration: Deceleration in 0.01°/s² (default: 9000).
+            period: PWM period in microseconds (default: 19500 = 19.5ms).
+            degree_min: Min abstract angle in 0.01° (default: -9000 = -90°).
+            degree_max: Max abstract angle in 0.01° (default: 9000 = 90°).
 
         Returns:
             True if configuration was successful.
@@ -713,11 +724,14 @@ class RealRobotBackend(RobotBackend):
             return False
 
         try:
+            servo.set_period(channel, period)
+            servo.set_degree(channel, degree_min, degree_max)
             servo.set_pulse_width(channel, pulse_width_min, pulse_width_max)
             servo.set_motion_configuration(channel, velocity, acceleration, deceleration)
             logger.debug(
                 f"Configured servo {motor_name}: pulse_width=[{pulse_width_min}, {pulse_width_max}], "
-                f"motion=[{velocity}, {acceleration}, {deceleration}]"
+                f"motion=[{velocity}, {acceleration}, {deceleration}], "
+                f"period={period}, degrees=[{degree_min}, {degree_max}]"
             )
             return True
         except Exception as e:
@@ -728,9 +742,9 @@ class RealRobotBackend(RobotBackend):
         self,
         pulse_width_min: int = 700,
         pulse_width_max: int = 2500,
-        velocity: int = 9000,
-        acceleration: int = 9000,
-        deceleration: int = 9000,
+        velocity: int = 0,
+        acceleration: int = 0,
+        deceleration: int = 0,
     ) -> bool:
         """
         Configure all mapped servo channels with the same settings.
@@ -741,9 +755,12 @@ class RealRobotBackend(RobotBackend):
         Args:
             pulse_width_min: Minimum PWM pulse width in microseconds (default: 700).
             pulse_width_max: Maximum PWM pulse width in microseconds (default: 2500).
-            velocity: Maximum velocity in 0.01°/s (default: 9000 = 90°/s).
-            acceleration: Acceleration in 0.01°/s² (default: 9000).
-            deceleration: Deceleration in 0.01°/s² (default: 9000).
+            velocity: Maximum velocity in 0.01°/s (default: 0 = no limit / max speed).
+            acceleration: Acceleration in 0.01°/s² (default: 0 = no limit).
+            deceleration: Deceleration in 0.01°/s² (default: 0 = no limit).
+            period: PWM period in microseconds (default: 19500 = 19.5ms).
+            degree_min: Min abstract angle in 0.01° (default: -9000 = -90°).
+            degree_max: Max abstract angle in 0.01° (default: 9000 = 90°).
 
         Returns:
             True if all channels were configured successfully.
@@ -757,6 +774,9 @@ class RealRobotBackend(RobotBackend):
                 velocity=velocity,
                 acceleration=acceleration,
                 deceleration=deceleration,
+                period=period,
+                degree_min=degree_min,
+                degree_max=degree_max,
             )
             all_success = all_success and success
         return all_success
@@ -796,7 +816,12 @@ class RealRobotBackend(RobotBackend):
             # Velocity is in 0.01°/s
 
             # Enable the servo channel if not already enabled
-            servo.set_enable(channel, True)
+            # Caching enabled state avoids redundant USB traffic (which is significant at high rates)
+            cache_key = (uid, channel)
+            if not self._servo_enabled_cache.get(cache_key, False):
+                servo.set_enable(channel, True)
+                self._servo_enabled_cache[cache_key] = True
+
 
             # Set velocity if provided (overrides motion_configuration velocity)
             if velocity_centideg is not None:
@@ -1249,7 +1274,9 @@ class RealRobotBackend(RobotBackend):
 
         return result
 
-    # Default velocity for motor movements (centidegrees per second)
+    # Default velocity for ROS motor movements (centidegrees per second).
+    # Used only for ROS-based commands; low-latency (Tinkerforge) commands
+    # use the hardware's configured velocity (velocity=0 means no limit).
     DEFAULT_VELOCITY_CENTIDEG = 10000  # 100 degrees/sec
 
     def _set_joints_impl(
@@ -1267,7 +1294,9 @@ class RealRobotBackend(RobotBackend):
 
         Args:
             positions_radians: Dict mapping motor names to positions in radians.
-            velocity_centideg: Velocity in centidegrees/sec. If None, uses default.
+            velocity_centideg: Velocity in centidegrees/sec. If None, uses the
+                hardware's configured velocity for low-latency mode, or
+                DEFAULT_VELOCITY_CENTIDEG for ROS mode.
             low_latency: Override low_latency setting for this call.
                 - None: Use configured default (LowLatencyConfig.enabled)
                 - True: Force low-latency mode (if available)
@@ -1283,15 +1312,19 @@ class RealRobotBackend(RobotBackend):
         if not self.is_connected:
             return False
 
-        if velocity_centideg is None:
-            velocity_centideg = self.DEFAULT_VELOCITY_CENTIDEG
-
         # Determine whether to use low-latency mode
         use_low_latency = (
             low_latency if low_latency is not None
             else self._low_latency_config.enabled
         )
         use_low_latency = use_low_latency and self.low_latency_available
+
+        # For ROS commands, always need a velocity value
+        ros_velocity = velocity_centideg if velocity_centideg is not None else self.DEFAULT_VELOCITY_CENTIDEG
+
+        # For low-latency (Tinkerforge), only override velocity if explicitly provided.
+        # None means "use whatever the hardware already has configured" (typically no limit).
+        tf_velocity = int(velocity_centideg) if velocity_centideg is not None else None
 
         all_successful = True
         motors_via_ros = {}  # Motors that couldn't be set directly
@@ -1305,7 +1338,7 @@ class RealRobotBackend(RobotBackend):
                 success = self._set_motor_direct(
                     motor_name,
                     centidegrees,
-                    velocity_centideg=int(velocity_centideg),
+                    velocity_centideg=tf_velocity,
                 )
 
                 if not success:
@@ -1313,17 +1346,17 @@ class RealRobotBackend(RobotBackend):
                     motors_via_ros[joint_name] = position
                 elif self._low_latency_config.sync_to_ros:
                     # Optionally sync to ROS topic for visibility
-                    self._sync_position_to_ros(motor_name, centidegrees, velocity_centideg)
+                    self._sync_position_to_ros(motor_name, centidegrees, ros_velocity)
 
             # Fall back to ROS for motors not in Tinkerforge mapping
             if motors_via_ros:
-                ros_success = self._set_joints_via_ros(motors_via_ros, velocity_centideg)
+                ros_success = self._set_joints_via_ros(motors_via_ros, ros_velocity)
                 all_successful = all_successful and ros_success
 
             return all_successful
 
         # Standard ROS path
-        return self._set_joints_via_ros(positions_radians, velocity_centideg)
+        return self._set_joints_via_ros(positions_radians, ros_velocity)
 
     def _set_joints_via_ros(
         self,
