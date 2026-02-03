@@ -2,7 +2,13 @@
 <a href="https://ghloc.vercel.app/mamrehn/pib3?branch=main"><img src="examples/pib3_logo.png" width="440"></a>
 </h1><br>
 
-Repository statistics: 🐍 ![Python LOC](https://img.shields.io/endpoint?url=https://ghloc.vercel.app/api/mamrehn/pib3/badge?filter=.py$&format=human), 📜 ![Documentation LOC](https://img.shields.io/endpoint?url=https://ghloc.vercel.app/api/mamrehn/pib3/badge?filter=.md$&format=human), 🤖 ![Robot Config LOC](https://img.shields.io/endpoint?url=https://ghloc.vercel.app/api/mamrehn/pib3/badge?filter=.proto$,.urdf$,.yaml$,.stl$&format=human)
+Repository statistics:
+
+| Type | Lines of Code |
+| ---- | ------------- |
+| 🐍 Python Code | ![Python LOC](https://img.shields.io/endpoint?url=https://ghloc.vercel.app/api/mamrehn/pib3/badge?filter=.py$&format=human) |
+| 📜 Documentation | ![Documentation LOC](https://img.shields.io/endpoint?url=https://ghloc.vercel.app/api/mamrehn/pib3/badge?filter=.md$&format=human) |
+| 🤖 Robot Definition | ![Robot Config LOC](https://img.shields.io/endpoint?url=https://ghloc.vercel.app/api/mamrehn/pib3/badge?filter=.proto$,.urdf$,.yaml$,.stl$&format=human) |
 
 **piB3** provides motor control, inverse kinematics, and seamless code sharing between digital twin and the [pib](https://pib.rocks/) printable humanoid robot.
 
