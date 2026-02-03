@@ -740,45 +740,42 @@ class RealRobotBackend(RobotBackend):
 
     def configure_all_servo_channels(
         self,
-        pulse_width_min: int = 700,
-        pulse_width_max: int = 2500,
         velocity: int = 0,
         acceleration: int = 0,
         deceleration: int = 0,
     ) -> bool:
         """
-        Configure all mapped servo channels with the same settings.
+        Configure motion parameters for all mapped servo channels.
 
-        Convenience method to initialize all servos with default settings.
-        Call this after configure_motor_mapping() and before using low-latency mode.
+        Sets velocity, acceleration, and deceleration for all motors.
+        Does NOT change degree ranges, pulse widths, or period — those are
+        left at whatever the robot's firmware has configured.
 
         Args:
-            pulse_width_min: Minimum PWM pulse width in microseconds (default: 700).
-            pulse_width_max: Maximum PWM pulse width in microseconds (default: 2500).
             velocity: Maximum velocity in 0.01°/s (default: 0 = no limit / max speed).
             acceleration: Acceleration in 0.01°/s² (default: 0 = no limit).
             deceleration: Deceleration in 0.01°/s² (default: 0 = no limit).
-            period: PWM period in microseconds (default: 19500 = 19.5ms).
-            degree_min: Min abstract angle in 0.01° (default: -9000 = -90°).
-            degree_max: Max abstract angle in 0.01° (default: 9000 = 90°).
 
         Returns:
             True if all channels were configured successfully.
         """
         all_success = True
         for motor_name in self._tinkerforge_motor_map:
-            success = self.configure_servo_channel(
-                motor_name,
-                pulse_width_min=pulse_width_min,
-                pulse_width_max=pulse_width_max,
-                velocity=velocity,
-                acceleration=acceleration,
-                deceleration=deceleration,
-                period=period,
-                degree_min=degree_min,
-                degree_max=degree_max,
-            )
-            all_success = all_success and success
+            uid, channel = self._tinkerforge_motor_map[motor_name]
+            servo = self._tinkerforge_servos.get(uid)
+            if servo is None:
+                logger.warning(f"Servo bricklet {uid} not initialized")
+                all_success = False
+                continue
+            try:
+                servo.set_motion_configuration(channel, velocity, acceleration, deceleration)
+                logger.debug(
+                    f"Configured motion for {motor_name}: "
+                    f"velocity={velocity}, accel={acceleration}, decel={deceleration}"
+                )
+            except Exception as e:
+                logger.error(f"Failed to configure motion for {motor_name}: {e}")
+                all_success = False
         return all_success
 
     def _set_motor_direct(
