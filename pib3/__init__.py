@@ -35,9 +35,8 @@ from typing import Optional, Union
 # Core types
 from .types import Joint, Sketch, Stroke, HandPose, LEFT_HAND_JOINTS, RIGHT_HAND_JOINTS, AIModel
 
-# Configuration - only TrajectoryConfig at top level for simplicity
-# Other configs accessible via pib3.config module
-from .config import TrajectoryConfig
+# Configuration
+from .config import TrajectoryConfig, LowLatencyConfig
 
 # Core functions
 from .image import image_to_sketch
@@ -65,6 +64,9 @@ from .backends import (
     # Audio utilities
     load_audio_file,
     save_audio_file,
+    # Low-latency motor control helpers
+    build_motor_mapping,
+    PIB_SERVO_CHANNELS,
 )
 
 # Convenience aliases
@@ -83,8 +85,9 @@ __all__ = [
     "Sketch",
     "Trajectory",
     "AIModel",
-    # Config - only TrajectoryConfig for simplicity
+    # Config
     "TrajectoryConfig",
+    "LowLatencyConfig",
     # Functions
     "image_to_sketch",
     "sketch_to_trajectory",
@@ -117,6 +120,9 @@ __all__ = [
     # Audio utilities
     "load_audio_file",
     "save_audio_file",
+    # Low-latency motor control helpers
+    "build_motor_mapping",
+    "PIB_SERVO_CHANNELS",
 ]
 
 
