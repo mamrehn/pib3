@@ -37,9 +37,8 @@ pip install -U "pib3 @ git+https://github.com/mamrehn/pib3.git"
 
 If you are installing on Windows and encounter build or compilation errors (commonly when installing packages with native extensions such as `roboticstoolbox`), install the Microsoft Visual C++ Redistributable package first:
 
-https://aka.ms/vc14/vc_redist.x64.exe  # for x64 architecture (default)
-or
-https://aka.ms/vc14/vc_redist.arm64.exe  # for ARM64 architecture (some newer Windows laptops)
+ - [vc_redist.x64.exe](https://aka.ms/vc14/vc_redist.x64.exe) for x64 architecture (default)
+ - [vc_redist.arm64.exe](https://aka.ms/vc14/vc_redist.arm64.exe) for ARM64 architecture (some newer Windows laptops)
 
 if both do not work for you, try installing the [visual-cpp-build-tools](https://visualstudio.microsoft.com/de/visual-cpp-build-tools/) instead.
 
