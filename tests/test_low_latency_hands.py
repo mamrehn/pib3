@@ -239,15 +239,18 @@ def main():
     )
     parser.add_argument(
         "--servo1-uid",
-        help="UID of servo bricklet 1 (right arm). Auto-discovered if not provided.",
+        default="2cPP",
+        help="UID of servo bricklet 1 (right arm). Default: 2cPP",
     )
     parser.add_argument(
         "--servo2-uid",
-        help="UID of servo bricklet 2 (shoulders). Auto-discovered if not provided.",
+        default="2cPm",
+        help="UID of servo bricklet 2 (shoulders). Default: 2cPm",
     )
     parser.add_argument(
         "--servo3-uid",
-        help="UID of servo bricklet 3 (left arm). Auto-discovered if not provided.",
+        default="2cPQ",
+        help="UID of servo bricklet 3 (left arm). Default: 2cPQ",
     )
     parser.add_argument(
         "--left-only",
