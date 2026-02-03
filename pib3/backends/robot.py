@@ -800,7 +800,13 @@ class RealRobotBackend(RobotBackend):
 
             # Set velocity if provided (overrides motion_configuration velocity)
             if velocity_centideg is not None:
-                servo.set_velocity(channel, abs(velocity_centideg))
+                current = servo.get_motion_configuration(channel)
+                servo.set_motion_configuration(
+                    channel,
+                    abs(velocity_centideg),
+                    current.acceleration,
+                    current.deceleration,
+                )
 
             # Set position
             servo.set_position(channel, position_centidegrees)

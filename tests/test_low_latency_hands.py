@@ -119,6 +119,43 @@ def print_separator(title: str = ""):
         print("-" * 60)
 
 
+def check_servo_power_relay(robot: Robot, relay_uid: str) -> bool:
+    """Check if the solid state relay (servo power) is on.
+
+    If off, turn it on so the servos are powered.
+    """
+    print_separator("Checking Servo Power Relay")
+
+    if robot._tinkerforge_conn is None:
+        print("[WARN] Tinkerforge not connected, cannot check relay.")
+        return False
+
+    try:
+        from tinkerforge.bricklet_solid_state_relay_v2 import BrickletSolidStateRelayV2
+
+        ssr = BrickletSolidStateRelayV2(relay_uid, robot._tinkerforge_conn)
+        state = ssr.get_state()
+        print(f"  Relay UID: {relay_uid}")
+        print(f"  Relay state: {'ON' if state else 'OFF'}")
+
+        if not state:
+            print("  [ACTION] Servo power is OFF. Turning ON...")
+            ssr.set_state(True)
+            time.sleep(0.5)
+            state = ssr.get_state()
+            print(f"  Relay state after enable: {'ON' if state else 'OFF'}")
+            if not state:
+                print("  [FAIL] Could not enable servo power relay!")
+                return False
+
+        print("  [OK] Servo power is ON")
+        return True
+
+    except Exception as e:
+        print(f"  [WARN] Could not check relay {relay_uid}: {e}")
+        return False
+
+
 def discover_bricklets(robot: Robot, timeout: float = 2.0) -> List[str]:
     """Discover servo bricklet UIDs via the existing connection."""
     print_separator("Discovering Servo Bricklets")
@@ -253,6 +290,11 @@ def main():
         help="UID of servo bricklet 3 (left arm). Default: 2cPQ",
     )
     parser.add_argument(
+        "--relay-uid",
+        default="27Po",
+        help="UID of solid state relay bricklet (servo power). Default: 27Po",
+    )
+    parser.add_argument(
         "--left-only",
         action="store_true",
         help="Only test left hand",
@@ -294,6 +336,9 @@ def main():
     try:
         with Robot(host=args.host, low_latency=config) as robot:
             print(f"[OK] Connected to robot at {args.host}")
+
+            # Check servo power relay (turns on if off)
+            check_servo_power_relay(robot, args.relay_uid)
 
             # Discover bricklets (uses the already-open Tinkerforge connection)
             discover_bricklets(robot)
