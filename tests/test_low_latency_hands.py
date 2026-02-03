@@ -180,10 +180,11 @@ def test_low_latency_write(robot: Robot, motor: str, positions: List[float]) -> 
 
     for pos in positions:
         try:
-            robot.set_joint(motor, pos, unit="percent")
+            # async_=False waits for motor to reach target position
+            reached = robot.set_joint(motor, pos, unit="percent", async_=False, timeout=2.0)
             current = robot.get_joint(motor, unit="percent")
-            print(f"    Set {pos:.0f}% -> Read {current:.1f}%")
-            time.sleep(0.3)
+            status = "OK" if reached else "TIMEOUT"
+            print(f"    Set {pos:.0f}% -> Read {current:.1f}% [{status}]")
         except Exception as e:
             print(f"    [ERROR] {e}")
             return False
@@ -218,11 +219,9 @@ def test_ros_topic_population(
     monitor.clear()
     before_time = time.time()
 
-    # Send a low-latency command
-    robot.set_joint(motor, 30.0, unit="percent")
-    time.sleep(0.5)
-    robot.set_joint(motor, 70.0, unit="percent")
-    time.sleep(0.5)
+    # Send a low-latency command (synchronous)
+    robot.set_joint(motor, 30.0, unit="percent", async_=False, timeout=2.0)
+    robot.set_joint(motor, 70.0, unit="percent", async_=False, timeout=2.0)
 
     # Check if ROS topic received updates
     updates = monitor.get_updates_since(before_time)
@@ -246,9 +245,8 @@ def run_hand_test(robot: Robot, hand: str, motors: List[str]):
     test_motor = motors[0]
     print(f"\n  Using {test_motor} for write test...")
 
-    # Move to known position
-    robot.set_joint(test_motor, 50.0, unit="percent")
-    time.sleep(0.5)
+    # Move to known position (synchronous)
+    robot.set_joint(test_motor, 50.0, unit="percent", async_=False, timeout=2.0)
 
     # Test write
     success = test_low_latency_write(robot, test_motor, [30.0, 70.0, 50.0])
