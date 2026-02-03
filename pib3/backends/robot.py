@@ -21,39 +21,41 @@ from ..types import ImuType, AiTaskType, AIModel
 TinkerforgeMotorMapping = Dict[str, Tuple[str, int]]
 
 
-# Standard PIB servo channel assignments (same wiring for all robots)
-# Maps motor names to their channel index on the servo bricklet.
-# The bricklet UIDs differ per robot, but channel assignments are consistent.
+# Standard PIB servo channel assignments (same wiring for all robots).
+# Maps motor names to (bricklet_number, channel) tuples.
+# Bricklet UIDs differ per robot, but bricklet/channel assignments are consistent.
 PIB_SERVO_CHANNELS = {
-    # Servo Bricklet 1 (right arm) - channels
-    "shoulder_horizontal_right": 9,
-    "upper_arm_right_rotation": 9,  # Same as shoulder_horizontal_right
-    "elbow_right": 8,
-    "lower_arm_right_rotation": 7,
-    # Right hand (if on same bricklet)
-    "thumb_right_opposition": 0,
-    "thumb_right_stretch": 1,
-    "index_right_stretch": 2,
-    "middle_right_stretch": 3,
-    "ring_right_stretch": 4,
-    "pinky_right_stretch": 5,
+    # Servo Bricklet 1 - Right arm + hand
+    "upper_arm_right_rotation": (1, 9),
+    "elbow_right": (1, 8),
+    "lower_arm_right_rotation": (1, 7),
+    "wrist_right": (1, 6),
+    "thumb_right_opposition": (1, 0),
+    "thumb_right_stretch": (1, 1),
+    "index_right_stretch": (1, 2),
+    "middle_right_stretch": (1, 3),
+    "ring_right_stretch": (1, 4),
+    "pinky_right_stretch": (1, 5),
 
-    # Servo Bricklet 2 (shoulders vertical) - channels
-    "shoulder_vertical_right": 1,
-    "shoulder_vertical_left": 9,
+    # Servo Bricklet 2 - Shoulders, head
+    "shoulder_horizontal_right": (2, 0),
+    "shoulder_vertical_right": (2, 1),
+    "turn_head_motor": (2, 4),
+    "tilt_forward_motor": (2, 5),
+    "shoulder_horizontal_left": (2, 8),
+    "shoulder_vertical_left": (2, 9),
 
-    # Servo Bricklet 3 (left arm + hand) - channels
-    "shoulder_horizontal_left": 9,
-    "upper_arm_left_rotation": 9,  # Same as shoulder_horizontal_left
-    "elbow_left": 8,
-    "lower_arm_left_rotation": 7,
-    "wrist_left": 6,
-    "thumb_left_opposition": 0,
-    "thumb_left_stretch": 1,
-    "index_left_stretch": 2,
-    "middle_left_stretch": 3,
-    "ring_left_stretch": 4,
-    "pinky_left_stretch": 5,
+    # Servo Bricklet 3 - Left arm + hand
+    "upper_arm_left_rotation": (3, 9),
+    "elbow_left": (3, 8),
+    "lower_arm_left_rotation": (3, 7),
+    "wrist_left": (3, 6),
+    "thumb_left_opposition": (3, 0),
+    "thumb_left_stretch": (3, 1),
+    "index_left_stretch": (3, 2),
+    "middle_left_stretch": (3, 3),
+    "ring_left_stretch": (3, 4),
+    "pinky_left_stretch": (3, 5),
 }
 
 
@@ -66,13 +68,13 @@ def build_motor_mapping(
     Build motor mapping from servo bricklet UIDs.
 
     Uses the standard PIB wiring where:
-    - servo1: Right arm
-    - servo2: Shoulder verticals (both arms)
+    - servo1: Right arm + right hand
+    - servo2: Shoulders (horizontal + vertical), head
     - servo3: Left arm + left hand
 
     Args:
-        servo1_uid: UID of servo bricklet for right arm.
-        servo2_uid: UID of servo bricklet for shoulder verticals.
+        servo1_uid: UID of servo bricklet for right arm + hand.
+        servo2_uid: UID of servo bricklet for shoulders + head.
         servo3_uid: UID of servo bricklet for left arm + hand.
 
     Returns:
@@ -83,17 +85,17 @@ def build_motor_mapping(
         >>> # Determine which UID is which by testing
         >>> mapping = build_motor_mapping(
         ...     servo1_uid=uids[0],  # Right arm
-        ...     servo2_uid=uids[1],  # Shoulders
+        ...     servo2_uid=uids[1],  # Shoulders + head
         ...     servo3_uid=uids[2],  # Left arm
         ... )
         >>> robot.configure_motor_mapping(mapping)
     """
     return {
-        # Servo 1 - Right arm
-        "shoulder_horizontal_right": (servo1_uid, 9),
+        # Servo 1 - Right arm + hand
         "upper_arm_right_rotation": (servo1_uid, 9),
         "elbow_right": (servo1_uid, 8),
         "lower_arm_right_rotation": (servo1_uid, 7),
+        "wrist_right": (servo1_uid, 6),
         "thumb_right_opposition": (servo1_uid, 0),
         "thumb_right_stretch": (servo1_uid, 1),
         "index_right_stretch": (servo1_uid, 2),
@@ -101,12 +103,15 @@ def build_motor_mapping(
         "ring_right_stretch": (servo1_uid, 4),
         "pinky_right_stretch": (servo1_uid, 5),
 
-        # Servo 2 - Shoulder verticals
+        # Servo 2 - Shoulders + head
+        "shoulder_horizontal_right": (servo2_uid, 0),
         "shoulder_vertical_right": (servo2_uid, 1),
+        "turn_head_motor": (servo2_uid, 4),
+        "tilt_forward_motor": (servo2_uid, 5),
+        "shoulder_horizontal_left": (servo2_uid, 8),
         "shoulder_vertical_left": (servo2_uid, 9),
 
         # Servo 3 - Left arm + hand
-        "shoulder_horizontal_left": (servo3_uid, 9),
         "upper_arm_left_rotation": (servo3_uid, 9),
         "elbow_left": (servo3_uid, 8),
         "lower_arm_left_rotation": (servo3_uid, 7),
@@ -235,6 +240,11 @@ class RealRobotBackend(RobotBackend):
         self._tinkerforge_motor_map: TinkerforgeMotorMapping = {}
         # Cache enabled state to avoid redundant USB calls: {(uid, channel): bool}
         self._servo_enabled_cache: Dict[Tuple[str, int], bool] = {}
+        # Callback-based position reached tracking
+        # Reverse map: (bricklet_uid, channel) -> motor_name
+        self._tinkerforge_reverse_map: Dict[Tuple[str, int], str] = {}
+        # Events signalled by CALLBACK_POSITION_REACHED: motor_name -> Event
+        self._position_reached_events: Dict[str, threading.Event] = {}
 
         # Subsystems (lazy-initialized)
         self._ai_subsystem = None
@@ -576,12 +586,65 @@ class RealRobotBackend(RobotBackend):
             except Exception as e:
                 logger.error(f"Failed to initialize Servo Bricklet {uid}: {e}")
 
+        # Build reverse map and register position-reached callbacks
+        self._tinkerforge_reverse_map.clear()
+        self._position_reached_events.clear()
+        for motor_name, (uid, channel) in self._tinkerforge_motor_map.items():
+            self._tinkerforge_reverse_map[(uid, channel)] = motor_name
+            self._position_reached_events[motor_name] = threading.Event()
+
+        for uid, servo in self._tinkerforge_servos.items():
+            self._register_position_reached_callback(uid, servo)
+
         # Auto-configure all channels with default settings
         if auto_configure and self._tinkerforge_servos:
             # Initialize cache for all mapped motors as False (unknown/disabled)
             self._servo_enabled_cache.clear()
             self.configure_all_servo_channels()
             logger.info("Auto-configured all servo channels with default settings")
+
+    def _register_position_reached_callback(self, uid: str, servo) -> None:
+        """Register CALLBACK_POSITION_REACHED on a servo bricklet.
+
+        Uses the Tinkerforge callback mechanism instead of polling to detect
+        when a servo channel has reached its target position.
+
+        Args:
+            uid: Bricklet UID (used to resolve motor name via reverse map).
+            servo: BrickletServoV2 instance.
+        """
+        from tinkerforge.bricklet_servo_v2 import BrickletServoV2
+
+        def on_position_reached(servo_channel, position):
+            motor_name = self._tinkerforge_reverse_map.get((uid, servo_channel))
+            if motor_name is not None:
+                event = self._position_reached_events.get(motor_name)
+                if event is not None:
+                    event.set()
+                    logger.debug(
+                        f"Position reached callback: {motor_name} "
+                        f"at {position} centideg (channel={servo_channel})"
+                    )
+
+        servo.register_callback(
+            BrickletServoV2.CALLBACK_POSITION_REACHED,
+            on_position_reached,
+        )
+
+        # Enable the callback for each channel mapped to this bricklet
+        for (mapped_uid, channel), motor_name in self._tinkerforge_reverse_map.items():
+            if mapped_uid == uid:
+                try:
+                    servo.set_position_reached_callback_configuration(channel, True)
+                    logger.debug(
+                        f"Enabled position-reached callback for {motor_name} "
+                        f"(bricklet={uid}, channel={channel})"
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to enable position-reached callback for "
+                        f"{motor_name}: {e}"
+                    )
 
     def _disconnect_tinkerforge(self) -> None:
         """Disconnect from Tinkerforge brick daemon."""
@@ -594,6 +657,8 @@ class RealRobotBackend(RobotBackend):
             self._tinkerforge_servos.clear()
             self._tinkerforge_motor_map.clear()
             self._servo_enabled_cache.clear()
+            self._tinkerforge_reverse_map.clear()
+            self._position_reached_events.clear()
 
     @property
     def low_latency_available(self) -> bool:
@@ -829,6 +894,12 @@ class RealRobotBackend(RobotBackend):
                     current.acceleration,
                     current.deceleration,
                 )
+
+            # Clear position-reached event before sending command to avoid
+            # race conditions (callback must fire *after* this clear).
+            event = self._position_reached_events.get(motor_name)
+            if event is not None:
+                event.clear()
 
             # Set position
             servo.set_position(channel, position_centidegrees)
@@ -1270,6 +1341,62 @@ class RealRobotBackend(RobotBackend):
                         result[name] = self._joint_positions[name]
 
         return result
+
+    def _verify_positions(
+        self,
+        target_positions: Dict[str, float],
+        unit: str,
+        timeout: float,
+        tolerance: float,
+    ) -> bool:
+        """Verify joints reached target positions.
+
+        For low-latency (Tinkerforge) motors, waits on CALLBACK_POSITION_REACHED
+        events instead of polling. Falls back to the base class polling for
+        ROS-controlled motors or when low-latency is not available.
+        """
+        if not self.low_latency_available:
+            return super()._verify_positions(target_positions, unit, timeout, tolerance)
+
+        start_time = time.time()
+
+        # Separate low-latency and ROS motors
+        ll_motors: Dict[str, float] = {}
+        ros_motors: Dict[str, float] = {}
+        for name, target in target_positions.items():
+            motor_name = JOINT_TO_ROBOT_MOTOR.get(name, name)
+            if motor_name in self._tinkerforge_motor_map:
+                ll_motors[name] = target
+            else:
+                ros_motors[name] = target
+
+        # Wait on position-reached events for low-latency motors
+        for name, target in ll_motors.items():
+            motor_name = JOINT_TO_ROBOT_MOTOR.get(name, name)
+            event = self._position_reached_events.get(motor_name)
+            if event is None:
+                continue
+
+            remaining = timeout - (time.time() - start_time)
+            if remaining <= 0:
+                return False
+
+            if not event.wait(timeout=remaining):
+                # Timeout — check if we're within tolerance anyway (motor
+                # may already have been at the target, in which case the
+                # callback won't fire).
+                current_pos = self.get_joint(name, unit=unit)
+                if current_pos is None or abs(current_pos - target) > tolerance:
+                    return False
+
+        # Fall back to base-class polling for any ROS-only motors
+        if ros_motors:
+            remaining = timeout - (time.time() - start_time)
+            if remaining <= 0:
+                return False
+            return super()._verify_positions(ros_motors, unit, remaining, tolerance)
+
+        return True
 
     # Default velocity for ROS motor movements (centidegrees per second).
     # Used only for ROS-based commands; low-latency (Tinkerforge) commands
