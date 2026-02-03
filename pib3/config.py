@@ -93,18 +93,22 @@ class LowLatencyConfig:
     Bypasses ROS/rosbridge for motor commands, sending directly to
     Tinkerforge servo bricklets for reduced latency (~5-20ms vs ~100-200ms).
 
+    This is the default motor control mode. Servo bricklets are
+    auto-discovered on connect. Use ``motor_control="ros"`` in the
+    Robot constructor to use ROS-based motor control instead.
+
     Attributes:
-        enabled: Enable low-latency mode for motor commands.
+        enabled: Enable low-latency mode for motor commands (default: True).
         tinkerforge_host: Tinkerforge brick daemon host (usually robot IP).
         tinkerforge_port: Tinkerforge brick daemon port (default: 4223).
         motor_mapping: Dict mapping motor names to (bricklet_uid, channel) tuples.
-            If None, uses auto-discovery or default mapping.
+            If None, uses auto-discovery (recommended).
         sync_to_ros: If True, update local position cache after setting.
             This ensures get_joint() returns correct values after low-latency sets.
             Note: Does NOT publish to ROS topics (that would cause double commands).
         command_timeout: Timeout for direct motor commands in seconds.
     """
-    enabled: bool = False
+    enabled: bool = True
     tinkerforge_host: Optional[str] = None  # Defaults to RobotConfig.host
     tinkerforge_port: int = 4223
     motor_mapping: Optional[Dict[str, tuple]] = None
@@ -114,13 +118,15 @@ class LowLatencyConfig:
 
 @dataclass
 class RobotConfig:
-    """Configuration for real robot connection via rosbridge.
+    """Configuration for real robot connection.
 
     Attributes:
         host: Robot IP address.
         port: Rosbridge websocket port.
         timeout: Connection timeout in seconds.
-        low_latency: Configuration for direct Tinkerforge motor control.
+        low_latency: Advanced Tinkerforge motor control settings.
+            Motor commands use Tinkerforge by default (enabled=True).
+            Set enabled=False to use ROS for motor control instead.
     """
     host: str = "172.26.34.149"
     port: int = 9090

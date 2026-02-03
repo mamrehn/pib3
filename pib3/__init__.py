@@ -7,18 +7,17 @@ This package provides tools to:
 3. Execute trajectories on Webots simulation or real robot
 
 Quick Start:
+    >>> from pib3 import Robot, Joint
+    >>>
+    >>> # Connect and control the robot (uses Tinkerforge direct control by default)
+    >>> with Robot(host="172.26.34.149") as robot:
+    ...     robot.set_joint(Joint.ELBOW_LEFT, 50.0)
+    ...     angle = robot.get_joint(Joint.ELBOW_LEFT)
+    >>>
+    >>> # Generate and run a drawing trajectory
     >>> import pib3
-    >>>
-    >>> # One-shot: image to trajectory
     >>> trajectory = pib3.generate_trajectory("drawing.png")
-    >>> trajectory.to_json("output.json")
-    >>>
-    >>> # Or step-by-step:
-    >>> sketch = pib3.image_to_sketch("drawing.png")
-    >>> trajectory = pib3.sketch_to_trajectory(sketch)
-    >>>
-
-    >>> with pib3.Robot(host="172.26.34.149") as robot:
+    >>> with Robot(host="172.26.34.149") as robot:
     ...     robot.run_trajectory(trajectory)
     >>>
     >>> # AI detection via subsystem API:

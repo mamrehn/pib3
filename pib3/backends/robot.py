@@ -158,38 +158,34 @@ JOINT_TO_ROBOT_MOTOR = {
 
 class RealRobotBackend(RobotBackend):
     """
-    Execute trajectories on real PIB robot via rosbridge.
+    Control the real PIB robot.
 
-    Connects to the robot's ROS system via websocket and sends
-    joint commands using the apply_joint_trajectory service.
+    By default, motor commands are sent directly to Tinkerforge servo
+    bricklets for low latency (~5-20 ms). Servo bricklets are
+    auto-discovered on connect — no manual configuration needed.
 
-    Position values are converted from radians to centidegrees.
-
-    Position feedback is received via subscription to /joint_trajectory topic.
-    The robot publishes current positions when motors move.
+    ROS/rosbridge is still connected for audio, camera, and AI
+    subsystems. To use ROS for motor control instead, pass
+    ``motor_mode="ros"``.
 
     Note:
         Uses joint_limits_robot.yaml for percentage <-> radians conversion.
         Calibrate with: python -m pib3.tools.calibrate_joints
 
     Example:
-        >>> from pib3 import Joint
-        >>> from pib3.backends import RealRobotBackend
-        >>> with RealRobotBackend(host="172.26.34.149") as robot:
-        ...     robot.run_trajectory("trajectory.json")
-        ...
-        ...     # Control individual joints
-        ...     robot.set_joint(Joint.ELBOW_LEFT, 50.0)  # 50% of calibrated range
-        ...     robot.set_joint(Joint.ELBOW_LEFT, 45.0, unit="deg")  # 45 degrees
-        ...     robot.set_joint(Joint.ELBOW_LEFT, 0.5, unit="rad")  # 0.5 radians
-        ...
-        ...     # Read current position
-        ...     angle = robot.get_joint(Joint.ELBOW_LEFT)  # Returns percentage
-        ...     angle_deg = robot.get_joint(Joint.ELBOW_LEFT, unit="deg")
+        >>> from pib3 import Robot, Joint
+        >>> with Robot(host="172.26.34.149") as robot:
+        ...     # Motor commands go directly to Tinkerforge (default)
+        ...     robot.set_joint(Joint.ELBOW_LEFT, 50.0)
+        ...     angle = robot.get_joint(Joint.ELBOW_LEFT)
         ...
         ...     # Save and restore pose
         ...     saved_pose = robot.get_joints()
         ...     robot.set_joints(saved_pose)
+
+        >>> # Use ROS for motor control instead:
+        >>> with Robot(host="172.26.34.149", motor_mode="ros") as robot:
+        ...     robot.set_joint(Joint.ELBOW_LEFT, 50.0)
     """
 
     # Use robot-specific joint limits (requires calibration for percentage mode)
@@ -203,7 +199,7 @@ class RealRobotBackend(RobotBackend):
         host: str = "172.26.34.149",
         port: int = 9090,
         timeout: float = 5.0,
-        low_latency: Optional[LowLatencyConfig] = None,
+        motor_mode: str = "direct",
     ):
         """
         Initialize real robot backend.
@@ -212,8 +208,14 @@ class RealRobotBackend(RobotBackend):
             host: Robot IP address.
             port: Rosbridge websocket port.
             timeout: Connection timeout in seconds.
-            low_latency: Configuration for direct Tinkerforge motor control.
-                If enabled, motor commands bypass ROS for lower latency.
+            motor_mode: Motor control mode (default: ``"direct"``).
+                - ``"direct"``: Send motor commands directly to Tinkerforge
+                  servo bricklets for low latency (~5-20 ms). Bricklets are
+                  auto-discovered on connect. ROS is still connected for
+                  audio, camera, and AI subsystems.
+                - ``"ros"``: Send motor commands via ROS/rosbridge
+                  (~100-200 ms latency). Use this if Tinkerforge is
+                  unavailable or you need ROS-based motor control.
         """
         super().__init__(host=host, port=port)
         self.timeout = timeout
@@ -233,8 +235,10 @@ class RealRobotBackend(RobotBackend):
         self._robot_audio_player: Optional[RobotAudioPlayer] = None
         self._robot_audio_recorder: Optional[RobotAudioRecorder] = None
 
-        # Low-latency Tinkerforge direct control
-        self._low_latency_config = low_latency or LowLatencyConfig()
+        # Tinkerforge direct motor control
+        self._low_latency_config = LowLatencyConfig(
+            enabled=(motor_mode == "direct"),
+        )
         self._tinkerforge_conn = None
         self._tinkerforge_servos: Dict[str, "BrickletServoV2"] = {}
         self._tinkerforge_motor_map: TinkerforgeMotorMapping = {}
@@ -287,12 +291,16 @@ class RealRobotBackend(RobotBackend):
     @classmethod
     def from_config(cls, config: RobotConfig) -> "RealRobotBackend":
         """Create backend from RobotConfig."""
-        return cls(
+        motor_mode = "direct" if config.low_latency.enabled else "ros"
+        backend = cls(
             host=config.host,
             port=config.port,
             timeout=config.timeout,
-            low_latency=config.low_latency,
+            motor_mode=motor_mode,
         )
+        # Apply advanced low-latency settings if provided
+        backend._low_latency_config = config.low_latency
+        return backend
 
     def _to_backend_format(self, radians: np.ndarray) -> np.ndarray:
         """Convert radians to centidegrees."""
@@ -413,14 +421,15 @@ class RealRobotBackend(RobotBackend):
     def _connect_tinkerforge(self) -> None:
         """Connect to Tinkerforge brick daemon for direct motor control.
 
-        Establishes connection and discovers servo bricklets.
+        Establishes connection and either uses the provided motor mapping
+        or auto-discovers servo bricklets.
         """
         try:
             from tinkerforge.ip_connection import IPConnection
             from tinkerforge.bricklet_servo_v2 import BrickletServoV2
         except ImportError:
             logger.warning(
-                "tinkerforge package not installed. Low-latency mode disabled. "
+                "tinkerforge package not installed. Falling back to ROS for motor control. "
                 "Install with: pip install tinkerforge"
             )
             self._low_latency_config.enabled = False
@@ -434,47 +443,47 @@ class RealRobotBackend(RobotBackend):
             self._tinkerforge_conn.connect(tf_host, tf_port)
             logger.info(f"Connected to Tinkerforge daemon at {tf_host}:{tf_port}")
 
-            # Use provided mapping or default
-            motor_mapping = (
-                self._low_latency_config.motor_mapping
-                or DEFAULT_TINKERFORGE_MOTOR_MAPPING
-            )
+            motor_mapping = self._low_latency_config.motor_mapping
 
-            if not motor_mapping:
-                logger.warning(
-                    "No Tinkerforge motor mapping configured. "
-                    "Use LowLatencyConfig.motor_mapping to specify motor-to-bricklet mappings. "
-                    "Format: {'motor_name': ('BRICKLET_UID', channel)}"
-                )
-                # Try auto-discovery of servo bricklets
-                self._auto_discover_servos()
-            else:
+            if motor_mapping:
+                # Use explicitly provided mapping
                 self._tinkerforge_motor_map = motor_mapping
-                # Initialize servo bricklet objects
                 self._init_servo_bricklets()
+            else:
+                # Auto-discover servo bricklets and build mapping
+                self._auto_discover_servos()
 
         except Exception as e:
-            logger.error(f"Failed to connect to Tinkerforge: {e}")
+            logger.warning(
+                f"Failed to connect to Tinkerforge at {tf_host}:{tf_port}: {e}. "
+                f"Falling back to ROS for motor control."
+            )
             self._low_latency_config.enabled = False
             self._tinkerforge_conn = None
 
     def _auto_discover_servos(self) -> None:
-        """Auto-discover connected Tinkerforge servo bricklets.
+        """Auto-discover servo bricklets and build the full motor mapping.
 
-        Note: This discovers bricklets but cannot automatically map them to motor names.
-        The discovered UIDs should be used to configure motor_mapping.
+        Enumerates Tinkerforge Servo Bricklet V2 devices, sorts them by
+        physical stack position, and assigns them to:
+        - servo1 (right arm + hand)
+        - servo2 (shoulders + head)
+        - servo3 (left arm + hand)
+
+        The stack position order is consistent across all PIB robots.
         """
         if self._tinkerforge_conn is None:
             return
 
-        self._discovered_servo_uids: List[str] = []
+        discovered: List[Tuple[str, str]] = []  # (uid, position)
 
         def enumerate_callback(uid, connected_uid, position, hardware_version,
                                firmware_version, device_identifier, enumeration_type):
             # Servo Bricklet V2 device identifier is 2157
             if device_identifier == 2157:
-                self._discovered_servo_uids.append(uid)
-                logger.info(f"Discovered Servo Bricklet V2: UID={uid}, position={position}")
+                if not any(u == uid for u, _ in discovered):
+                    discovered.append((uid, position))
+                    logger.info(f"Discovered Servo Bricklet V2: UID={uid}, position={position}")
 
         self._tinkerforge_conn.register_callback(
             self._tinkerforge_conn.CALLBACK_ENUMERATE,
@@ -482,19 +491,36 @@ class RealRobotBackend(RobotBackend):
         )
         self._tinkerforge_conn.enumerate()
 
-        # Wait briefly for enumeration responses
-        time.sleep(0.5)
+        # Wait for enumeration responses
+        time.sleep(1.0)
 
-        if self._discovered_servo_uids:
-            logger.info(
-                f"Found {len(self._discovered_servo_uids)} Servo Bricklet(s): {self._discovered_servo_uids}. "
-                f"Configure LowLatencyConfig.motor_mapping with these UIDs."
-            )
-        else:
+        self._discovered_servo_uids = [uid for uid, _ in discovered]
+
+        if len(discovered) != 3:
             logger.warning(
-                "No Servo Bricklets discovered. Ensure bricklets are connected and "
-                "Tinkerforge Brick Daemon is running."
+                f"Expected 3 Servo Bricklets, found {len(discovered)}. "
+                f"Auto-mapping disabled. Falling back to ROS for motor control. "
+                f"Provide motor_mapping via LowLatencyConfig for manual configuration."
             )
+            return
+
+        # Sort by physical stack position (consistent across all PIB robots)
+        discovered.sort(key=lambda x: x[1])
+        servo1_uid = discovered[0][0]  # Right arm + hand
+        servo2_uid = discovered[1][0]  # Shoulders + head
+        servo3_uid = discovered[2][0]  # Left arm + hand
+
+        logger.info(
+            f"Auto-mapped servo bricklets: "
+            f"servo1(right arm)={servo1_uid}, "
+            f"servo2(shoulders/head)={servo2_uid}, "
+            f"servo3(left arm)={servo3_uid}"
+        )
+
+        self._tinkerforge_motor_map = build_motor_mapping(
+            servo1_uid, servo2_uid, servo3_uid
+        )
+        self._init_servo_bricklets()
 
     def discover_servo_bricklets(self, timeout: float = 1.0) -> List[str]:
         """
@@ -728,7 +754,6 @@ class RealRobotBackend(RobotBackend):
             ...     "lower_arm_left_rotation": ("XYZ", 4),
             ...     "wrist_left": ("XYZ", 5),
             ... })
-            >>> robot.low_latency_enabled = True
         """
         self._tinkerforge_motor_map.update(mapping)
 
