@@ -15,13 +15,6 @@ except ImportError:
     HAS_PIL = False
 
 try:
-    from skimage import measure
-    from skimage.measure import approximate_polygon
-    HAS_SKIMAGE = True
-except ImportError:
-    HAS_SKIMAGE = False
-
-try:
     import cv2
     HAS_CV2 = True
 except ImportError:
@@ -35,10 +28,10 @@ def _check_dependencies():
             "Pillow is required for image processing. "
             "Install with: pip install Pillow"
         )
-    if not HAS_SKIMAGE and not HAS_CV2:
+    if not HAS_CV2:
         raise ImportError(
-            "Either scikit-image or opencv-python is required for contour detection. "
-            "Install with: pip install scikit-image"
+            "opencv-python is required for contour detection. "
+            "Install with: pip install opencv-python-headless"
         )
 
 
@@ -131,34 +124,6 @@ def _threshold_image(
     return binary
 
 
-def _vectorize_contours_skimage(
-    binary_image: np.ndarray,
-    simplify_tolerance: float = 1.0,
-) -> List[Tuple[np.ndarray, bool]]:
-    """Vectorize contours using scikit-image."""
-    image_float = binary_image.astype(float)
-    contours_raw = measure.find_contours(image_float, level=0.5)
-
-    contours = []
-    for contour_rc in contours_raw:
-        if len(contour_rc) < 3:
-            continue
-
-        # Simplify using Douglas-Peucker algorithm
-        simplified = approximate_polygon(contour_rc, tolerance=simplify_tolerance)
-
-        # Convert from (row, col) to (x, y) = (col, row)
-        points = np.array([[pt[1], pt[0]] for pt in simplified])
-
-        if len(points) >= 2:
-            # Check if closed (first and last points are close)
-            dist = np.linalg.norm(points[0] - points[-1])
-            closed = dist < 2.0  # Within 2 pixels
-            contours.append((points, closed))
-
-    return contours
-
-
 def _vectorize_contours_cv2(
     binary_image: np.ndarray,
     simplify_tolerance: float = 1.0,
@@ -194,12 +159,10 @@ def _vectorize_contours(
     simplify_tolerance: float = 1.0,
 ) -> List[Tuple[np.ndarray, bool]]:
     """Vectorize binary image to contours."""
-    if HAS_SKIMAGE:
-        return _vectorize_contours_skimage(binary_image, simplify_tolerance)
-    elif HAS_CV2:
+    if HAS_CV2:
         return _vectorize_contours_cv2(binary_image, simplify_tolerance)
     else:
-        raise ImportError("Neither scikit-image nor opencv-python available")
+        raise ImportError("opencv-python not available")
 
 
 def _normalize_coordinates(

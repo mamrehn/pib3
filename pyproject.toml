@@ -42,8 +42,7 @@ dependencies = [
     "PyYAML>=6.0.0",
     "roboticstoolbox-python>=1.0.0",
     "spatialmath-python>=1.0.0",
-    "scikit-image>=0.19.0",
-    "spatialgeometry>=1.0.0",
+    "opencv-python-headless>=4.5.0",
     "roslibpy>=1.4.0",  # Includes websocket support via autobahn/twisted
     "tinkerforge>=2.1.0",  # Low-latency direct motor control via servo bricklets
     # Audio playback, recording, and TTS
@@ -51,7 +50,6 @@ dependencies = [
     # Note: On Windows/macOS: No additional system requirements
     "sounddevice>=0.5.5",  # 0.5.5 fixes callback exception on Python 3.13
     "piper-tts>=1.2.0",
-    "onnxruntime>=1.14.0",  # Required by piper-tts
 ]
 
 [project.optional-dependencies]

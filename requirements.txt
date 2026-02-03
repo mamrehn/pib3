@@ -6,9 +6,7 @@ roboticstoolbox-python>=1.0.0
 spatialmath-python>=1.0.0,<1.1.15  # Pin to avoid axis parsing issues
 
 # Image processing
-scikit-image>=0.18.0
-
-spatialgeometry>=1.0.0
+opencv-python-headless>=4.5.0
 
 # Real robot connection via rosbridge
 roslibpy>=1.0.0
@@ -21,4 +19,3 @@ tinkerforge>=2.1.0
 # Windows/macOS: No additional system requirements
 sounddevice>=0.5.5  # 0.5.5 fixes callback exception on Python 3.13
 piper-tts>=1.2.0
-onnxruntime>=1.14.0
