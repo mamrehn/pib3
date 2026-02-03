@@ -275,7 +275,7 @@ def run_hand_test(
         robot.set_joint(motor, 50.0, unit="percent")
 
     for motor in motors:
-        success = test_low_latency_write(robot, motor, [30.0, 70.0, 50.0], monitor)
+        success = test_low_latency_write(robot, motor, [0.0, 100.0, 50.0], monitor)
         if success:
             print(f"  [OK] Write test passed for {motor}")
         else:

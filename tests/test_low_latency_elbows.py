@@ -233,8 +233,8 @@ def run_elbow_test(
     print(f"\n  Moving to 50% (neutral)...")
     robot.set_joint(motor, 50.0, unit="percent")
 
-    # Test small movements around center: 40%, 60%, 50%
-    success = test_low_latency_write(robot, motor, [40.0, 60.0, 50.0], monitor)
+    # Test full range: 0%, 100%, 50%
+    success = test_low_latency_write(robot, motor, [0.0, 100.0, 50.0], monitor)
     if success:
         print(f"  [OK] Write test passed for {motor}")
     else:
