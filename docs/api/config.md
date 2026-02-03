@@ -230,37 +230,43 @@ Configuration for direct Tinkerforge motor control, bypassing ROS.
 
 ### Usage
 
+Direct Tinkerforge motor control is enabled by default (`enabled=True`)
+with auto-discovery (`motor_mapping=None`). Most users don't need to
+configure `LowLatencyConfig` directly -- just use `Robot(host="...")`.
+
+For advanced use cases:
+
 ```python
-from pib3 import LowLatencyConfig, RobotConfig, build_motor_mapping
+from pib3 import LowLatencyConfig, RobotConfig
+from pib3.backends import RealRobotBackend
 
-# Build motor mapping from servo bricklet UIDs
-mapping = build_motor_mapping(
-    servo1_uid="ABC1",  # Right arm
-    servo2_uid="ABC2",  # Shoulder verticals
-    servo3_uid="ABC3",  # Left arm + hand
-)
-
-# Enable low-latency mode
-low_latency = LowLatencyConfig(
-    enabled=True,
-    motor_mapping=mapping,
-)
-
-# Create robot config
+# Custom Tinkerforge settings
 config = RobotConfig(
     host="172.26.34.149",
-    low_latency=low_latency,
+    low_latency=LowLatencyConfig(
+        tinkerforge_port=4224,  # Non-standard port
+    ),
 )
+
+robot = RealRobotBackend.from_config(config)
+```
+
+To disable direct control and use ROS for motors:
+
+```python
+from pib3 import Robot
+
+robot = Robot(host="172.26.34.149", motor_mode="ros")
 ```
 
 ### Parameter Guide
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `enabled` | `False` | Enable direct Tinkerforge control |
+| `enabled` | `True` | Enable direct Tinkerforge control |
 | `tinkerforge_host` | `None` | Daemon host (defaults to robot IP) |
 | `tinkerforge_port` | `4223` | Daemon port |
-| `motor_mapping` | `None` | Maps motor names to `(uid, channel)` |
+| `motor_mapping` | `None` | Maps motor names to `(uid, channel)`. `None` = auto-discover. |
 | `sync_to_ros` | `True` | Update local cache after commands |
 | `command_timeout` | `0.5` | Command timeout in seconds |
 

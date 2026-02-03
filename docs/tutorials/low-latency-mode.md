@@ -1,4 +1,4 @@
-# Low-Latency Motor Control
+# Direct Motor Control (Low-Latency Mode)
 
 Bypass ROS for direct Tinkerforge motor control with significantly reduced latency.
 
@@ -7,22 +7,27 @@ Bypass ROS for direct Tinkerforge motor control with significantly reduced laten
 The standard motor control path goes through:
 
 ```
-Python → roslibpy → rosbridge → ROS node → Tinkerforge
+Python -> roslibpy -> rosbridge -> ROS node -> Tinkerforge
 ```
 
-This adds ~100-200ms latency per command. Low-latency mode bypasses ROS:
+This adds ~100-200ms latency per command. Direct mode bypasses ROS:
 
 ```
-Python → Tinkerforge (direct)
+Python -> Tinkerforge (direct)
 ```
 
 Reducing latency to ~5-20ms for both **reading** and **writing** motor positions.
 
-## When to Use Low-Latency Mode
+**Direct Tinkerforge control is the default mode.** Servo bricklets are
+auto-discovered on connect. ROS is still connected for audio, camera,
+and AI subsystems.
 
-- **Real-time control**: Hand tracking, gesture following, teleoperation
-- **High-frequency updates**: Smooth motion requiring >10 Hz update rates
-- **Latency-sensitive applications**: Interactive demos, gaming
+## When to Use Each Mode
+
+| Mode | Latency | Best For |
+|------|---------|----------|
+| Direct (default) | 5-20ms | Real-time control, high-frequency updates, interactive demos |
+| ROS | 100-200ms | Trajectory playback, non-time-critical operations |
 
 ## Prerequisites
 
@@ -38,97 +43,185 @@ Ensure the robot's Tinkerforge Brick Daemon is accessible (port 4223).
 
 ## Quick Start
 
-### Option 1: Provide Mapping at Construction
-
-If you know your servo bricklet UIDs:
+Direct mode is the default -- no extra configuration needed:
 
 ```python
-import pib3
+from pib3 import Robot, Joint
 
-# Build motor mapping from your robot's servo bricklet UIDs
-mapping = pib3.build_motor_mapping(
-    servo1_uid="ABC1",  # Right arm bricklet
-    servo2_uid="ABC2",  # Shoulder verticals bricklet
-    servo3_uid="ABC3",  # Left arm + hand bricklet
-)
-
-# Create robot with low-latency enabled
-config = pib3.RobotConfig(
-    host="172.26.34.149",
-    low_latency=pib3.LowLatencyConfig(
-        enabled=True,
-        motor_mapping=mapping,
-    ),
-)
-
-with pib3.Robot(config=config) as robot:
-    # Motor commands now use direct Tinkerforge control
-    robot.set_joint("elbow_left", 0.5, unit="rad")
+with Robot(host="172.26.34.149") as robot:
+    # Motor commands go directly to Tinkerforge (auto-discovered)
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0)
+    angle = robot.get_joint(Joint.ELBOW_LEFT)
 ```
 
-### Option 2: Discover UIDs at Runtime
-
-If you don't know your UIDs:
+To use ROS for motor control instead:
 
 ```python
-import pib3
+from pib3 import Robot
 
-with pib3.Robot(host="172.26.34.149") as robot:
-    # Step 1: Discover servo bricklets
-    uids = robot.discover_servo_bricklets()
-    print(f"Found servo bricklets: {uids}")
-    # Output: Found servo bricklets: ['29Fy', '29F5', '29F3']
-
-    # Step 2: Build mapping (order depends on your wiring)
-    # You may need to test to determine which UID controls which arm
-    mapping = pib3.build_motor_mapping(
-        servo1_uid=uids[0],  # Right arm
-        servo2_uid=uids[1],  # Shoulders
-        servo3_uid=uids[2],  # Left arm
-    )
-
-    # Step 3: Configure and enable
-    robot.configure_motor_mapping(mapping)
-    robot.low_latency_enabled = True
-
-    # Now using low-latency mode
-    robot.set_joint("elbow_left", 0.5, unit="rad")
+with Robot(host="172.26.34.149", motor_mode="ros") as robot:
+    robot.set_joint("elbow_left", 50.0)  # Via ROS/rosbridge
 ```
 
 ---
 
-## Configuration Reference
+## Runtime Control
+
+### Enable/Disable at Runtime
+
+```python
+with Robot(host="172.26.34.149") as robot:
+    # Check status
+    print(f"Low-latency available: {robot.low_latency_available}")
+    print(f"Low-latency enabled: {robot.low_latency_enabled}")
+
+    # Disable for specific operations
+    robot.low_latency_enabled = False
+    robot.run_trajectory("trajectory.json")  # Uses ROS
+
+    # Re-enable
+    robot.low_latency_enabled = True
+```
+
+---
+
+## Reading Positions
+
+When direct mode is enabled, `get_joint()` and `get_joints()` also read directly from the Tinkerforge servo bricklets instead of waiting for ROS messages.
+
+### Automatic Direct Reading
+
+```python
+with Robot(host="172.26.34.149") as robot:
+    # Both reading and writing use direct Tinkerforge control
+    robot.set_joint("elbow_left", 0.5, unit="rad")  # Direct write
+    pos = robot.get_joint("elbow_left", unit="rad")  # Direct read (~5ms)
+```
+
+### Reading Multiple Joints
+
+```python
+# Read all mapped motors directly
+positions = robot.get_joints(unit="rad")
+
+# Read specific motors
+arm_positions = robot.get_joints(
+    ["elbow_left", "wrist_left", "shoulder_vertical_left"],
+    unit="rad",
+)
+```
+
+### Mixed Mode Reading
+
+Motors not in the Tinkerforge mapping fall back to ROS:
+
+```python
+positions = robot.get_joints([
+    "elbow_left",      # Direct (in mapping)
+    "turn_head_motor", # Falls back to ROS (not in mapping)
+], unit="rad")
+```
+
+!!! note "Actual vs. Commanded Position"
+    Direct reads return the **actual measured position** from the servo's potentiometer feedback, not the last commanded position. This is useful for:
+
+    - Detecting mechanical issues (motor slippage, loose gears)
+    - Sensing external forces on the arm (collision detection)
+    - Verifying the arm reached its target position
+    - Implementing compliant control where the arm responds to physical interaction
+
+---
+
+## Advanced Configuration
 
 ### LowLatencyConfig
 
-```python
-from pib3 import LowLatencyConfig
+For advanced use cases, you can customize the Tinkerforge connection
+settings via `RobotConfig`:
 
-config = LowLatencyConfig(
-    enabled=True,                    # Enable low-latency mode
-    tinkerforge_host=None,           # Defaults to robot host IP
-    tinkerforge_port=4223,           # Standard Tinkerforge port
-    motor_mapping=None,              # Motor-to-bricklet mapping
-    sync_to_ros=True,                # Update local cache for get_joint()
-    command_timeout=0.5,             # Command timeout in seconds
+```python
+from pib3 import LowLatencyConfig, RobotConfig
+from pib3.backends import RealRobotBackend
+
+config = RobotConfig(
+    host="172.26.34.149",
+    low_latency=LowLatencyConfig(
+        enabled=True,                    # Default: True
+        tinkerforge_host=None,           # Defaults to robot host IP
+        tinkerforge_port=4223,           # Standard Tinkerforge port
+        motor_mapping=None,              # None = auto-discover (recommended)
+        sync_to_ros=True,                # Update local cache for get_joint()
+        command_timeout=0.5,             # Command timeout in seconds
+    ),
 )
+
+robot = RealRobotBackend.from_config(config)
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `enabled` | `bool` | `False` | Enable low-latency mode |
+| `enabled` | `bool` | `True` | Enable direct Tinkerforge control |
 | `tinkerforge_host` | `str` | `None` | Tinkerforge daemon host (defaults to robot IP) |
 | `tinkerforge_port` | `int` | `4223` | Tinkerforge daemon port |
-| `motor_mapping` | `dict` | `None` | Maps motor names to `(bricklet_uid, channel)` |
+| `motor_mapping` | `dict` | `None` | Maps motor names to `(bricklet_uid, channel)`. `None` = auto-discover. |
 | `sync_to_ros` | `bool` | `True` | Update local position cache after commands |
 | `command_timeout` | `float` | `0.5` | Timeout for direct commands |
 
 ### sync_to_ros Explained
 
-When `sync_to_ros=True` (default), the local position cache is updated after each low-latency command. This ensures `get_joint()` returns the correct value.
+When `sync_to_ros=True` (default), the local position cache is updated after each direct command. This ensures `get_joint()` returns the correct value.
 
 !!! warning "No ROS Topic Updates"
-    Low-latency commands do **not** publish to ROS topics. The position will not be visible in ROS tools like `rostopic echo`. This is intentional - publishing to `/joint_trajectory` would trigger a second motor command.
+    Direct commands do **not** publish to ROS topics. The position will not be visible in ROS tools like `rostopic echo`. This is intentional - publishing to `/joint_trajectory` would trigger a second motor command.
+
+### Manual Motor Mapping
+
+If auto-discovery doesn't work for your setup, you can provide
+an explicit motor mapping:
+
+```python
+from pib3 import Robot, build_motor_mapping
+
+with Robot(host="172.26.34.149") as robot:
+    # Build mapping from known servo bricklet UIDs
+    mapping = build_motor_mapping(
+        servo1_uid="ABC1",  # Right arm bricklet
+        servo2_uid="ABC2",  # Shoulder verticals bricklet
+        servo3_uid="ABC3",  # Left arm + hand bricklet
+    )
+    robot.configure_motor_mapping(mapping)
+```
+
+---
+
+## Custom Servo Configuration
+
+Servo channels are automatically configured with default settings. To customize:
+
+### Configure Individual Motor
+
+```python
+robot.configure_servo_channel(
+    "elbow_left",
+    pulse_width_min=700,    # Minimum PWM pulse (microseconds)
+    pulse_width_max=2500,   # Maximum PWM pulse (microseconds)
+    velocity=9000,          # Max velocity (0.01 deg/s) = 90 deg/s
+    acceleration=9000,      # Acceleration (0.01 deg/s^2)
+    deceleration=9000,      # Deceleration (0.01 deg/s^2)
+)
+```
+
+### Configure All Motors
+
+```python
+robot.configure_all_servo_channels(
+    pulse_width_min=700,
+    pulse_width_max=2500,
+    velocity=12000,         # Faster: 120 deg/s
+    acceleration=15000,
+    deceleration=15000,
+)
+```
 
 ---
 
@@ -168,123 +261,6 @@ print(PIB_SERVO_CHANNELS["wrist_left"])  # 6
 
 ---
 
-## Runtime Control
-
-### Enable/Disable at Runtime
-
-```python
-with pib3.Robot(host="172.26.34.149") as robot:
-    # Configure mapping first
-    mapping = pib3.build_motor_mapping("UID1", "UID2", "UID3")
-    robot.configure_motor_mapping(mapping)
-
-    # Enable low-latency mode
-    robot.low_latency_enabled = True
-
-    # Check status
-    print(f"Low-latency available: {robot.low_latency_available}")
-    print(f"Low-latency enabled: {robot.low_latency_enabled}")
-
-    # Disable for specific operations
-    robot.low_latency_enabled = False
-    robot.run_trajectory("trajectory.json")  # Uses ROS
-
-    # Re-enable
-    robot.low_latency_enabled = True
-```
-
-### Per-Call Override
-
-Force ROS or low-latency mode for specific calls:
-
-```python
-# Force ROS mode for this call (even if low-latency is enabled)
-robot.set_joint("elbow_left", 0.5, unit="rad", low_latency=False)
-
-# Force low-latency mode (if available)
-robot.set_joint("elbow_left", 0.5, unit="rad", low_latency=True)
-```
-
----
-
-## Reading Positions
-
-When low-latency mode is enabled, `get_joint()` and `get_joints()` also read directly from the Tinkerforge servo bricklets instead of waiting for ROS messages.
-
-### Automatic Low-Latency Reading
-
-```python
-with pib3.Robot(host="172.26.34.149", low_latency=config) as robot:
-    # Both reading and writing use low-latency mode
-    robot.set_joint("elbow_left", 0.5, unit="rad")  # Direct write
-    pos = robot.get_joint("elbow_left", unit="rad")  # Direct read (~5ms)
-```
-
-### Reading Multiple Joints
-
-```python
-# Read all mapped motors directly
-positions = robot.get_joints(unit="rad")
-
-# Read specific motors
-arm_positions = robot.get_joints(
-    ["elbow_left", "wrist_left", "shoulder_vertical_left"],
-    unit="rad",
-)
-```
-
-### Mixed Mode Reading
-
-Motors not in the Tinkerforge mapping fall back to ROS:
-
-```python
-positions = robot.get_joints([
-    "elbow_left",      # Low-latency (in mapping)
-    "turn_head_motor", # Falls back to ROS (not in mapping)
-], unit="rad")
-```
-
-!!! note "Actual vs. Commanded Position"
-    Low-latency reads return the **actual measured position** from the servo's potentiometer feedback, not the last commanded position. This is useful for:
-    
-    - Detecting mechanical issues (motor slippage, loose gears)
-    - Sensing external forces on the arm (collision detection)
-    - Verifying the arm reached its target position
-    - Implementing compliant control where the arm responds to physical interaction
-
----
-
-## Custom Servo Configuration
-
-Servo channels are automatically configured with default settings when you call `configure_motor_mapping()`. To customize:
-
-### Configure Individual Motor
-
-```python
-robot.configure_servo_channel(
-    "elbow_left",
-    pulse_width_min=700,    # Minimum PWM pulse (microseconds)
-    pulse_width_max=2500,   # Maximum PWM pulse (microseconds)
-    velocity=9000,          # Max velocity (0.01°/s) = 90°/s
-    acceleration=9000,      # Acceleration (0.01°/s²)
-    deceleration=9000,      # Deceleration (0.01°/s²)
-)
-```
-
-### Configure All Motors
-
-```python
-robot.configure_all_servo_channels(
-    pulse_width_min=700,
-    pulse_width_max=2500,
-    velocity=12000,         # Faster: 120°/s
-    acceleration=15000,
-    deceleration=15000,
-)
-```
-
----
-
 ## Fallback Behavior
 
 Motors not in the Tinkerforge mapping automatically fall back to ROS control:
@@ -292,67 +268,26 @@ Motors not in the Tinkerforge mapping automatically fall back to ROS control:
 ```python
 # If only left arm is mapped, right arm uses ROS
 robot.set_joints({
-    "elbow_left": 0.5,   # Low-latency (in mapping)
+    "elbow_left": 0.5,   # Direct (in mapping)
     "elbow_right": 0.5,  # Falls back to ROS (not in mapping)
 }, unit="rad")
 ```
 
----
-
-## Determining Bricklet Order
-
-If you're unsure which UID controls which motors:
-
-```python
-import pib3
-import time
-
-with pib3.Robot(host="172.26.34.149") as robot:
-    uids = robot.discover_servo_bricklets()
-    print(f"Found UIDs: {uids}")
-
-    # Test each UID to see which arm it controls
-    for i, uid in enumerate(uids):
-        print(f"\nTesting UID {uid} (index {i})...")
-
-        # Create a test mapping with just this bricklet
-        test_mapping = {
-            "elbow_left": (uid, 8),  # Standard left elbow channel
-        }
-        robot.configure_motor_mapping(test_mapping)
-        robot.low_latency_enabled = True
-
-        # Try to move - watch which arm responds
-        robot.set_joint("elbow_left", 0.3, unit="rad")
-        time.sleep(1)
-        robot.set_joint("elbow_left", 0.0, unit="rad")
-        time.sleep(1)
-
-        input(f"Did the LEFT elbow move? (Press Enter to continue)")
-```
+If Tinkerforge is unavailable (not installed, connection failed, or fewer
+than 3 servo bricklets found), all motor commands fall back to ROS
+automatically.
 
 ---
 
 ## Complete Example
 
 ```python
-import pib3
+from pib3 import Robot
 import time
 import math
 
 def main():
-    # Configuration with low-latency enabled
-    mapping = pib3.build_motor_mapping("29Fy", "29F5", "29F3")
-
-    config = pib3.RobotConfig(
-        host="172.26.34.149",
-        low_latency=pib3.LowLatencyConfig(
-            enabled=True,
-            motor_mapping=mapping,
-        ),
-    )
-
-    with pib3.Robot(config=config) as robot:
+    with Robot(host="172.26.34.149") as robot:
         print(f"Low-latency available: {robot.low_latency_available}")
 
         # Smooth sinusoidal motion at 20 Hz
@@ -382,20 +317,11 @@ if __name__ == "__main__":
 |---------|-------|----------|
 | `low_latency_available` is `False` | Tinkerforge not installed | `pip install tinkerforge` |
 | | Connection failed | Check robot IP and port 4223 is accessible |
-| | No motor mapping | Call `configure_motor_mapping()` first |
-| Motors don't move | Wrong bricklet UID | Use `discover_servo_bricklets()` to find correct UIDs |
-| | Wrong channel | Check `PIB_SERVO_CHANNELS` for standard assignments |
+| | Fewer than 3 servo bricklets | Check wiring; or provide manual `motor_mapping` |
+| Motors don't move | Servo power relay off | Check relay is enabled |
+| | Wrong bricklet UID | Use `discover_servo_bricklets()` to verify |
 | `get_joint()` returns old value | `sync_to_ros=False` | Set `sync_to_ros=True` in config |
 | Jerky motion | Velocity too low | Increase velocity in `configure_servo_channel()` |
 
----
-
-## Performance Comparison
-
-| Mode | Typical Latency | Best For |
-|------|-----------------|----------|
-| ROS (standard) | 100-200ms | Trajectory playback, non-time-critical |
-| Low-latency | 5-20ms | Real-time control, high-frequency updates |
-
-!!! tip "When to Use Each"
-    Use **ROS mode** for trajectory execution (`run_trajectory()`) where timing is managed by waypoints. Use **low-latency mode** for interactive applications where you need immediate response to input.
+!!! tip "When to Use Each Mode"
+    Use **ROS mode** (`motor_mode="ros"`) for trajectory execution (`run_trajectory()`) where timing is managed by waypoints. Use **direct mode** (default) for interactive applications where you need immediate response to input.

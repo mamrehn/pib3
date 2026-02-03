@@ -36,7 +36,7 @@ Robot(
     host: str = "172.26.34.149",
     port: int = 9090,
     timeout: float = 5.0,
-    low_latency: Optional[LowLatencyConfig] = None,
+    motor_mode: str = "direct",
 )
 ```
 
@@ -47,14 +47,14 @@ Robot(
 | `host` | `str` | `"172.26.34.149"` | IP address of the robot. |
 | `port` | `int` | `9090` | Rosbridge websocket port. |
 | `timeout` | `float` | `5.0` | Connection timeout in seconds. |
-| `low_latency` | `LowLatencyConfig` | `None` | Optional low-latency motor control config. |
+| `motor_mode` | `str` | `"direct"` | Motor control mode: `"direct"` (Tinkerforge, auto-discovered) or `"ros"` (via rosbridge). |
 
 **Example:**
 
 ```python
-from pib3 import Robot, LowLatencyConfig, build_motor_mapping
+from pib3 import Robot
 
-# Default connection
+# Default connection (direct Tinkerforge control, auto-discovered)
 robot = Robot()
 
 # Custom host
@@ -67,12 +67,8 @@ robot = Robot(
     timeout=10.0,
 )
 
-# With low-latency mode
-mapping = build_motor_mapping("UID1", "UID2", "UID3")
-robot = Robot(
-    host="192.168.1.100",
-    low_latency=LowLatencyConfig(enabled=True, motor_mapping=mapping),
-)
+# Use ROS for motor control instead of Tinkerforge
+robot = Robot(host="192.168.1.100", motor_mode="ros")
 ```
 
 ---
@@ -500,21 +496,18 @@ Bypass ROS for direct Tinkerforge motor control with ~5-20ms latency (vs ~100-20
 
 ### Quick Setup
 
+Direct Tinkerforge control is the default mode. Servo bricklets are auto-discovered on connect:
+
 ```python
-from pib3 import Robot, LowLatencyConfig, build_motor_mapping
+from pib3 import Robot
 
-# Discover servo bricklet UIDs
 with Robot(host="172.26.34.149") as robot:
-    uids = robot.discover_servo_bricklets()
-    print(f"Found: {uids}")  # e.g., ['29Fy', '29F5', '29F3']
-
-# Build mapping and enable
-mapping = build_motor_mapping(uids[0], uids[1], uids[2])
-config = LowLatencyConfig(enabled=True, motor_mapping=mapping)
-
-with Robot(host="172.26.34.149", low_latency=config) as robot:
     robot.set_joint("elbow_left", 0.5, unit="rad")  # Direct write
     pos = robot.get_joint("elbow_left", unit="rad")  # Direct read
+
+# To use ROS for motor control instead:
+with Robot(host="172.26.34.149", motor_mode="ros") as robot:
+    robot.set_joint("elbow_left", 0.5, unit="rad")  # Via ROS
 ```
 
 ### Properties

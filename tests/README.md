@@ -8,10 +8,12 @@ These scripts are used to verify framework functionality and troubleshoot issues
 
 ```
 tests/
-├── README.md                    # This file
-├── diagnose_connection.py       # Connection troubleshooting tool
-├── test_low_latency_hands.py    # Tests low-latency Tinkerforge mode
-└── ...                          # Future test scripts
+├── README.md                       # This file
+├── diagnose_connection.py          # Connection troubleshooting tool
+├── read_servo_calibration.py       # Read servo hardware calibration
+├── test_low_latency.py             # Tests direct Tinkerforge motor control
+├── test_tinkerforge_optimization.py # Unit tests for Tinkerforge internals
+└── ...
 ```
 
 ## Running Tests & Tools
@@ -30,20 +32,30 @@ Checks:
 2. TCP port connectivity
 3. Rosbridge WebSocket protocol
 
-### Low-Latency Mode Test
+### Direct Motor Control Test
 
-Tests direct Tinkerforge motor control (bypassing ROS):
+Tests direct Tinkerforge motor control (default mode, bypasses ROS):
 
 ```bash
-# Auto-discover servo bricklet UIDs
-python tests/test_low_latency_hands.py --host 172.26.34.149
+# Test elbow motors (default)
+python tests/test_low_latency.py --host 172.26.34.149
 
-# Specify UIDs manually
-python tests/test_low_latency_hands.py --host 172.26.34.149 \
-    --servo1-uid 29Fy --servo2-uid 29F5 --servo3-uid 29F3
+# Test hand motors
+python tests/test_low_latency.py --host 172.26.34.149 --motors hands
 
-# Test only one hand (safer)
-python tests/test_low_latency_hands.py --host 172.26.34.149 --left-only
+# Test only left hand
+python tests/test_low_latency.py --host 172.26.34.149 --motors hands-left
+
+# Skip ROS topic check
+python tests/test_low_latency.py --host 172.26.34.149 --skip-ros-check
+```
+
+Available motor groups: `elbows`, `elbows-left`, `elbows-right`, `hands`, `hands-left`, `hands-right`, `all`.
+
+### Unit Tests
+
+```bash
+python -m pytest tests/test_tinkerforge_optimization.py
 ```
 
 ## For Users
