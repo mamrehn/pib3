@@ -254,9 +254,9 @@ Reference for standard PIB channel assignments:
 ```python
 from pib3 import PIB_SERVO_CHANNELS
 
-# See which channel each motor uses
-print(PIB_SERVO_CHANNELS["elbow_left"])  # 8
-print(PIB_SERVO_CHANNELS["wrist_left"])  # 6
+# See which bricklet and channel each motor uses: (bricklet_number, channel)
+print(PIB_SERVO_CHANNELS["elbow_left"])  # (3, 8)
+print(PIB_SERVO_CHANNELS["wrist_left"])  # (3, 6)
 ```
 
 ---

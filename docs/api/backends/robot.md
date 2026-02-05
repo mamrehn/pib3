@@ -563,8 +563,8 @@ from pib3 import build_motor_mapping, PIB_SERVO_CHANNELS
 # Build complete mapping from 3 UIDs
 mapping = build_motor_mapping("UID1", "UID2", "UID3")
 
-# Reference standard channel assignments
-print(PIB_SERVO_CHANNELS["elbow_left"])  # 8
+# Reference standard channel assignments: (bricklet_number, channel)
+print(PIB_SERVO_CHANNELS["elbow_left"])  # (3, 8)
 ```
 
 See the [Low-Latency Tutorial](../../tutorials/low-latency-mode.md) for complete examples.

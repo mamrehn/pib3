@@ -278,9 +278,9 @@ def main():
     )
     parser.add_argument(
         "--motors",
-        default="elbows",
+        default="hands",
         choices=list(MOTOR_GROUPS.keys()),
-        help="Motor group to test (default: elbows)",
+        help="Motor group to test (default: hands)",
     )
     parser.add_argument(
         "--relay-uid",

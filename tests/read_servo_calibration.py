@@ -89,28 +89,12 @@ def build_joint_limits(
     servo2 = servo_uids["servo2"]
     servo3 = servo_uids["servo3"]
 
-    for motor_name, channel in PIB_SERVO_CHANNELS.items():
-        # Determine which bricklet this motor belongs to
-        if motor_name in [
-            "shoulder_horizontal_right", "upper_arm_right_rotation",
-            "elbow_right", "lower_arm_right_rotation",
-            "thumb_right_opposition", "thumb_right_stretch",
-            "index_right_stretch", "middle_right_stretch",
-            "ring_right_stretch", "pinky_right_stretch",
-        ]:
+    for motor_name, (bricklet_num, channel) in PIB_SERVO_CHANNELS.items():
+        if bricklet_num == 1:
             uid = servo1
-        elif motor_name in [
-            "shoulder_vertical_right", "shoulder_vertical_left",
-        ]:
+        elif bricklet_num == 2:
             uid = servo2
-        elif motor_name in [
-            "shoulder_horizontal_left", "upper_arm_left_rotation",
-            "elbow_left", "lower_arm_left_rotation",
-            "wrist_left",
-            "thumb_left_opposition", "thumb_left_stretch",
-            "index_left_stretch", "middle_left_stretch",
-            "ring_left_stretch", "pinky_left_stretch",
-        ]:
+        elif bricklet_num == 3:
             uid = servo3
         else:
             continue
