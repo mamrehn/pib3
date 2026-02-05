@@ -109,7 +109,6 @@ class Trajectory:
     FORMAT_VERSION = "1.0"
     UNIT = "radians"
     COORDINATE_FRAME = "webots"  # Canonical format = Webots motor radians
-    WEBOTS_OFFSET = 0.0  # No offset needed for Webots
 
     def __len__(self) -> int:
         """Return number of waypoints."""
@@ -120,8 +119,12 @@ class Trajectory:
         self.waypoints = np.asarray(self.waypoints, dtype=np.float64)
 
     def to_webots_format(self) -> np.ndarray:
-        """Convert waypoints to Webots motor positions (identity, no offset)."""
-        return self.waypoints + self.WEBOTS_OFFSET
+        """Convert waypoints to Webots motor positions (identity).
+
+        Waypoints are already in absolute radians.  Per-joint offsets from
+        the Webots starting position are applied by the backend, not here.
+        """
+        return self.waypoints
 
     def to_robot_format(self) -> np.ndarray:
         """Convert waypoints to real robot format (centidegrees)."""
@@ -139,8 +142,9 @@ class Trajectory:
                 **self.metadata,
                 "created_at": datetime.utcnow().isoformat() + "Z",
                 "offsets": {
-                    "webots": self.WEBOTS_OFFSET,
-                    "description": "Canonical format is Webots motor radians.",
+                    "description": "Canonical format is absolute radians. "
+                    "Per-joint offsets from Webots starting position are "
+                    "applied by the backend at playback time.",
                 },
             },
         }

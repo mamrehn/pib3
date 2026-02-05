@@ -912,6 +912,52 @@ class RobotBackend(ABC):
         """
         ...
 
+    # --- Home Position Methods ---
+
+    @property
+    def home_percent(self) -> Dict[str, float]:
+        """
+        Home position (0 radians) expressed as percentage for each joint.
+
+        This is the Webots starting position / real robot midpoint.
+        For symmetric joints (-90° to +90°), this is 50%.
+        For asymmetric joints (e.g. elbow: -45° to +90°), this varies.
+
+        Example:
+            >>> hp = backend.home_percent
+            >>> print(hp["shoulder_vertical_left"])  # ~50.0
+            >>> print(hp["elbow_left"])               # ~33.3
+        """
+        result = {}
+        for name in self.MOTOR_NAMES:
+            try:
+                result[name] = self._radians_to_percent(name, 0.0)
+            except ValueError:
+                pass
+        return result
+
+    def go_home(self, async_: bool = False, timeout: float = 5.0) -> bool:
+        """
+        Move all joints to their home position (0 radians).
+
+        This is the neutral starting position: Webots proto zero / real robot
+        servo midpoint.  Equivalent to ``set_joints({...: 0.0}, unit="rad")``
+        for all joints.
+
+        Args:
+            async_: If True, return immediately without waiting.
+            timeout: Max wait time when async_=False (seconds).
+
+        Returns:
+            True if all joints reached home (or command sent if async_).
+
+        Example:
+            >>> with backend as robot:
+            ...     robot.go_home()  # All joints to 0 radians
+        """
+        home = {name: 0.0 for name in self.MOTOR_NAMES}
+        return self.set_joints(home, unit="rad", async_=async_, timeout=timeout)
+
     # --- Set Methods ---
 
     def set_joint(

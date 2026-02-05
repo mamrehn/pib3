@@ -65,6 +65,14 @@ class WebotsBackend(RobotBackend):
 
     Must be instantiated from within a Webots controller script.
 
+    Webots interprets motor positions as relative to the base position at
+    simulation time zero. On connect, the backend reads each joint's initial
+    position and stores it as a per-joint offset. All position commands are
+    then converted from absolute radians to Webots-relative positions using
+    these offsets. After ``_reset_to_zero()`` the offsets become 0.0 (since
+    all joints are driven to absolute zero), so commanding 0 rad targets
+    the proto-defined zero.
+
     When reading joint positions, the backend waits for motor readings to
     stabilize (same value twice) to ensure accurate readings when motors
     are in motion. Use the `timeout` parameter in get_joints() to control
@@ -83,8 +91,6 @@ class WebotsBackend(RobotBackend):
             # Read with custom timeout
             joints = backend.get_joints(timeout=2.0)
     """
-
-    WEBOTS_OFFSET = 0.0  # radians offset for Webots motors
 
     def __init__(
         self,
@@ -106,14 +112,24 @@ class WebotsBackend(RobotBackend):
         self._timestep = None
         self._motors: Dict[str, any] = {}
         self._proximal_motors: Dict[str, any] = {}
+        # Per-joint offsets: the initial position of each joint at simulation
+        # start (base position at timepoint zero).  Webots setPosition() is
+        # relative to this base, so we subtract the offset when commanding
+        # and add it back when reading.
+        self._home_offsets: Dict[str, float] = {}
 
     def _to_backend_format(self, radians: np.ndarray) -> np.ndarray:
-        """Convert radians to Webots format (add offset)."""
-        return radians + self.WEBOTS_OFFSET
+        """Convert absolute radians to Webots-relative positions.
+
+        After _reset_to_zero() all offsets are 0.0, so this is an identity.
+        """
+        # For trajectory playback, offsets are per-column (per joint).
+        # After reset they are all 0 so this is effectively a no-op.
+        return radians
 
     def _from_backend_format(self, values: np.ndarray) -> np.ndarray:
-        """Convert Webots format to radians (subtract offset)."""
-        return values - self.WEBOTS_OFFSET
+        """Convert Webots-relative positions to absolute radians."""
+        return values
 
     def connect(self) -> None:
         """Initialize Webots robot and motors."""
@@ -156,37 +172,59 @@ class WebotsBackend(RobotBackend):
                 else:
                     logger.warning(f"Proximal motor not found: {proximal_motor_name}")
 
-        # Reset all motors to true zero to clear saved scene offsets.
-        # Webots uses absolute motor positions (relative to proto definition),
-        # so setPosition(0.0) moves to the true mechanical zero regardless
-        # of saved .wbt joint positions.
+        # Read initial joint positions (base position at timepoint zero).
+        # Webots setPosition() targets are relative to this base, so we
+        # record the offsets before resetting to absolute zero.
+        self._read_home_offsets()
+
+        # Drive all motors to absolute zero, then clear offsets (since
+        # the joints are now at 0 rad and positions become absolute).
         self._reset_to_zero()
 
-    def _reset_to_zero(self) -> None:
-        """Reset all motors to true mechanical zero and wait for convergence.
+    def _read_home_offsets(self) -> None:
+        """Read and store each joint's initial position as its home offset.
 
-        When a Webots world is saved with joints at non-zero positions,
-        motors start at those positions. Since Webots setPosition() uses
-        absolute positioning (relative to the proto/URDF joint definition),
-        commanding 0.0 moves each joint to its true zero.
+        Must be called after sensors are enabled and before _reset_to_zero().
+        The offsets represent the base position at simulation timepoint zero.
         """
         # Step once so sensors produce valid readings
         self._robot.step(self._timestep)
 
-        # Log initial positions for diagnostics
+        self._home_offsets = {}
         for name, motor in self._motors.items():
             sensor = motor.getPositionSensor()
             if sensor is not None:
                 pos = sensor.getValue()
+                self._home_offsets[name] = pos
                 if abs(pos) > 0.01:
-                    logger.warning(
-                        f"Joint {name} starts at {pos:.4f} rad "
-                        f"({pos * 180 / 3.14159:.1f} deg) — resetting to zero"
+                    logger.info(
+                        f"Joint {name} initial offset: {pos:.4f} rad "
+                        f"({pos * 180 / 3.14159:.1f} deg)"
                     )
+            else:
+                self._home_offsets[name] = 0.0
 
-        # Command all motors to absolute zero
-        for motor in self._motors.values():
-            motor.setPosition(0.0)
+    def _reset_to_zero(self) -> None:
+        """Reset all motors to absolute zero and wait for convergence.
+
+        Uses the stored home offsets to command the correct Webots-relative
+        position that drives each joint to absolute 0 rad.  After convergence
+        the offsets are cleared (set to 0.0) so that subsequent commands are
+        in absolute coordinates.
+        """
+        # Log non-zero starting positions
+        for name, offset in self._home_offsets.items():
+            if abs(offset) > 0.01:
+                logger.warning(
+                    f"Joint {name} starts at {offset:.4f} rad "
+                    f"({offset * 180 / 3.14159:.1f} deg) — resetting to zero"
+                )
+
+        # Command all motors to absolute zero.
+        # Webots target = absolute_target - home_offset = 0.0 - offset = -offset
+        for name, motor in self._motors.items():
+            offset = self._home_offsets.get(name, 0.0)
+            motor.setPosition(-offset)
         for motor in self._proximal_motors.values():
             motor.setPosition(0.0)
 
@@ -198,17 +236,27 @@ class WebotsBackend(RobotBackend):
             self._robot.step(self._timestep)
 
             all_at_zero = True
-            for motor in self._motors.values():
+            for name, motor in self._motors.items():
                 sensor = motor.getPositionSensor()
-                if sensor is not None and abs(sensor.getValue()) > tolerance:
-                    all_at_zero = False
-                    break
+                if sensor is not None:
+                    # The sensor reads Webots-relative position;
+                    # absolute = reading + home_offset.
+                    offset = self._home_offsets.get(name, 0.0)
+                    absolute_pos = sensor.getValue() + offset
+                    if abs(absolute_pos) > tolerance:
+                        all_at_zero = False
+                        break
 
             if all_at_zero:
                 logger.info("All motors reached zero position.")
+                # Offsets are now consumed — joints are at absolute 0,
+                # so future commands need no offset adjustment.
+                self._home_offsets = {name: 0.0 for name in self._home_offsets}
                 return
 
         logger.warning("Timeout waiting for motors to reach zero position.")
+        # Clear offsets even on timeout so the system remains usable
+        self._home_offsets = {name: 0.0 for name in self._home_offsets}
 
     def disconnect(self) -> None:
         """Cleanup (no-op for Webots, robot lifecycle managed by simulator)."""
@@ -229,7 +277,10 @@ class WebotsBackend(RobotBackend):
         timeout: Optional[float] = None,
     ) -> Optional[float]:
         """
-        Get current position of a single joint in radians.
+        Get current position of a single joint in absolute radians.
+
+        Reads the Webots-relative sensor value and adds the home offset
+        to return the absolute position.
 
         Args:
             motor_name: Name of motor (e.g., "elbow_left").
@@ -237,26 +288,26 @@ class WebotsBackend(RobotBackend):
                     If None, uses DEFAULT_GET_JOINTS_TIMEOUT (5.0s).
 
         Returns:
-            Current position in radians, or None if unavailable.
+            Current position in absolute radians, or None if unavailable.
         """
         if not self.is_connected:
             return None
 
         if motor_name in self._motors:
             motor = self._motors[motor_name]
-            # Get position sensor if available
             sensor = motor.getPositionSensor()
             if sensor is not None:
                 if timeout is None:
                     timeout = self.DEFAULT_GET_JOINTS_TIMEOUT
+                offset = self._home_offsets.get(motor_name, 0.0)
                 start = time.time()
                 webots_pos_old = sensor.getValue()
                 while (time.time() - start) < timeout:
-                    self._robot.step(self._timestep)  # Advance simulation
+                    self._robot.step(self._timestep)
                     webots_pos = sensor.getValue()
                     # Check if motor has stabilized (same reading twice)
                     if abs(webots_pos - webots_pos_old) < 0.0001:
-                        return webots_pos - self.WEBOTS_OFFSET
+                        return webots_pos + offset
                     else:
                         webots_pos_old = webots_pos
             return None
@@ -294,23 +345,24 @@ class WebotsBackend(RobotBackend):
         return result
 
     def _set_joints_impl(self, positions_radians: Dict[str, float]) -> bool:
-        """Set joint positions (converts to Webots format internally).
-        
-        For finger joints, this sets both the proximal and distal motors
-        to the same position for realistic coupled finger movement.
+        """Set joint positions in absolute radians.
+
+        Converts absolute radians to Webots-relative positions by subtracting
+        each joint's home offset.  For finger joints, both proximal and distal
+        motors are set to the same position for coupled movement.
         """
         if not self.is_connected:
             return False
 
         for joint_name, position in positions_radians.items():
             if joint_name in self._motors:
-                webots_pos = position + self.WEBOTS_OFFSET
-                logger.debug(f"Setting {joint_name} to {webots_pos:.4f} rad ({webots_pos * 180 / 3.14159:.1f} deg)")
+                offset = self._home_offsets.get(joint_name, 0.0)
+                webots_pos = position - offset
+                logger.debug(f"Setting {joint_name} to {position:.4f} rad absolute "
+                             f"(webots={webots_pos:.4f}, offset={offset:.4f})")
                 self._motors[joint_name].setPosition(webots_pos)
-                
-                # Also set proximal motor for finger joints (same position)
-                if hasattr(self, '_proximal_motors') and joint_name in self._proximal_motors:
-                    logger.debug(f"Setting proximal for {joint_name} to {webots_pos:.4f} rad")
+
+                if joint_name in self._proximal_motors:
                     self._proximal_motors[joint_name].setPosition(webots_pos)
 
         # Step simulation once to initiate movement
@@ -372,7 +424,8 @@ class WebotsBackend(RobotBackend):
                 if sensor is None:
                     continue
 
-                current_pos = sensor.getValue() - self.WEBOTS_OFFSET
+                offset = self._home_offsets.get(joint_name, 0.0)
+                current_pos = sensor.getValue() + offset
                 error = abs(current_pos - target_rad)
 
                 if error > tolerance_rad:
@@ -400,7 +453,11 @@ class WebotsBackend(RobotBackend):
         rate_hz: float,
         progress_callback: Optional[Callable[[int, int], None]],
     ) -> bool:
-        """Execute waypoints in Webots."""
+        """Execute waypoints in Webots.
+
+        Waypoints are in absolute radians.  Each position is converted to
+        Webots-relative by subtracting the joint's home offset.
+        """
         if not self.is_connected:
             return False
 
@@ -414,16 +471,15 @@ class WebotsBackend(RobotBackend):
         total = len(waypoints)
 
         for i, point in enumerate(waypoints):
-            # Set all motor positions
             for name, idx in joint_indices.items():
                 position = point[idx]
-                self._motors[name].setPosition(position)
+                offset = self._home_offsets.get(name, 0.0)
+                webots_pos = position - offset
+                self._motors[name].setPosition(webots_pos)
 
-                # Also set proximal motor for finger joints (coupled motion)
                 if name in self._proximal_motors:
-                    self._proximal_motors[name].setPosition(position)
+                    self._proximal_motors[name].setPosition(webots_pos)
 
-            # Step simulation
             self._robot.step(step_ms)
 
             if progress_callback:
