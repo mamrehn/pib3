@@ -35,7 +35,7 @@ from typing import Optional, Union
 from .types import Joint, Sketch, Stroke, HandPose, LEFT_HAND_JOINTS, RIGHT_HAND_JOINTS, AIModel
 
 # Configuration
-from .config import TrajectoryConfig, LowLatencyConfig
+from .config import PaperConfig, IKConfig, ImageConfig, TrajectoryConfig, LowLatencyConfig
 
 # Core functions
 from .image import image_to_sketch
@@ -85,6 +85,9 @@ __all__ = [
     "Trajectory",
     "AIModel",
     # Config
+    "PaperConfig",
+    "IKConfig",
+    "ImageConfig",
     "TrajectoryConfig",
     "LowLatencyConfig",
     # Functions
