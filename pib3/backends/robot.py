@@ -24,6 +24,11 @@ TinkerforgeMotorMapping = Dict[str, Tuple[str, int]]
 # Standard PIB servo channel assignments (same wiring for all robots).
 # Maps motor names to (bricklet_number, channel) tuples.
 # Bricklet UIDs differ per robot, but bricklet/channel assignments are consistent.
+#
+# Reference UIDs (from webapp / experts):
+#   Servo Bricklet 1: 2cPP  -> Right arm + hand
+#   Servo Bricklet 2: 2cPm  -> Shoulders (horizontal + vertical), head
+#   Servo Bricklet 3: 2cPQ  -> Left arm + hand
 PIB_SERVO_CHANNELS = {
     # Servo Bricklet 1 - Right arm + hand
     "upper_arm_right_rotation": (1, 9),
@@ -56,6 +61,15 @@ PIB_SERVO_CHANNELS = {
     "middle_left_stretch": (3, 3),
     "ring_left_stretch": (3, 4),
     "pinky_left_stretch": (3, 5),
+}
+
+# Known servo bricklet UIDs from the webapp (experts' reference).
+# Used to validate auto-discovery ordering.
+# Maps bricklet role number -> expected UID.
+KNOWN_SERVO_UIDS = {
+    1: "2cPP",  # Right arm + hand
+    2: "2cPm",  # Shoulders (horizontal + vertical), head
+    3: "2cPQ",  # Left arm + hand
 }
 
 
@@ -465,12 +479,12 @@ class RealRobotBackend(RobotBackend):
         """Auto-discover servo bricklets and build the full motor mapping.
 
         Enumerates Tinkerforge Servo Bricklet V2 devices, sorts them by
-        physical stack position, and assigns them to:
-        - servo1 (right arm + hand)
-        - servo2 (shoulders + head)
-        - servo3 (left arm + hand)
+        physical stack position, and assigns them to bricklet roles.
 
-        The stack position order is consistent across all PIB robots.
+        Empirically verified position order (lowest to highest):
+        - position[0] -> servo2 (shoulders + head)
+        - position[1] -> servo3 (left arm + hand)
+        - position[2] -> servo1 (right arm + hand)
         """
         if self._tinkerforge_conn is None:
             return
@@ -494,9 +508,8 @@ class RealRobotBackend(RobotBackend):
         # Wait for enumeration responses
         time.sleep(1.0)
 
-        self._discovered_servo_uids = [uid for uid, _ in discovered]
-
         if len(discovered) != 3:
+            self._discovered_servo_uids = [uid for uid, _ in discovered]
             logger.warning(
                 f"Expected 3 Servo Bricklets, found {len(discovered)}. "
                 f"Auto-mapping disabled. Falling back to ROS for motor control. "
@@ -504,11 +517,46 @@ class RealRobotBackend(RobotBackend):
             )
             return
 
-        # Sort by physical stack position (consistent across all PIB robots)
+        # Sort by physical stack position.
+        # Empirically verified order: position-sorted index maps to
+        # [servo2 (shoulders/head), servo3 (left arm), servo1 (right arm)].
         discovered.sort(key=lambda x: x[1])
-        servo1_uid = discovered[0][0]  # Right arm + hand
-        servo2_uid = discovered[1][0]  # Shoulders + head
-        servo3_uid = discovered[2][0]  # Left arm + hand
+
+        for i, (uid, pos) in enumerate(discovered):
+            logger.info(
+                f"Enumerated servo [{i}]: UID={uid}, position='{pos}'"
+            )
+
+        servo2_uid = discovered[0][0]  # Shoulders + head
+        servo3_uid = discovered[1][0]  # Left arm + hand
+        servo1_uid = discovered[2][0]  # Right arm + hand
+
+        # Validate against known UIDs when available
+        discovered_uids = {uid for uid, _ in discovered}
+        known_uids = set(KNOWN_SERVO_UIDS.values())
+        if discovered_uids == known_uids:
+            expected = {
+                1: KNOWN_SERVO_UIDS[1],
+                2: KNOWN_SERVO_UIDS[2],
+                3: KNOWN_SERVO_UIDS[3],
+            }
+            actual = {1: servo1_uid, 2: servo2_uid, 3: servo3_uid}
+
+            if actual != expected:
+                logger.warning(
+                    f"BRICKLET ORDER MISMATCH! "
+                    f"Assigned: servo1={servo1_uid}, servo2={servo2_uid}, servo3={servo3_uid}  "
+                    f"Expected: servo1={expected[1]}, servo2={expected[2]}, servo3={expected[3]}  "
+                    f"Overriding with known UID mapping."
+                )
+                servo1_uid = expected[1]
+                servo2_uid = expected[2]
+                servo3_uid = expected[3]
+            else:
+                logger.info("Bricklet UIDs match known reference — ordering verified.")
+
+        # Store in role order: servo1, servo2, servo3
+        self._discovered_servo_uids = [servo1_uid, servo2_uid, servo3_uid]
 
         logger.info(
             f"Auto-mapped servo bricklets: "
