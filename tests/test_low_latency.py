@@ -307,11 +307,14 @@ def main():
             # Check servo power
             check_servo_power_relay(robot, args.relay_uid)
 
-            # Discover bricklets (informational)
+            # Show discovered bricklets (already discovered during connect)
             print_separator("Bricklet Discovery")
-            uids = robot.discover_servo_bricklets(timeout=2.0)
+            uids = robot.discovered_servo_uids
             if uids:
-                print(f"[OK] Found {len(uids)} servo bricklet(s): {uids}")
+                roles = ["servo1 (right arm)", "servo2 (shoulders/head)", "servo3 (left arm)"]
+                print(f"[OK] Found {len(uids)} servo bricklet(s):")
+                for role, uid in zip(roles, uids):
+                    print(f"  {role}: {uid}")
             else:
                 print("[WARN] No servo bricklets found.")
 
