@@ -5,7 +5,6 @@ import logging
 import math
 import threading
 import time
-import time
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -15,7 +14,7 @@ logger = logging.getLogger(__name__)
 from .base import RobotBackend
 from .audio import AudioOutput, AudioInput, RobotAudioPlayer, RobotAudioRecorder, DEFAULT_SAMPLE_RATE
 from ..config import RobotConfig, LowLatencyConfig
-from ..types import ImuType, AiTaskType, AIModel
+from ..types import ImuType, AIModel
 
 # Type alias for Tinkerforge motor mapping: motor_name -> (bricklet_uid, channel)
 TinkerforgeMotorMapping = Dict[str, Tuple[str, int]]
@@ -139,35 +138,6 @@ def build_motor_mapping(
     }
 
 
-# Mapping from trajectory joint names to real robot motor names (for apply_joint_trajectory)
-JOINT_TO_ROBOT_MOTOR = {
-    "turn_head_motor": "turn_head_motor",
-    "tilt_forward_motor": "tilt_forward_motor",
-    "shoulder_vertical_left": "shoulder_vertical_left",
-    "shoulder_horizontal_left": "shoulder_horizontal_left",
-    "upper_arm_left_rotation": "upper_arm_left_rotation",
-    "elbow_left": "elbow_left",
-    "lower_arm_left_rotation": "lower_arm_left_rotation",
-    "wrist_left": "wrist_left",
-    "thumb_left_opposition": "thumb_left_opposition",
-    "thumb_left_stretch": "thumb_left_stretch",
-    "index_left_stretch": "index_left_stretch",
-    "middle_left_stretch": "middle_left_stretch",
-    "ring_left_stretch": "ring_left_stretch",
-    "pinky_left_stretch": "pinky_left_stretch",
-    "shoulder_vertical_right": "shoulder_vertical_right",
-    "shoulder_horizontal_right": "shoulder_horizontal_right",
-    "upper_arm_right_rotation": "upper_arm_right_rotation",
-    "elbow_right": "elbow_right",
-    "lower_arm_right_rotation": "lower_arm_right_rotation",
-    "wrist_right": "wrist_right",
-    "thumb_right_opposition": "thumb_right_opposition",
-    "thumb_right_stretch": "thumb_right_stretch",
-    "index_right_stretch": "index_right_stretch",
-    "middle_right_stretch": "middle_right_stretch",
-    "ring_right_stretch": "ring_right_stretch",
-    "pinky_right_stretch": "pinky_right_stretch",
-}
 
 
 class RealRobotBackend(RobotBackend):
@@ -1026,6 +996,21 @@ class RealRobotBackend(RobotBackend):
 
     def disconnect(self) -> None:
         """Close connection to robot."""
+        # Stop subsystems
+        if self._ai_subsystem is not None:
+            try:
+                self._ai_subsystem.stop()
+            except Exception:
+                pass
+            self._ai_subsystem = None
+
+        if self._camera_subsystem is not None:
+            try:
+                self._camera_subsystem.stop()
+            except Exception:
+                pass
+            self._camera_subsystem = None
+
         # Disconnect Tinkerforge first
         self._disconnect_tinkerforge()
 
@@ -1437,16 +1422,14 @@ class RealRobotBackend(RobotBackend):
         ll_motors: Dict[str, float] = {}
         ros_motors: Dict[str, float] = {}
         for name, target in target_positions.items():
-            motor_name = JOINT_TO_ROBOT_MOTOR.get(name, name)
-            if motor_name in self._tinkerforge_motor_map:
+            if name in self._tinkerforge_motor_map:
                 ll_motors[name] = target
             else:
                 ros_motors[name] = target
 
         # Wait on position-reached events for low-latency motors
         for name, target in ll_motors.items():
-            motor_name = JOINT_TO_ROBOT_MOTOR.get(name, name)
-            event = self._position_reached_events.get(motor_name)
+            event = self._position_reached_events.get(name)
             if event is None:
                 continue
 
@@ -1529,11 +1512,10 @@ class RealRobotBackend(RobotBackend):
         if use_low_latency:
             # Try direct Tinkerforge control first
             for joint_name, position in positions_radians.items():
-                motor_name = JOINT_TO_ROBOT_MOTOR.get(joint_name, joint_name)
                 centidegrees = self._radians_to_centidegrees(position)
 
                 success = self._set_motor_direct(
-                    motor_name,
+                    joint_name,
                     centidegrees,
                     velocity_centideg=tf_velocity,
                 )
@@ -1579,7 +1561,6 @@ class RealRobotBackend(RobotBackend):
 
         # Send each joint as a separate service call
         for joint_name, position in positions_radians.items():
-            motor_name = JOINT_TO_ROBOT_MOTOR.get(joint_name, joint_name)
             centidegrees = self._radians_to_centidegrees(position)
 
             message = {
@@ -1588,7 +1569,7 @@ class RealRobotBackend(RobotBackend):
                         'stamp': {'sec': 0, 'nanosec': 0},
                         'frame_id': '',
                     },
-                    'joint_names': [motor_name],
+                    'joint_names': [joint_name],
                     'points': [{
                         'positions': [float(centidegrees)],
                         'velocities': [float(velocity_centideg)],
@@ -1654,8 +1635,9 @@ class RealRobotBackend(RobotBackend):
         period = 1.0 / rate_hz
         total = len(waypoints)
 
-        # Map joint names to robot motor names
-        motor_names = [JOINT_TO_ROBOT_MOTOR.get(n, n) for n in joint_names]
+        import roslibpy
+
+        motor_names = list(joint_names)
 
         for i, point in enumerate(waypoints):
             # Build positions list (already in centidegrees from _to_backend_format)
@@ -1680,7 +1662,6 @@ class RealRobotBackend(RobotBackend):
             }
 
             try:
-                import roslibpy
                 request = roslibpy.ServiceRequest(message)
                 self._service.call(request, timeout=self.timeout)
             except Exception:
@@ -2355,22 +2336,31 @@ class RealRobotBackend(RobotBackend):
         """
         Set IMU sampling frequency.
 
-        Note: BMI270 rounds down to nearest valid frequency.
-        Valid frequencies: 25, 50, 100, 200, 250 Hz
+        The BMI270 IMU only supports a fixed set of frequencies and will
+        round down to the nearest valid value:
 
-        Examples:
-            - Request 99Hz → Get 50Hz
-            - Request 150Hz → Get 100Hz
-            - Request 400Hz → Get 250Hz (max)
+        ========== ==================
+        Requested  Actual (BMI270)
+        ========== ==================
+        25 Hz      25 Hz
+        50 Hz      50 Hz
+        100 Hz     100 Hz
+        200 Hz     200 Hz
+        250 Hz     250 Hz (max)
+        ========== ==================
+
+        Any value is accepted; the sensor rounds down automatically.
+        A warning is logged when a non-standard value is requested.
 
         Args:
             frequency: Desired frequency in Hz.
         """
         valid_frequencies = [25, 50, 100, 200, 250]
         if frequency not in valid_frequencies:
-            raise ValueError(
-                f"Invalid frequency {frequency} Hz. "
-                f"Supported frequencies are: {', '.join(map(str, valid_frequencies))}"
+            logger.warning(
+                f"IMU frequency {frequency} Hz is not a standard BMI270 frequency. "
+                f"The sensor will round down to the nearest of: "
+                f"{', '.join(map(str, valid_frequencies))} Hz."
             )
 
         if not self.is_connected:
@@ -2480,13 +2470,15 @@ def rle_decode(rle: dict) -> np.ndarray:
     """
     Decode RLE-encoded segmentation mask to numpy array.
 
-    The mask is encoded in COCO RLE format (column-major order).
+    Decodes the format produced by the robot's on-board ``rle_encode()``:
+    a dict with 'runs' (run lengths), 'values' (pixel values per run),
+    and 'shape' [height, width].
 
     Args:
-        rle: Dict with 'size' [height, width] and 'counts' list.
+        rle: Dict with 'runs', 'values', and 'shape' keys.
 
     Returns:
-        Binary mask as numpy array of shape (height, width).
+        Mask as numpy array of shape (height, width).
 
     Example:
         >>> def on_detection(data):
@@ -2496,14 +2488,19 @@ def rle_decode(rle: dict) -> np.ndarray:
         ...             mask = rle_decode(result['mask_rle'])
         ...             print(f"Mask shape: {mask.shape}")
     """
-    h, w = rle["size"]
-    counts = rle["counts"]
+    shape = rle.get("shape", [0, 0])
+    runs = rle.get("runs", [])
+    values = rle.get("values", [])
+
+    if not runs or not values:
+        return np.zeros(shape, dtype=np.uint8)
 
     pixels = []
-    val = 0
-    for count in counts:
-        pixels.extend([val] * count)
-        val = 1 - val
+    for run_length, value in zip(runs, values):
+        pixels.extend([value] * run_length)
 
-    # Column-major reshape (Fortran order) for COCO compatibility
-    return np.array(pixels, dtype=np.uint8).reshape((h, w), order='F')
+    total_pixels = shape[0] * shape[1]
+    if len(pixels) < total_pixels:
+        pixels.extend([0] * (total_pixels - len(pixels)))
+
+    return np.array(pixels[:total_pixels], dtype=np.uint8).reshape(shape)

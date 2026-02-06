@@ -1,7 +1,7 @@
 """Core data types for pib3 package."""
 
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 import numpy as np
 from enum import Enum
 
@@ -11,14 +11,6 @@ class ImuType(str, Enum):
     FULL = "full"
     ACCELEROMETER = "accelerometer"
     GYROSCOPE = "gyroscope"
-
-
-class AiTaskType(str, Enum):
-    """Types of AI tasks/results."""
-    DETECTION = "detection"
-    CLASSIFICATION = "classification"
-    SEGMENTATION = "segmentation"
-    POSE = "pose"
 
 
 class AIModel(str, Enum):
@@ -240,7 +232,7 @@ class Sketch:
                      None if not created from an image.
     """
     strokes: List[Stroke] = field(default_factory=list)
-    source_size: Tuple[int, int] = None
+    source_size: Optional[Tuple[int, int]] = None
 
     def __len__(self) -> int:
         """Return number of strokes in the sketch."""

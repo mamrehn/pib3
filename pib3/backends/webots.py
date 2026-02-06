@@ -199,7 +199,7 @@ class WebotsBackend(RobotBackend):
                 if abs(pos) > 0.01:
                     logger.info(
                         f"Joint {name} initial offset: {pos:.4f} rad "
-                        f"({pos * 180 / 3.14159:.1f} deg)"
+                        f"({pos * 180 / np.pi:.1f} deg)"
                     )
             else:
                 self._home_offsets[name] = 0.0
@@ -217,7 +217,7 @@ class WebotsBackend(RobotBackend):
             if abs(offset) > 0.01:
                 logger.warning(
                     f"Joint {name} starts at {offset:.4f} rad "
-                    f"({offset * 180 / 3.14159:.1f} deg) — resetting to zero"
+                    f"({offset * 180 / np.pi:.1f} deg) — resetting to zero"
                 )
 
         # Command all motors to absolute zero.

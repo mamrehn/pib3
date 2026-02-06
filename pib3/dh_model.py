@@ -12,15 +12,6 @@ Note on DHRobot.base property:
     robot's world frame. We omit this because our IK solver gets shoulder
     position from the URDF model instead, then passes shoulder-relative
     targets to the DH model. This keeps DH and URDF coordinate frames separate.
-Coordinate frames:
-    - Robot base frame: The robot's torso origin (used by CAMERA_TRANSFORM)
-    - Shoulder frame: Origin at the shoulder joint (used by DH models)
-
-Note on DHRobot.base property:
-    The expert's pib_DH.py sets DHRobot.base to position the shoulder in the
-    robot's world frame. We omit this because our IK solver gets shoulder
-    position from the URDF model instead, then passes shoulder-relative
-    targets to the DH model. This keeps DH and URDF coordinate frames separate.
 """
 
 from typing import Dict, Literal, Optional, Tuple
@@ -30,7 +21,6 @@ from roboticstoolbox import DHRobot, RevoluteDH
 from spatialmath import SE3
 
 
-# Camera transform from camera link to robot base frame (torso origin) in mm
 # Camera transform from camera link to robot base frame (torso origin) in mm
 # From expert pib_DH.py - useful for vision-based applications
 CAMERA_TRANSFORM = SE3.Tx(-91) * SE3.Tz(643.6) * SE3.Rz(-np.pi / 2) * SE3.Rx(np.pi / 2)
@@ -245,36 +235,6 @@ def clear_caches():
     """Clear all module-level caches (useful for testing)."""
     _DH_ROBOT_CACHE.clear()
     _SHOULDER_CACHE.clear()
-
-
-def camera_to_base(point_camera: np.ndarray) -> np.ndarray:
-    """
-    Transform a point from camera frame to robot base frame (torso origin).
-
-    Args:
-        point_camera: Point in camera frame [x, y, z] in mm.
-
-    Returns:
-        Point in robot base frame (torso origin) [x, y, z] in mm.
-    """
-    point_camera = np.asarray(point_camera).flatten()
-    point_base = CAMERA_TRANSFORM * SE3(point_camera)
-    return np.array(point_base.t).flatten()
-
-
-def base_to_camera(point_base: np.ndarray) -> np.ndarray:
-    """
-    Transform a point from robot base frame (torso origin) to camera frame.
-
-    Args:
-        point_base: Point in robot base frame (torso origin) [x, y, z] in mm.
-
-    Returns:
-        Point in camera frame [x, y, z] in mm.
-    """
-    point_base = np.asarray(point_base).flatten()
-    point_camera = CAMERA_TRANSFORM.inv() * SE3(point_base)
-    return np.array(point_camera.t).flatten()
 
 
 def camera_to_base(point_camera: np.ndarray) -> np.ndarray:

@@ -20,7 +20,6 @@ from .camera import (
     CameraFrameReceiver,
     AIDetectionReceiver,
     # Utilities
-    rle_decode as camera_rle_decode,
     parse_ai_result,
     # Constants
     COCO_LABELS,
@@ -76,7 +75,6 @@ __all__ = [
     "CameraFrameReceiver",
     "AIDetectionReceiver",
     # Camera/AI utilities
-    "camera_rle_decode",
     "parse_ai_result",
     "COCO_LABELS",
     # Unified audio system - enums

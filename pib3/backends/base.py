@@ -149,14 +149,11 @@ class RobotBackend(ABC):
     # Joint limits file for this backend (override in subclasses)
     # - "joint_limits_webots.yaml" for simulation (Webots)
     # - "joint_limits_robot.yaml" for real robot
-    # - "joint_limits_webots.yaml" for simulation (Webots)
-    # - "joint_limits_robot.yaml" for real robot
     JOINT_LIMITS_FILE: str = "joint_limits_webots.yaml"
 
     def __init__(self, host: str = "localhost", port: int = 9090):
         self.host = host
         self.port = port
-        self._is_connected = False
 
         # Unified audio system
         self._audio_output: AudioOutput = AudioOutput.LOCAL
@@ -359,7 +356,7 @@ class RobotBackend(ABC):
         """Play audio on local speakers."""
         player = self._get_local_player()
         if player is None:
-            logger.warning("Local audio playback not available (simpleaudio not installed)")
+            logger.warning("Local audio playback not available (sounddevice not installed)")
             return False
         return player.play(data, sample_rate, block=block)
 
@@ -444,12 +441,6 @@ class RobotBackend(ABC):
             # Start robot playback first (non-blocking), then local
             robot_success = self._play_on_robot(audio, sample_rate, block=False)
             local_success = self._play_on_local(audio, sample_rate, block=block)
-
-            # If blocking, also wait for estimated robot playback duration
-            if block and robot_success:
-                import time
-                # Robot playback already waited via estimated duration
-                pass
 
             success = local_success or robot_success
 

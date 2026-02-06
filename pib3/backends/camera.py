@@ -1093,32 +1093,21 @@ def rle_decode(rle: dict) -> np.ndarray:
     """
     Decode RLE-encoded segmentation mask to numpy array.
 
+    Delegates to the canonical ``rle_decode`` in ``robot.py``.
+
     Args:
-        rle: Dict with 'runs', 'values', and 'shape' keys.
+        rle: Dict with 'runs', 'values', and 'shape' keys
+             (produced by the robot's ``rle_encode()``).
 
     Returns:
-        Binary mask as numpy array of shape specified in rle['shape'].
+        Mask as numpy array of shape (height, width).
 
     Example:
         >>> mask = rle_decode(detection.mask_rle)
         >>> print(f"Mask shape: {mask.shape}")
     """
-    shape = rle.get("shape", [0, 0])
-    runs = rle.get("runs", [])
-    values = rle.get("values", [])
-
-    if not runs or not values:
-        return np.zeros(shape, dtype=np.uint8)
-
-    pixels = []
-    for run_length, value in zip(runs, values):
-        pixels.extend([value] * run_length)
-
-    total_pixels = shape[0] * shape[1]
-    if len(pixels) < total_pixels:
-        pixels.extend([0] * (total_pixels - len(pixels)))
-
-    return np.array(pixels[:total_pixels], dtype=np.uint8).reshape(shape)
+    from .robot import rle_decode as _rle_decode
+    return _rle_decode(rle)
 
 
 def parse_ai_result(data: dict) -> Union[List[Detection], List[HandLandmarks], List[PoseKeypoints], dict]:

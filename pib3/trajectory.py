@@ -3,7 +3,7 @@
 import json
 import warnings
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
@@ -140,7 +140,7 @@ class Trajectory:
             "waypoints": self.waypoints.tolist(),
             "metadata": {
                 **self.metadata,
-                "created_at": datetime.utcnow().isoformat() + "Z",
+                "created_at": datetime.now(timezone.utc).isoformat(),
                 "offsets": {
                     "description": "Canonical format is absolute radians. "
                     "Per-joint offsets from Webots starting position are "

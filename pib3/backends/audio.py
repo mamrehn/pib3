@@ -55,7 +55,7 @@ import wave
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Callable, List, Optional, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -1101,7 +1101,7 @@ class AudioStreamReceiver:
 # ==================== UTILITY FUNCTIONS ====================
 
 
-def load_audio_file(filepath: Union[str, Path]) -> tuple[np.ndarray, int]:
+def load_audio_file(filepath: Union[str, Path]) -> Tuple[np.ndarray, int]:
     """
     Load audio from a WAV file.
 

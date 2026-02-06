@@ -115,7 +115,7 @@ def parse_proto(tokens):
     """Parse proto file tokens into a Robot node tree."""
     defs = {}
     idx = 0
-    
+
     def parse_value():
         nonlocal idx
         if idx >= len(tokens):
@@ -181,14 +181,12 @@ def parse_proto(tokens):
                     node.fields[field] = vals if len(vals) > 1 else (vals[0] if vals else None)
             idx += 1
         return node
-    
+
     while idx < len(tokens) and tokens[idx] != 'Robot':
         idx += 1
     return parse_node()
 
 # --- URDF Generation ---
-
-urdf_str = ""
 
 def get_vec3(node, field, default=None):
     """Extract a 3D vector from a node field."""
@@ -209,137 +207,126 @@ def get_rot(node, field):
     return [0, 0, 1], 0
 
 def generate_urdf(robot_node):
-    """Generate URDF from parsed Robot node."""
-    global urdf_str
-    urdf_str = '<?xml version="1.0"?>\n<robot name="pib">\n'
-    
+    """Generate URDF from parsed Robot node.
+
+    Returns:
+        The URDF XML as a string.
+    """
+    lines = ['<?xml version="1.0"?>\n<robot name="pib">\n']
+
     if 'children' in robot_node.fields:
         for child in robot_node.fields['children']:
             if isinstance(child, Node) and child.type == 'Solid':
-                # The base solid (body) - its frame is the world reference
-                # In URDF, base_link frame = world frame at robot origin
                 process_solid_as_link(
+                    lines,
                     solid_node=child,
                     link_name="base_link",
                     parent_frame_origin=[0, 0, 0],
                     parent_frame_rot=identity_matrix()
                 )
                 break
-    
-    urdf_str += '</robot>\n'
 
-def process_solid_as_link(solid_node, link_name, parent_frame_origin, parent_frame_rot):
+    lines.append('</robot>\n')
+    return ''.join(lines)
+
+def process_solid_as_link(lines, solid_node, link_name, parent_frame_origin, parent_frame_rot):
     """
     Process a Webots Solid as a URDF link.
-    
+
     In Webots:
     - Solid nodes contain visual geometry via Transform/Shape children
     - Solid nodes contain HingeJoint children that connect to child Solids
     - Each Solid has its own local frame defined by translation/rotation relative to parent
-    
+
     In URDF:
     - Each link has its own frame
     - Joint origin defines transform from parent link to child link
     - Visual/collision origins are relative to the link frame
-    
+
     Args:
+        lines: List to accumulate URDF XML lines.
         solid_node: The Webots Solid node
         link_name: URDF link name
         parent_frame_origin: Origin of parent frame in global coords
         parent_frame_rot: Rotation matrix of parent frame
     """
-    global urdf_str
-    
     # Get solid's local transform (relative to its parent)
     solid_trans = get_vec3(solid_node, 'translation')
     solid_rot_axis, solid_rot_angle = get_rot(solid_node, 'rotation')
     solid_rot = axis_angle_to_matrix(solid_rot_axis, solid_rot_angle)
-    
+
     # Compute solid's global position and orientation
-    # solid_global_pos = parent_origin + parent_rot * solid_trans
     solid_global_pos = vec_add(parent_frame_origin, matrix_mul(parent_frame_rot, solid_trans))
-    # solid_global_rot = parent_rot * solid_rot
     solid_global_rot = matrix_mult_mat(parent_frame_rot, solid_rot)
-    
-    # For URDF, the link frame is at the solid's global position with its orientation
+
     link_frame_origin = solid_global_pos
     link_frame_rot = solid_global_rot
-    
-    urdf_str += f'  <link name="{link_name}">\n'
-    
+
+    lines.append(f'  <link name="{link_name}">\n')
+
     # Process visual/collision geometry
-    # These are relative to the link frame
     if 'children' in solid_node.fields:
         for c in solid_node.fields.get('children', []):
-            process_visual_element(c, link_frame_origin, link_frame_rot, link_frame_origin, link_frame_rot)
-    
+            process_visual_element(lines, c, link_frame_origin, link_frame_rot, link_frame_origin, link_frame_rot)
+
     # Add inertial properties if physics is defined
     if 'physics' in solid_node.fields:
         phys = solid_node.fields['physics']
         if isinstance(phys, Node):
             mass = float(phys.fields.get('mass', 1.0))
             com_local = get_vec3(phys, 'centerOfMass')
-            urdf_str += f'    <inertial>\n'
-            urdf_str += f'      <origin xyz="{com_local[0]} {com_local[1]} {com_local[2]}" rpy="0 0 0"/>\n'
-            urdf_str += f'      <mass value="{mass}"/>\n'
-            urdf_str += f'      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>\n'
-            urdf_str += f'    </inertial>\n'
-    
-    urdf_str += f'  </link>\n'
-    
+            lines.append(f'    <inertial>\n')
+            lines.append(f'      <origin xyz="{com_local[0]} {com_local[1]} {com_local[2]}" rpy="0 0 0"/>\n')
+            lines.append(f'      <mass value="{mass}"/>\n')
+            lines.append(f'      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>\n')
+            lines.append(f'    </inertial>\n')
+
+    lines.append(f'  </link>\n')
+
     # Process HingeJoint children
     if 'children' in solid_node.fields:
         for c in solid_node.fields.get('children', []):
             if isinstance(c, Node) and c.type == 'HingeJoint':
-                process_hinge_joint(c, link_name, link_frame_origin, link_frame_rot)
+                process_hinge_joint(lines, c, link_name, link_frame_origin, link_frame_rot)
 
-def process_visual_element(node, current_pos, current_rot, link_origin, link_rot):
+def process_visual_element(lines, node, current_pos, current_rot, link_origin, link_rot):
     """
     Recursively process visual elements (Transform, Shape) and add to URDF.
-    
+
     current_pos/current_rot: Current accumulated transform in global space
     link_origin/link_rot: The link's frame in global space (for computing relative transform)
     """
-    global urdf_str
-    
     if not isinstance(node, Node):
         return
-    
+
     if node.type == 'Transform':
-        # Apply Transform's offset
         t_trans = get_vec3(node, 'translation')
         t_ax, t_ang = get_rot(node, 'rotation')
         t_rot = axis_angle_to_matrix(t_ax, t_ang)
-        
-        # New position = current + current_rot * t_trans
+
         new_pos = vec_add(current_pos, matrix_mul(current_rot, t_trans))
         new_rot = matrix_mult_mat(current_rot, t_rot)
-        
+
         if 'children' in node.fields:
             for c in node.fields.get('children', []):
-                process_visual_element(c, new_pos, new_rot, link_origin, link_rot)
-    
+                process_visual_element(lines, c, new_pos, new_rot, link_origin, link_rot)
+
     elif node.type == 'Shape':
-        add_visual_to_urdf(node, current_pos, current_rot, link_origin, link_rot)
-    
+        add_visual_to_urdf(lines, node, current_pos, current_rot, link_origin, link_rot)
+
     elif node.type == 'Solid':
-        # Skip Solid children here - they're processed via joints
-        pass
-    
-    elif node.type == 'HingeJoint':
-        # Skip joints here
         pass
 
-def add_visual_to_urdf(shape_node, global_pos, global_rot, link_origin, link_rot):
+    elif node.type == 'HingeJoint':
+        pass
+
+def add_visual_to_urdf(lines, shape_node, global_pos, global_rot, link_origin, link_rot):
     """Add a visual/collision element to URDF from a Shape node."""
-    global urdf_str
-    
     geo = None
     if 'geometry' in shape_node.fields:
         g = shape_node.fields['geometry']
         if isinstance(g, Node) and g.type == 'Mesh':
             url = g.fields.get('url', '').replace('"', '')
-            # Convert URL to local path
             if '/pibsim_webots/' in url:
                 url = os.path.join(os.getcwd(), 'pibsim_webots', url.split('/pibsim_webots/')[1])
             elif '/ros2_ws/pibsim_webots/' in url:
@@ -347,61 +334,53 @@ def add_visual_to_urdf(shape_node, global_pos, global_rot, link_origin, link_rot
             elif '/app/ros2_ws/pibsim_webots/' in url:
                 url = os.path.join(os.getcwd(), 'pibsim_webots', url.split('/app/ros2_ws/pibsim_webots/')[1])
             geo = f'<mesh filename="{url}"/>'
-    
+
     if geo:
-        # Compute position relative to link frame
-        # rel_pos = link_rot^T * (global_pos - link_origin)
         link_rot_inv = matrix_transpose(link_rot)
         rel_pos = matrix_mul(link_rot_inv, vec_sub(global_pos, link_origin))
-        # rel_rot = link_rot^T * global_rot
         rel_rot = matrix_mult_mat(link_rot_inv, global_rot)
         rpy = matrix_to_rpy(rel_rot)
-        
-        urdf_str += f'    <visual>\n'
-        urdf_str += f'      <origin xyz="{rel_pos[0]} {rel_pos[1]} {rel_pos[2]}" rpy="{rpy[0]} {rpy[1]} {rpy[2]}"/>\n'
-        urdf_str += f'      <geometry>{geo}</geometry>\n'
-        urdf_str += f'    </visual>\n'
-        urdf_str += f'    <collision>\n'
-        urdf_str += f'      <origin xyz="{rel_pos[0]} {rel_pos[1]} {rel_pos[2]}" rpy="{rpy[0]} {rpy[1]} {rpy[2]}"/>\n'
-        urdf_str += f'      <geometry>{geo}</geometry>\n'
-        urdf_str += f'    </collision>\n'
 
-def process_hinge_joint(joint_node, parent_link_name, parent_link_origin, parent_link_rot, WEBOTS_URDF_OFFSET=-1.0):
+        lines.append(f'    <visual>\n')
+        lines.append(f'      <origin xyz="{rel_pos[0]} {rel_pos[1]} {rel_pos[2]}" rpy="{rpy[0]} {rpy[1]} {rpy[2]}"/>\n')
+        lines.append(f'      <geometry>{geo}</geometry>\n')
+        lines.append(f'    </visual>\n')
+        lines.append(f'    <collision>\n')
+        lines.append(f'      <origin xyz="{rel_pos[0]} {rel_pos[1]} {rel_pos[2]}" rpy="{rpy[0]} {rpy[1]} {rpy[2]}"/>\n')
+        lines.append(f'      <geometry>{geo}</geometry>\n')
+        lines.append(f'    </collision>\n')
+
+def process_hinge_joint(lines, joint_node, parent_link_name, parent_link_origin, parent_link_rot, WEBOTS_URDF_OFFSET=-1.0):
     """
     Process a HingeJoint and its endpoint Solid.
-    
+
     In Webots:
     - HingeJoint has anchor and axis in the PARENT solid's frame
     - endPoint Solid has translation/rotation relative to anchor point (at q=0)
-    
+
     In URDF:
     - Joint origin is transform from parent link frame to joint frame
     - Axis is defined in the joint frame (which equals child link frame at q=0)
     """
-    global urdf_str
-    
-    # Get joint parameters
     jp = joint_node.fields.get('jointParameters')
     if not isinstance(jp, Node):
         return
-    
+
     anchor_local = get_vec3(jp, 'anchor')
     axis_local = get_vec3(jp, 'axis', [0, 0, 1])
-    
-    # Get motor name and limits for joint
+
     jname = "joint"
-    min_position = 0.0  # Default for joints without explicit minPosition (fingers)
-    max_position = 1.5708  # Default ~90 degrees
+    min_position = 0.0
+    max_position = 1.5708
     max_velocity = 20.0
     max_effort = 10.0
-    
+
     if 'device' in joint_node.fields:
         devices = joint_node.fields['device']
         if isinstance(devices, list):
             for d in devices:
                 if isinstance(d, Node) and d.type == 'RotationalMotor':
                     jname = d.fields.get('name', '"joint"').replace('"', '')
-                    # Extract limits
                     if 'minPosition' in d.fields:
                         min_position = float(d.fields['minPosition'])
                     if 'maxPosition' in d.fields:
@@ -411,84 +390,51 @@ def process_hinge_joint(joint_node, parent_link_name, parent_link_origin, parent
                     if 'maxTorque' in d.fields:
                         max_effort = float(d.fields['maxTorque'])
                     break
-    
-    # Get endpoint solid
+
     ep = joint_node.fields.get('endPoint')
     if not isinstance(ep, Node):
         return
-    
+
     child_link_name = ep.fields.get('name', f'"{jname}_link"').replace('"', '')
-    
-    # Endpoint translation/rotation are relative to the parent solid frame
+
     ep_trans = get_vec3(ep, 'translation')
     ep_rot_axis, ep_rot_angle = get_rot(ep, 'rotation')
     ep_rot = axis_angle_to_matrix(ep_rot_axis, ep_rot_angle)
-    
-    # In Webots, the anchor defines where the joint pivot is in parent solid coords
-    # The endpoint position is also relative to parent solid coords
-    # For URDF, joint origin should be the anchor position relative to parent LINK frame
-    
-    # Compute anchor in global coords
+
     anchor_global = vec_add(parent_link_origin, matrix_mul(parent_link_rot, anchor_local))
-    
-    # Compute axis in global coords (for URDF, axis should be in joint frame = child frame at q=0)
     axis_global = normalize(matrix_mul(parent_link_rot, axis_local))
-    
-    # Compute child solid position and rotation in global
+
     child_global_pos = vec_add(parent_link_origin, matrix_mul(parent_link_rot, ep_trans))
     child_global_rot = matrix_mult_mat(parent_link_rot, ep_rot)
-    
-    # Joint origin is the transform from parent link to child link
-    # In URDF convention, joint origin xyz is position of child frame origin relative to parent
-    # and rpy is the rotation from parent frame to child frame
-    
-    # Use anchor as the joint position (pivot point)
-    joint_pos = anchor_local  # Relative to parent link frame
-    
-    # For the joint orientation, we need to express it as rotation from parent to joint frame
-    # At q=0, joint frame = child frame
-    # So we need to compute the relative rotation from parent_link_rot to child_global_rot
+
+    joint_pos = anchor_local
+
     parent_rot_inv = matrix_transpose(parent_link_rot)
     relative_rot = matrix_mult_mat(parent_rot_inv, child_global_rot)
-    
-    # Apply WEBOTS_URDF_OFFSET: pre-rotate the child frame by OFFSET radians around the joint axis
-    # This shifts the URDF zero position so that URDF q=0 corresponds to Webots motor=0
-    # The axis for this rotation is axis_local (in parent frame), but we need it in child frame
-    # Since relative_rot transforms from parent to child, axis in child = relative_rot^T * axis_local
+
     axis_in_relative = normalize(matrix_mul(matrix_transpose(relative_rot), axis_local))
     offset_rot = axis_angle_to_matrix(axis_in_relative, WEBOTS_URDF_OFFSET)
-    
-    # Apply offset rotation to the relative rotation
-    # new_relative_rot = relative_rot * offset_rot (rotate child frame by offset around axis)
+
     adjusted_relative_rot = matrix_mult_mat(relative_rot, offset_rot)
     joint_rpy = matrix_to_rpy(adjusted_relative_rot)
-    
-    # Transform axis to child frame for URDF
-    # URDF axis is defined in joint frame (= child frame at q=0)
-    # With the offset applied, we use the adjusted rotation
+
     adjusted_child_rot = matrix_mult_mat(parent_link_rot, adjusted_relative_rot)
     adjusted_child_rot_inv = matrix_transpose(adjusted_child_rot)
     axis_in_child = normalize(matrix_mul(adjusted_child_rot_inv, matrix_mul(parent_link_rot, axis_local)))
-    
-    # Adjust limits: since we shifted the zero position, limits stay the same numerically
-    # because Webots limits are relative to Webots motor=0, which now equals URDF q=0
-    
-    # Write joint with actual limits from Webots
-    urdf_str += f'  <joint name="{jname}" type="revolute">\n'
-    urdf_str += f'    <parent link="{parent_link_name}"/>\n'
-    urdf_str += f'    <child link="{child_link_name}"/>\n'
-    urdf_str += f'    <origin xyz="{joint_pos[0]} {joint_pos[1]} {joint_pos[2]}" rpy="{joint_rpy[0]} {joint_rpy[1]} {joint_rpy[2]}"/>\n'
-    urdf_str += f'    <axis xyz="{axis_in_child[0]} {axis_in_child[1]} {axis_in_child[2]}"/>\n'
-    urdf_str += f'    <limit lower="{min_position}" upper="{max_position}" effort="{max_effort}" velocity="{max_velocity}"/>\n'
-    urdf_str += f'  </joint>\n'
-    
-    # Recursively process the child solid
-    # The child solid's local transforms are relative to the parent solid's frame (Webots)
-    # For URDF, we consider the child link frame at the endpoint's global position/rotation
+
+    lines.append(f'  <joint name="{jname}" type="revolute">\n')
+    lines.append(f'    <parent link="{parent_link_name}"/>\n')
+    lines.append(f'    <child link="{child_link_name}"/>\n')
+    lines.append(f'    <origin xyz="{joint_pos[0]} {joint_pos[1]} {joint_pos[2]}" rpy="{joint_rpy[0]} {joint_rpy[1]} {joint_rpy[2]}"/>\n')
+    lines.append(f'    <axis xyz="{axis_in_child[0]} {axis_in_child[1]} {axis_in_child[2]}"/>\n')
+    lines.append(f'    <limit lower="{min_position}" upper="{max_position}" effort="{max_effort}" velocity="{max_velocity}"/>\n')
+    lines.append(f'  </joint>\n')
+
     process_solid_as_link(
+        lines,
         solid_node=ep,
         link_name=child_link_name,
-        parent_frame_origin=parent_link_origin,  # Webots: child is relative to parent solid
+        parent_frame_origin=parent_link_origin,
         parent_frame_rot=parent_link_rot
     )
 
@@ -519,9 +465,6 @@ def convert_proto_to_urdf(
         ...     "pib_model.urdf"
         ... )
     """
-    global urdf_str
-    urdf_str = ""
-
     if not os.path.exists(proto_path):
         raise FileNotFoundError(f"Proto file not found: {proto_path}")
 
@@ -533,14 +476,13 @@ def convert_proto_to_urdf(
     robot_node = parse_proto(tokenize(text))
 
     print("Generating URDF...")
-    generate_urdf(robot_node)
+    urdf_str = generate_urdf(robot_node)
 
     with open(urdf_path, "w") as f:
         f.write(urdf_str)
 
     print(f"URDF generated: {urdf_path}")
 
-    # Count joints and links
     joint_count = urdf_str.count('<joint name=')
     link_count = urdf_str.count('<link name=')
     print(f"Generated {link_count} links and {joint_count} joints")

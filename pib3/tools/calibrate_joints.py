@@ -17,6 +17,7 @@ Usage:
 """
 
 import argparse
+import math
 import sys
 import time
 from pathlib import Path
@@ -197,7 +198,7 @@ def wait_for_position_reading(
         return None
 
     avg_pos = sum(readings) / len(readings)
-    print(f"  Read: {avg_pos:.4f} rad ({avg_pos * 180 / 3.14159:.1f} deg)")
+    print(f"  Read: {avg_pos:.4f} rad ({avg_pos * 180 / math.pi:.1f} deg)")
     return avg_pos
 
 
@@ -243,8 +244,8 @@ def calibrate_joint(
     if min_val is not None and max_val is not None:
         if min_val > max_val:
             print(f"\n  NOTE: min ({min_val:.4f}) > max ({max_val:.4f})")
-            print("  Swapping values...")
-            min_val, max_val = max_val, min_val
+            print("  This is expected for some joints (e.g. finger joints).")
+            print("  Keeping values as recorded.")
 
     return {"min": min_val, "max": max_val}
 
@@ -334,7 +335,7 @@ def run_calibration(
         max_str = f"{max_val:.4f}" if max_val is not None else "N/A"
         range_str = ""
         if min_val is not None and max_val is not None:
-            range_deg = (max_val - min_val) * 180 / 3.14159
+            range_deg = (max_val - min_val) * 180 / math.pi
             range_str = f" (range: {range_deg:.1f} deg)"
         print(f"  {joint_name}: min={min_str}, max={max_str}{range_str}")
 
