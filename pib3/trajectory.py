@@ -345,7 +345,11 @@ def _solve_ik_point(
 
         return q_solution, True
 
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f"IK solver exception for target {target_pos}: {e}"
+        )
         return q_init, False
 
 

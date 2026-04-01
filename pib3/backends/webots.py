@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 
@@ -42,8 +42,11 @@ JOINT_TO_WEBOTS_MOTOR = {
 }
 
 # Finger joints that have both proximal and distal motors in Webots.
-# The real robot has a single motor per finger that controls both joints coupled.
-# To match this behavior in Webots, we set both proximal and distal to the same position.
+# The real robot has a single motor per finger with a construction train
+# (mechanical linkage) that bends both proximal and distal joints equally.
+# To act as a faithful digital twin, Webots always commands both joints to
+# the same position on write and reads only the distal sensor (since both
+# joints are always identical).  Do NOT decouple these joints.
 # Webots finger joints: 0° = open, 90° = closed (range 0 to π/2 radians)
 FINGER_PROXIMAL_MOTORS = {
     "thumb_left_stretch": "thumb_left_proximal",
@@ -110,8 +113,8 @@ class WebotsBackend(RobotBackend):
         self.step_ms = step_ms
         self._robot = None
         self._timestep = None
-        self._motors: Dict[str, any] = {}
-        self._proximal_motors: Dict[str, any] = {}
+        self._motors: Dict[str, Any] = {}
+        self._proximal_motors: Dict[str, Any] = {}
         # Per-joint offsets: the initial position of each joint at simulation
         # start (base position at timepoint zero).  Webots setPosition() is
         # relative to this base, so we subtract the offset when commanding
@@ -281,6 +284,13 @@ class WebotsBackend(RobotBackend):
 
         Reads the Webots-relative sensor value and adds the home offset
         to return the absolute position.
+
+        For finger joints, only the distal motor sensor is read.  The real
+        robot uses a single motor with a construction train that bends both
+        proximal and distal joints equally, so they always have the same
+        angle.  Webots mirrors this by always commanding both joints to the
+        same value (see ``_set_joints_impl``), making the distal reading
+        sufficient.
 
         Args:
             motor_name: Name of motor (e.g., "elbow_left").

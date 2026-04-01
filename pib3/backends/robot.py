@@ -11,6 +11,13 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# Lazy import: roslibpy is optional, only needed for the real robot backend.
+# connect() raises a clear error if it is not installed.
+try:
+    import roslibpy
+except ImportError:
+    roslibpy = None  # type: ignore[assignment]
+
 from .base import RobotBackend
 from .audio import AudioOutput, AudioInput, RobotAudioPlayer, RobotAudioRecorder, DEFAULT_SAMPLE_RATE
 from ..config import RobotConfig, LowLatencyConfig
@@ -136,8 +143,6 @@ def build_motor_mapping(
         "ring_left_stretch": (servo3_uid, 4),
         "pinky_left_stretch": (servo3_uid, 5),
     }
-
-
 
 
 class RealRobotBackend(RobotBackend):
@@ -304,9 +309,7 @@ class RealRobotBackend(RobotBackend):
 
     def connect(self) -> None:
         """Establish connection to robot via rosbridge websocket."""
-        try:
-            import roslibpy
-        except ImportError:
+        if roslibpy is None:
             raise ImportError(
                 "roslibpy is required for real robot connection. "
                 "Install with: pip install roslibpy"
@@ -938,13 +941,9 @@ class RealRobotBackend(RobotBackend):
                     current.deceleration,
                 )
 
-            # Clear position-reached event before sending command to avoid
-            # race conditions (callback must fire *after* this clear).
-            event = self._position_reached_events.get(motor_name)
-            if event is not None:
-                event.clear()
-
-            # Set position
+            # Set position.  Event clearing is handled by _verify_positions
+            # (not here) to avoid a race where a stale callback from a
+            # previous command sets the event between clear and set_position.
             servo.set_position(channel, position_centidegrees)
 
             logger.debug(
@@ -1143,8 +1142,6 @@ class RealRobotBackend(RobotBackend):
             return True
 
         # Apply settings to each motor
-        import roslibpy
-
         all_success = True
         for motor_name in motor_names:
             motor_settings = {"motor_name": motor_name}
@@ -1427,10 +1424,26 @@ class RealRobotBackend(RobotBackend):
             else:
                 ros_motors[name] = target
 
-        # Wait on position-reached events for low-latency motors
+        # Wait on position-reached events for low-latency motors.
+        #
+        # Events are cleared HERE (not in _set_motor_direct) to avoid a race
+        # where a stale callback from a previous command sets the event
+        # between clear() and set_position().  By the time we reach this
+        # point, all set_position() calls have been sent and any stale
+        # callbacks from the USB/IP pipeline (~1-2 ms round-trip) have long
+        # been delivered, so clear() safely discards only stale state.
         for name, target in ll_motors.items():
             event = self._position_reached_events.get(name)
             if event is None:
+                continue
+
+            # Discard stale callbacks from previous commands.
+            event.clear()
+
+            # Quick check: motor may already be at the target position,
+            # in which case the callback won't fire at all.
+            current_pos = self.get_joint(name, unit=unit)
+            if current_pos is not None and abs(current_pos - target) <= tolerance:
                 continue
 
             remaining = timeout - (time.time() - start_time)
@@ -1438,9 +1451,9 @@ class RealRobotBackend(RobotBackend):
                 return False
 
             if not event.wait(timeout=remaining):
-                # Timeout — check if we're within tolerance anyway (motor
-                # may already have been at the target, in which case the
-                # callback won't fire).
+                # Timeout — check if we're within tolerance anyway (the
+                # callback may not fire if the motor was already very
+                # close to the target).
                 current_pos = self.get_joint(name, unit=unit)
                 if current_pos is None or abs(current_pos - target) > tolerance:
                     return False
@@ -1525,7 +1538,7 @@ class RealRobotBackend(RobotBackend):
                     motors_via_ros[joint_name] = position
                 elif self._low_latency_config.sync_to_ros:
                     # Optionally sync to ROS topic for visibility
-                    self._sync_position_to_ros(motor_name, centidegrees, ros_velocity)
+                    self._sync_position_to_ros(joint_name, centidegrees, ros_velocity)
 
             # Fall back to ROS for motors not in Tinkerforge mapping
             if motors_via_ros:
@@ -1555,7 +1568,7 @@ class RealRobotBackend(RobotBackend):
         Returns:
             True if all joints were set successfully.
         """
-        import roslibpy
+
 
         all_successful = True
 
@@ -1581,7 +1594,7 @@ class RealRobotBackend(RobotBackend):
             }
 
             logger.debug(
-                f"Sending to {motor_name}: position={centidegrees} centideg "
+                f"Sending to {joint_name}: position={centidegrees} centideg "
                 f"({position:.4f} rad), velocity={velocity_centideg}"
             )
 
@@ -1635,7 +1648,6 @@ class RealRobotBackend(RobotBackend):
         period = 1.0 / rate_hz
         total = len(waypoints)
 
-        import roslibpy
 
         motor_names = list(joint_names)
 
@@ -1712,7 +1724,7 @@ class RealRobotBackend(RobotBackend):
             raise ConnectionError("Not connected to robot")
 
         import base64
-        import roslibpy
+
 
         topic = roslibpy.Topic(
             self._client,
@@ -1749,7 +1761,6 @@ class RealRobotBackend(RobotBackend):
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
-        import roslibpy
 
         topic = roslibpy.Topic(
             self._client,
@@ -1783,7 +1794,6 @@ class RealRobotBackend(RobotBackend):
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
-        import roslibpy
 
         config = {}
         if fps is not None:
@@ -1863,7 +1873,6 @@ class RealRobotBackend(RobotBackend):
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
-        import roslibpy
 
         topic = roslibpy.Topic(
             self._client,
@@ -1900,7 +1909,6 @@ class RealRobotBackend(RobotBackend):
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
-        import roslibpy
 
         result = {}
         event = threading.Event()
@@ -1962,7 +1970,7 @@ class RealRobotBackend(RobotBackend):
         model_name = model.value if isinstance(model, AIModel) else str(model)
 
         import threading
-        import roslibpy
+
 
         model_ready = threading.Event()
 
@@ -2020,7 +2028,6 @@ class RealRobotBackend(RobotBackend):
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
-        import roslibpy
 
         config = {}
         if model is not None:
@@ -2066,7 +2073,6 @@ class RealRobotBackend(RobotBackend):
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
-        import roslibpy
 
         topic = roslibpy.Topic(
             self._client,
@@ -2121,7 +2127,6 @@ class RealRobotBackend(RobotBackend):
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
-        import roslibpy
 
         topic = roslibpy.Topic(
             self._client,
@@ -2171,7 +2176,6 @@ class RealRobotBackend(RobotBackend):
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
-        import roslibpy
 
         service = roslibpy.Service(
             self._client,
@@ -2222,7 +2226,6 @@ class RealRobotBackend(RobotBackend):
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
-        import roslibpy
 
         service = roslibpy.Service(
             self._client,
@@ -2281,7 +2284,6 @@ class RealRobotBackend(RobotBackend):
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
-        import roslibpy
 
         # Handle Enum or string
         dtype_str = data_type.value if isinstance(data_type, ImuType) else data_type
@@ -2366,7 +2368,6 @@ class RealRobotBackend(RobotBackend):
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
-        import roslibpy
 
         topic = roslibpy.Topic(
             self._client,

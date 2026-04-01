@@ -29,16 +29,9 @@ paper = PaperConfig(
 print(f"Paper config: {paper}")
 
 with pib3.Webots() as robot:
-    # Move arm to neutral starting position
+    # Move arm to neutral starting position (0 radians for all joints)
     print("Moving to start position...")
-    robot.set_joints({
-        Joint.SHOULDER_VERTICAL_LEFT: 50.0,
-        Joint.SHOULDER_HORIZONTAL_LEFT: 50.0,
-        Joint.UPPER_ARM_LEFT_ROTATION: 50.0,
-        Joint.ELBOW_LEFT: 50.0,
-        Joint.LOWER_ARM_LEFT_ROTATION: 50.0,
-        Joint.WRIST_LEFT: 50.0,
-    }, async_=False)
+    robot.go_home()
 
     # Set hand to index finger pointing pose for drawing
     # 0% = bent/closed, 100% = stretched/open

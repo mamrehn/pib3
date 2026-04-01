@@ -34,8 +34,8 @@ joints:
     min: -1.5707963267948966  # -90 degrees
     max: 1.5707963267948966   # +90 degrees
   wrist_left:
-    min: -0.5235987755982988  # -30 degrees
-    max: 0.5235987755982988   # +30 degrees
+    min: -1.5707963267948966  # -90 degrees
+    max: 1.5707963267948966   # +90 degrees
 
   # Left hand joints (0% = closed/clenched, 100% = open)
   # Webots finger joints: 0° = open, 90° = closed (opposite of real robot direction)
