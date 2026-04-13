@@ -32,10 +32,10 @@ from pathlib import Path
 from typing import Optional, Union
 
 # Core types
-from .types import Joint, Sketch, Stroke, HandPose, LEFT_HAND_JOINTS, RIGHT_HAND_JOINTS, AIModel
+from .types import Joint, Sketch, Stroke, HandPose, LEFT_HAND_JOINTS, RIGHT_HAND_JOINTS, AIModel, ImuType
 
 # Configuration
-from .config import PaperConfig, IKConfig, ImageConfig, TrajectoryConfig, LowLatencyConfig
+from .config import PaperConfig, IKConfig, ImageConfig, TrajectoryConfig, LowLatencyConfig, RobotConfig
 
 # Core functions
 from .image import image_to_sketch
@@ -55,6 +55,9 @@ from .backends import (
     CameraFrameReceiver,
     AIDetectionReceiver,
     COCO_LABELS,
+    # Audio enums
+    AudioOutput,
+    AudioInput,
     # Audio device management
     AudioDevice,
     list_audio_devices,
@@ -84,12 +87,14 @@ __all__ = [
     "Sketch",
     "Trajectory",
     "AIModel",
+    "ImuType",
     # Config
     "PaperConfig",
     "IKConfig",
     "ImageConfig",
     "TrajectoryConfig",
     "LowLatencyConfig",
+    "RobotConfig",
     # Functions
     "image_to_sketch",
     "sketch_to_trajectory",
@@ -107,6 +112,9 @@ __all__ = [
     "CameraFrameReceiver",
     "AIDetectionReceiver",
     "COCO_LABELS",
+    # Audio enums
+    "AudioOutput",
+    "AudioInput",
     # Aliases
     "Webots",
     "Robot",

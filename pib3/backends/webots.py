@@ -332,10 +332,15 @@ class WebotsBackend(RobotBackend):
         """
         Get current positions of multiple joints in radians.
 
+        Reads all requested joints simultaneously after waiting for the
+        simulation to stabilize. This avoids the inconsistency of reading
+        joints sequentially (where each read advances the simulation,
+        potentially moving joints that were already read).
+
         Args:
             motor_names: List of motor names to query. If None, returns all
                         available joints.
-            timeout: Max time to wait for each motor to stabilize (seconds).
+            timeout: Max time to wait for all motors to stabilize (seconds).
                     If None, uses DEFAULT_GET_JOINTS_TIMEOUT (5.0s).
 
         Returns:
@@ -344,22 +349,74 @@ class WebotsBackend(RobotBackend):
         if not self.is_connected:
             return {}
 
-        result = {}
+        if timeout is None:
+            timeout = self.DEFAULT_GET_JOINTS_TIMEOUT
+
         names_to_query = motor_names if motor_names is not None else list(self._motors.keys())
 
+        # Filter to names that have valid motors and sensors
+        valid_names = []
         for name in names_to_query:
-            pos = self._get_joint_radians(name, timeout=timeout)
-            if pos is not None:
-                result[name] = pos
+            if name in self._motors:
+                sensor = self._motors[name].getPositionSensor()
+                if sensor is not None:
+                    valid_names.append(name)
 
+        if not valid_names:
+            return {}
+
+        # Read all sensors, then step, then read again. Repeat until all
+        # readings have stabilized (same value twice in a row).
+        prev_readings: Dict[str, float] = {}
+        for name in valid_names:
+            sensor = self._motors[name].getPositionSensor()
+            prev_readings[name] = sensor.getValue()
+
+        start = time.time()
+        while (time.time() - start) < timeout:
+            self._robot.step(self._timestep)
+
+            all_stable = True
+            current_readings: Dict[str, float] = {}
+            for name in valid_names:
+                sensor = self._motors[name].getPositionSensor()
+                val = sensor.getValue()
+                current_readings[name] = val
+                if abs(val - prev_readings.get(name, float('inf'))) >= 0.0001:
+                    all_stable = False
+
+            if all_stable:
+                # All joints stabilized — return absolute positions
+                result = {}
+                for name in valid_names:
+                    offset = self._home_offsets.get(name, 0.0)
+                    result[name] = current_readings[name] + offset
+                return result
+
+            prev_readings = current_readings
+
+        # Timeout — return best readings we have
+        result = {}
+        for name in valid_names:
+            offset = self._home_offsets.get(name, 0.0)
+            result[name] = prev_readings[name] + offset
         return result
 
-    def _set_joints_impl(self, positions_radians: Dict[str, float]) -> bool:
+    def _set_joints_impl(
+        self,
+        positions_radians: Dict[str, float],
+        velocity_centideg: Optional[int] = None,
+    ) -> bool:
         """Set joint positions in absolute radians.
 
         Converts absolute radians to Webots-relative positions by subtracting
         each joint's home offset.  For finger joints, both proximal and distal
         motors are set to the same position for coupled movement.
+
+        Args:
+            positions_radians: Dict mapping motor names to positions in radians.
+            velocity_centideg: Ignored in Webots (motor velocity is set via
+                Webots motor API, not centidegrees).
         """
         if not self.is_connected:
             return False
@@ -481,6 +538,10 @@ class WebotsBackend(RobotBackend):
         total = len(waypoints)
 
         for i, point in enumerate(waypoints):
+            if self._stopped:
+                logger.warning(f"Trajectory aborted at waypoint {i}/{total} (emergency stop)")
+                return False
+
             for name, idx in joint_indices.items():
                 position = point[idx]
                 offset = self._home_offsets.get(name, 0.0)

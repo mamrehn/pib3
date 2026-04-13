@@ -185,14 +185,23 @@ class Stroke:
     closed: bool = False
 
     def __post_init__(self):
-        """Ensure points is a numpy array with correct shape."""
+        """Ensure points is a numpy array with correct shape (N, 2)."""
         self.points = np.asarray(self.points, dtype=np.float64)
         if self.points.ndim == 1:
+            if self.points.shape[0] % 2 != 0:
+                raise ValueError(
+                    f"1D points array must have an even number of elements "
+                    f"to reshape to (N, 2), got {self.points.shape[0]}"
+                )
             self.points = self.points.reshape(-1, 2)
         if self.points.ndim != 2 or self.points.shape[1] != 2:
             raise ValueError(
                 f"Points must have shape (N, 2), got {self.points.shape}"
             )
+
+    def __repr__(self) -> str:
+        closed_str = ", closed" if self.closed else ""
+        return f"Stroke({len(self.points)} points, length={self.length():.3f}{closed_str})"
 
     def __len__(self) -> int:
         """Return number of points in the stroke."""
@@ -233,6 +242,10 @@ class Sketch:
     """
     strokes: List[Stroke] = field(default_factory=list)
     source_size: Optional[Tuple[int, int]] = None
+
+    def __repr__(self) -> str:
+        size_str = f", source={self.source_size[0]}x{self.source_size[1]}" if self.source_size else ""
+        return f"Sketch({len(self.strokes)} strokes, {self.total_points()} points{size_str})"
 
     def __len__(self) -> int:
         """Return number of strokes in the sketch."""

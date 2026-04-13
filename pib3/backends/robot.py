@@ -1641,51 +1641,103 @@ class RealRobotBackend(RobotBackend):
         rate_hz: float,
         progress_callback: Optional[Callable[[int, int], None]],
     ) -> bool:
-        """Execute waypoints on real robot."""
+        """Execute waypoints on real robot.
+
+        Uses low-latency Tinkerforge path when available for reduced latency.
+        Falls back to ROS service calls for motors not in the Tinkerforge mapping.
+        """
         if not self.is_connected:
             return False
 
+        use_low_latency = self.low_latency_available
         period = 1.0 / rate_hz
         total = len(waypoints)
-
-
         motor_names = list(joint_names)
+        fail_count = 0
 
         for i, point in enumerate(waypoints):
-            # Build positions list (already in centidegrees from _to_backend_format)
+            if self._stopped:
+                logger.warning(f"Trajectory aborted at waypoint {i}/{total} (emergency stop)")
+                return False
+
+            # Waypoints are already in centidegrees from _to_backend_format
             positions_centideg = [float(point[j]) for j in range(len(motor_names))]
 
-            # Send via service (ROS2 format)
-            message = {
-                'joint_trajectory': {
-                    'header': {
-                        'stamp': {'sec': 0, 'nanosec': 0},
-                        'frame_id': '',
-                    },
-                    'joint_names': motor_names,
-                    'points': [{
-                        'positions': positions_centideg,
-                        'velocities': [],
-                        'accelerations': [],
-                        'effort': [],
-                        'time_from_start': {'sec': 0, 'nanosec': 0},
-                    }],
-                }
-            }
+            if use_low_latency:
+                # Fast path: send directly to Tinkerforge servo bricklets
+                ros_fallback_names = []
+                ros_fallback_positions = []
 
-            try:
-                request = roslibpy.ServiceRequest(message)
-                self._service.call(request, timeout=self.timeout)
-            except Exception:
-                pass  # Continue even if one point fails
+                for name, centideg in zip(motor_names, positions_centideg):
+                    success = self._set_motor_direct(name, int(centideg))
+                    if not success:
+                        # Motor not in Tinkerforge mapping, queue for ROS
+                        ros_fallback_names.append(name)
+                        ros_fallback_positions.append(centideg)
+                    elif self._low_latency_config.sync_to_ros:
+                        radians = self._centidegrees_to_radians(centideg)
+                        with self._joint_positions_lock:
+                            self._joint_positions[name] = radians
+
+                # Send remaining motors via ROS
+                if ros_fallback_names:
+                    message = {
+                        'joint_trajectory': {
+                            'header': {
+                                'stamp': {'sec': 0, 'nanosec': 0},
+                                'frame_id': '',
+                            },
+                            'joint_names': ros_fallback_names,
+                            'points': [{
+                                'positions': ros_fallback_positions,
+                                'velocities': [],
+                                'accelerations': [],
+                                'effort': [],
+                                'time_from_start': {'sec': 0, 'nanosec': 0},
+                            }],
+                        }
+                    }
+                    try:
+                        request = roslibpy.ServiceRequest(message)
+                        self._service.call(request, timeout=self.timeout)
+                    except Exception as e:
+                        fail_count += 1
+                        logger.warning(f"Waypoint {i + 1}/{total} ROS fallback failed: {e}")
+            else:
+                # Standard ROS path
+                message = {
+                    'joint_trajectory': {
+                        'header': {
+                            'stamp': {'sec': 0, 'nanosec': 0},
+                            'frame_id': '',
+                        },
+                        'joint_names': motor_names,
+                        'points': [{
+                            'positions': positions_centideg,
+                            'velocities': [],
+                            'accelerations': [],
+                            'effort': [],
+                            'time_from_start': {'sec': 0, 'nanosec': 0},
+                        }],
+                    }
+                }
+                try:
+                    request = roslibpy.ServiceRequest(message)
+                    self._service.call(request, timeout=self.timeout)
+                except Exception as e:
+                    fail_count += 1
+                    logger.warning(f"Waypoint {i + 1}/{total} failed: {e}")
 
             if progress_callback:
                 progress_callback(i + 1, total)
 
-            # Wait for next cycle
             time.sleep(period)
 
-        return True
+        if fail_count > 0:
+            logger.error(
+                f"Trajectory execution: {fail_count}/{total} waypoints failed"
+            )
+        return fail_count < total  # True if at least one waypoint succeeded
 
     # ==================== CAMERA METHODS ====================
 

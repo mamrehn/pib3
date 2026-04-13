@@ -1,5 +1,6 @@
 """Abstract base class for robot control backends."""
 
+import time
 import logging
 import math
 from abc import ABC, abstractmethod
@@ -155,6 +156,11 @@ class RobotBackend(ABC):
         self.host = host
         self.port = port
 
+        # Emergency stop flag — checked by trajectory execution loops
+        self._stopped = False
+        # Keyboard emergency stop listener
+        self._estop_listener = None
+
         # Unified audio system
         self._audio_output: AudioOutput = AudioOutput.LOCAL
         self._audio_input: AudioInput = AudioInput.LOCAL
@@ -294,6 +300,7 @@ class RobotBackend(ABC):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit - disconnect from backend."""
+        self.disable_estop_key()
         self.disconnect()
 
     # --- Unified Audio Playback Methods ---
@@ -949,6 +956,101 @@ class RobotBackend(ABC):
         home = {name: 0.0 for name in self.MOTOR_NAMES}
         return self.set_joints(home, unit="rad", async_=async_, timeout=timeout)
 
+    # --- Emergency Stop ---
+
+    @property
+    def stopped(self) -> bool:
+        """Whether the robot is in emergency stop state."""
+        return self._stopped
+
+    def stop(self) -> None:
+        """
+        Emergency stop: halt all motor movement immediately.
+
+        Sets the stopped flag which aborts any running trajectory execution.
+        Call ``resume()`` to clear the flag and allow new commands.
+
+        Example:
+            >>> robot.stop()       # Halt immediately
+            >>> robot.resume()     # Allow commands again
+        """
+        self._stopped = True
+        logger.warning("EMERGENCY STOP activated")
+
+    def resume(self) -> None:
+        """
+        Clear the emergency stop flag and allow motor commands again.
+
+        Example:
+            >>> robot.stop()
+            >>> # ... inspect robot ...
+            >>> robot.resume()
+            >>> robot.set_joint(Joint.ELBOW_LEFT, 50.0)  # works again
+        """
+        self._stopped = False
+        logger.info("Emergency stop cleared, robot resumed")
+
+    def enable_estop_key(self, key: str = "KP_0") -> None:
+        """
+        Start a background keyboard listener for emergency stop.
+
+        Pressing the configured key (default: numpad 0) triggers ``stop()``.
+        Pressing it again triggers ``resume()``.
+
+        Requires the ``pynput`` package. Install with: ``pip install pynput``
+
+        Args:
+            key: Key name for emergency stop. Default is ``"KP_0"`` (numpad 0).
+                Other examples: ``"KP_Insert"``, ``"F12"``, ``"pause"``.
+
+        Example:
+            >>> with Robot(host="...") as robot:
+            ...     robot.enable_estop_key()  # Numpad 0 = emergency stop
+            ...     robot.run_trajectory(traj)  # Press numpad 0 to abort
+        """
+        try:
+            from pynput import keyboard
+        except ImportError:
+            logger.error(
+                "pynput is required for keyboard emergency stop. "
+                "Install with: pip install pynput"
+            )
+            return
+
+        # Map string key names to pynput Key objects
+        key_map = {
+            "KP_0": keyboard.KeyCode.from_vk(96),         # Numpad 0
+            "KP_Insert": keyboard.KeyCode.from_vk(96),    # Alias
+            "F12": keyboard.Key.f12,
+            "pause": keyboard.Key.pause,
+        }
+
+        target_key = key_map.get(key)
+        if target_key is None:
+            # Try as a single character
+            target_key = keyboard.KeyCode.from_char(key)
+
+        def on_press(pressed_key):
+            if pressed_key == target_key:
+                if self._stopped:
+                    self.resume()
+                else:
+                    self.stop()
+
+        # Stop any existing listener
+        self.disable_estop_key()
+
+        self._estop_listener = keyboard.Listener(on_press=on_press)
+        self._estop_listener.daemon = True
+        self._estop_listener.start()
+        logger.info(f"Emergency stop key enabled: {key} (toggle stop/resume)")
+
+    def disable_estop_key(self) -> None:
+        """Stop the emergency stop keyboard listener."""
+        if self._estop_listener is not None:
+            self._estop_listener.stop()
+            self._estop_listener = None
+
     # --- Set Methods ---
 
     def set_joint(
@@ -959,6 +1061,7 @@ class RobotBackend(ABC):
         async_: bool = False,
         timeout: float = 2.0,
         tolerance: Optional[float] = None,
+        speed: Optional[float] = None,
     ) -> bool:
         """
         Set position of a single joint.
@@ -971,6 +1074,8 @@ class RobotBackend(ABC):
                 completion by polling the actual position until it matches.
             timeout: Max wait time when async_=False (seconds).
             tolerance: Position tolerance. Defaults to 2%, 3°, or 0.05 rad.
+            speed: Movement speed in degrees/second (e.g. 90.0 = 90°/s).
+                None uses the backend's default speed.
 
         Returns:
             True if successful (and position reached if async_=False).
@@ -980,6 +1085,7 @@ class RobotBackend(ABC):
             >>> backend.set_joint(Joint.ELBOW_LEFT, 50.0)  # waits for completion
             >>> backend.set_joint(Joint.ELBOW_LEFT, -30.0, unit="deg")
             >>> backend.set_joint(Joint.ELBOW_LEFT, 50.0, async_=True)  # fire-and-forget
+            >>> backend.set_joint(Joint.ELBOW_LEFT, 50.0, speed=45.0)  # slow movement
         """
         motor_str = str(motor_name.value if isinstance(motor_name, Joint) else motor_name)
         return self.set_joints(
@@ -988,6 +1094,7 @@ class RobotBackend(ABC):
             async_=async_,
             timeout=timeout,
             tolerance=tolerance,
+            speed=speed,
         )
 
     def set_joints(
@@ -997,6 +1104,7 @@ class RobotBackend(ABC):
         async_: bool = False,
         timeout: float = 2.0,
         tolerance: Optional[float] = None,
+        speed: Optional[float] = None,
     ) -> bool:
         """
         Set positions of multiple joints simultaneously.
@@ -1010,6 +1118,8 @@ class RobotBackend(ABC):
                 completion by polling actual positions until they match.
             timeout: Max wait time when async_=False (seconds).
             tolerance: Position tolerance. Defaults to 2%, 3°, or 0.05 rad.
+            speed: Movement speed in degrees/second (e.g. 90.0 = 90°/s).
+                None uses the backend's default speed.
 
         Returns:
             True if successful (and positions reached if async_=False).
@@ -1022,6 +1132,7 @@ class RobotBackend(ABC):
             ... })  # waits for completion
             >>> backend.set_joints({Joint.ELBOW_LEFT: -30.0}, unit="deg")
             >>> backend.set_joints(HandPose.LEFT_CLOSED)  # Hand pose preset
+            >>> backend.set_joints({Joint.ELBOW_LEFT: 50.0}, speed=45.0)  # slow
         """
         # Handle HandPose enum
         if isinstance(positions, HandPose):
@@ -1057,8 +1168,11 @@ class RobotBackend(ABC):
         else:  # rad
             positions_radians = dict(positions_str)
 
+        # Convert speed (deg/s) to centidegrees/s for backend
+        velocity_centideg = round(speed * 100) if speed is not None else None
+
         # Send command
-        success = self._set_joints_impl(positions_radians)
+        success = self._set_joints_impl(positions_radians, velocity_centideg=velocity_centideg)
 
         if not success:
             return False
@@ -1084,12 +1198,18 @@ class RobotBackend(ABC):
         return True
 
     @abstractmethod
-    def _set_joints_impl(self, positions_radians: Dict[str, float]) -> bool:
+    def _set_joints_impl(
+        self,
+        positions_radians: Dict[str, float],
+        velocity_centideg: Optional[int] = None,
+    ) -> bool:
         """
         Backend-specific implementation to set joint positions.
 
         Args:
             positions_radians: Dict mapping motor names to positions in radians.
+            velocity_centideg: Movement speed in centidegrees/second.
+                None means use the backend's default speed.
 
         Returns:
             True if command was sent successfully.
@@ -1115,7 +1235,6 @@ class RobotBackend(ABC):
         Returns:
             True if all joints are within tolerance.
         """
-        import time
 
         start_time = time.time()
         check_interval = 0.05  # 50ms between checks

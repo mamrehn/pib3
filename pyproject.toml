@@ -50,6 +50,7 @@ dependencies = [
     # Note: On Windows/macOS: No additional system requirements
     "sounddevice>=0.5.5",  # 0.5.5 fixes callback exception on Python 3.13
     "piper-tts>=1.2.0",
+    "pynput>=1.8.0",  # Keyboard listener for emergency stop key
 ]
 
 [project.optional-dependencies]

@@ -2,6 +2,7 @@
 
 import json
 import warnings
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -110,6 +111,14 @@ class Trajectory:
     UNIT = "radians"
     COORDINATE_FRAME = "webots"  # Canonical format = Webots motor radians
 
+    def __repr__(self) -> str:
+        n_joints = len(self.joint_names)
+        n_waypoints = len(self.waypoints)
+        arm = self.metadata.get("arm", "?")
+        rate = self.metadata.get("success_rate")
+        rate_str = f", success={rate:.0%}" if rate is not None else ""
+        return f"Trajectory({n_waypoints} waypoints, {n_joints} joints, arm={arm}{rate_str})"
+
     def __len__(self) -> int:
         """Return number of waypoints."""
         return len(self.waypoints)
@@ -168,6 +177,62 @@ class Trajectory:
             waypoints=waypoints,
             metadata=data.get("metadata", {}),
         )
+
+    def validate(self, backend: "RobotBackend") -> List[Dict]:
+        """
+        Check all waypoints against a backend's joint limits.
+
+        Returns a list of violations. An empty list means the trajectory
+        is fully within limits and safe to execute.
+
+        Args:
+            backend: A RobotBackend instance (WebotsBackend or RealRobotBackend)
+                whose joint limits will be used for validation.
+
+        Returns:
+            List of dicts, each describing a violation:
+            ``{"waypoint": int, "joint": str, "value": float,
+              "min": float, "max": float}``
+
+        Example:
+            >>> traj = pib3.generate_trajectory("drawing.png")
+            >>> with pib3.Robot(host="...") as robot:
+            ...     violations = traj.validate(robot)
+            ...     if violations:
+            ...         print(f"{len(violations)} limit violations found!")
+            ...         for v in violations[:5]:
+            ...             print(f"  wp {v['waypoint']}: {v['joint']} = "
+            ...                   f"{v['value']:.3f} rad, limits [{v['min']:.3f}, {v['max']:.3f}]")
+            ...     else:
+            ...         robot.run_trajectory(traj)
+        """
+        limits = backend._get_joint_limits()
+        violations = []
+
+        for j, name in enumerate(self.joint_names):
+            joint_limits = limits.get(name)
+            if joint_limits is None:
+                continue
+            min_rad = joint_limits.get("min")
+            max_rad = joint_limits.get("max")
+            if min_rad is None or max_rad is None:
+                continue
+
+            # Handle inverted ranges (e.g. Webots finger joints where min > max)
+            lo, hi = min(min_rad, max_rad), max(min_rad, max_rad)
+
+            col = self.waypoints[:, j]
+            out_of_range = np.where((col < lo - 1e-6) | (col > hi + 1e-6))[0]
+            for wp_idx in out_of_range:
+                violations.append({
+                    "waypoint": int(wp_idx),
+                    "joint": name,
+                    "value": float(col[wp_idx]),
+                    "min": lo,
+                    "max": hi,
+                })
+
+        return violations
 
 
 def _get_urdf_path() -> Path:
@@ -601,13 +666,20 @@ def sketch_to_trajectory(
                 if j < len(last_wp):
                     q_current[urdf_idx] = last_wp[j]
         elif isinstance(initial_q, dict):
-            # Convert dict of joint names to array
+            # Convert dict of joint names to array.
+            # Build a mapping from motor name -> list of URDF indices, because
+            # coupled finger joints share the same motor name for both proximal
+            # and distal URDF joints (e.g. indices 11 & 12 are both
+            # "index_left_stretch") and both must be set to the same value.
             q_current = np.zeros(robot.n)
             q_current = _set_initial_arm_pose(q_current, arm, grip_style)  # Start with defaults
-            joint_name_to_idx = {name: idx for idx, name in URDF_TO_MOTOR_NAME.items()}
+            joint_name_to_indices: Dict[str, List[int]] = {}
+            for idx, name in URDF_TO_MOTOR_NAME.items():
+                joint_name_to_indices.setdefault(name, []).append(idx)
             for name, value in initial_q.items():
-                if name in joint_name_to_idx:
-                    q_current[joint_name_to_idx[name]] = value
+                if name in joint_name_to_indices:
+                    for idx in joint_name_to_indices[name]:
+                        q_current[idx] = value
         else:
             # Assume numpy array (full robot configuration)
             q_current = np.asarray(initial_q, dtype=np.float64).copy()
@@ -629,8 +701,8 @@ def sketch_to_trajectory(
     T_start = T_start * tool_offset
     start_pos = T_start.t
 
-    # Adjust paper position based on TCP position
-    paper = config.paper
+    # Work on a copy of the paper config to avoid mutating the caller's config
+    paper = deepcopy(config.paper)
     if paper.center_y is None:
         # Use consistent center_y regardless of grip style
         # This allows both grip styles to use the same paper position
