@@ -169,6 +169,12 @@ print(f"Total length: {sketch.total_length()}")
 print(f"Bounds: {sketch.bounds()}")
 ```
 
+!!! warning "`Sketch.bounds()` raises on empty sketches"
+    Calling `bounds()` on a sketch with no strokes (or strokes containing
+    no points) raises `ValueError` instead of silently returning a
+    degenerate `(0, 0, 0, 0)` box. Check `len(sketch) > 0` before
+    relying on the returned bounding box.
+
 ### Serialization
 
 ```python

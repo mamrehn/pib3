@@ -81,6 +81,23 @@ sketch = pib3.image_to_sketch(pil_img)
 7. **Normalize**: Scale coordinates to [0, 1]
 8. **Optimize**: Reorder to minimize pen travel
 
+### Auto-Foreground Detection
+
+When `auto_foreground=True` (default), the thresholded image's **1-pixel
+perimeter** is sampled (corners excluded to avoid double-counting) to decide
+which polarity is the background. If the border is >50% foreground, the
+polarity is inverted. Sampling only the perimeter keeps dense interior
+drawings (e.g. shaded sketches where strokes cover >50% of the image)
+from being incorrectly inverted — a correctly-oriented line drawing almost
+always has a clean border.
+
+### Alpha Handling
+
+RGBA / LA / palette-with-transparency inputs are composited against a white
+background via alpha blending before grayscale conversion. Partial-alpha
+pixels therefore produce the expected mid-gray instead of the raw RGB
+values that transparent pixels happen to carry.
+
 ### Handling Different Images
 
 ```python

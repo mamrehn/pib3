@@ -15,7 +15,6 @@ with Robot() as backend:
     pos = backend.get_joint(Joint.ELBOW_LEFT)
     backend.run_trajectory("trajectory.json")
 ```
-```
 
 ---
 
@@ -108,8 +107,8 @@ Get the current position of a single joint.
 ```python
 def get_joint(
     self,
-    motor_name: str,
-    unit: Literal["percent", "rad"] = "percent",
+    motor_name: Union[str, Joint],
+    unit: Literal["percent", "rad", "deg"] = "percent",
     timeout: Optional[float] = None,
 ) -> Optional[float]
 ```
@@ -118,8 +117,8 @@ def get_joint(
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `motor_name` | `str` | *required* | Name of the motor to query. Must be one of the names in `MOTOR_NAMES`. |
-| `unit` | `"percent"` or `"rad"` | `"percent"` | Unit for the returned value. `"percent"` returns 0-100% of the joint's calibrated range. `"rad"` returns raw radians. |
+| `motor_name` | `str` or `Joint` | *required* | Motor name or `Joint` enum. Must be one of the names in `MOTOR_NAMES`. |
+| `unit` | `"percent"`, `"rad"`, or `"deg"` | `"percent"` | Unit for the returned value. `"percent"` returns 0-100% of the joint's calibrated range, `"rad"` returns raw radians, `"deg"` returns degrees. |
 | `timeout` | `float` or `None` | `None` | Max time to wait for joint data (seconds). See note below. |
 
 **Timeout Behavior by Backend:**
@@ -162,8 +161,8 @@ Get current positions of multiple joints.
 ```python
 def get_joints(
     self,
-    motor_names: Optional[List[str]] = None,
-    unit: Literal["percent", "rad"] = "percent",
+    motor_names: Optional[List[Union[str, Joint]]] = None,
+    unit: Literal["percent", "rad", "deg"] = "percent",
     timeout: Optional[float] = None,
 ) -> Dict[str, float]
 ```
@@ -172,8 +171,8 @@ def get_joints(
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `motor_names` | `List[str]` or `None` | `None` | List of motor names to query. If `None`, returns all available joints. |
-| `unit` | `"percent"` or `"rad"` | `"percent"` | Unit for the returned values. |
+| `motor_names` | `List[str\|Joint]` or `None` | `None` | List of motor names (strings or `Joint` enums) to query. If `None`, returns all available joints. |
+| `unit` | `"percent"`, `"rad"`, or `"deg"` | `"percent"` | Unit for the returned values. |
 | `timeout` | `float` or `None` | `None` | Max time to wait for joint data (seconds). See `get_joint()` for backend-specific behavior. |
 
 **Timeout Behavior by Backend:**
@@ -224,12 +223,13 @@ Set the position of a single joint.
 ```python
 def set_joint(
     self,
-    motor_name: str,
+    motor_name: Union[str, Joint],
     position: float,
-    unit: Literal["percent", "rad"] = "percent",
-    async_: bool = True,
-    timeout: float = 1.0,
+    unit: Literal["percent", "rad", "deg"] = "percent",
+    async_: bool = False,
+    timeout: float = 2.0,
     tolerance: Optional[float] = None,
+    speed: Optional[float] = None,
 ) -> bool
 ```
 
@@ -237,12 +237,13 @@ def set_joint(
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `motor_name` | `str` | *required* | Name of the motor to control. |
-| `position` | `float` | *required* | Target position. For `"percent"`: 0.0 to 100.0. For `"rad"`: angle in radians. |
-| `unit` | `"percent"` or `"rad"` | `"percent"` | Unit for the position value. |
-| `async_` | `bool` | `True` | If `True`, return immediately. If `False`, wait until joint reaches target. |
-| `timeout` | `float` | `1.0` | Maximum seconds to wait (only used when `async_=False`). |
-| `tolerance` | `float` or `None` | `None` | Acceptable error for completion. Default: 2.0% or 0.05 rad. |
+| `motor_name` | `str` or `Joint` | *required* | Motor name or `Joint` enum. |
+| `position` | `float` | *required* | Target position. For `"percent"`: 0.0 to 100.0. For `"rad"`: angle in radians. For `"deg"`: angle in degrees. |
+| `unit` | `"percent"`, `"rad"`, or `"deg"` | `"percent"` | Unit for the position value. |
+| `async_` | `bool` | `False` | If `True`, return immediately. If `False` (default), poll the actual position until it matches the target. |
+| `timeout` | `float` | `2.0` | Maximum seconds to wait (only used when `async_=False`). |
+| `tolerance` | `float` or `None` | `None` | Acceptable error for completion. Default: `DEFAULT_VERIFY_TOLERANCE_PERCENT` (2.0%), `DEFAULT_VERIFY_TOLERANCE_DEG` (3.0°), or `DEFAULT_VERIFY_TOLERANCE` (0.05 rad). |
+| `speed` | `float` or `None` | `None` | Movement speed in degrees/second (e.g. `90.0` = 90°/s). `None` uses the backend's default speed. |
 
 **Returns:** `bool`
 
@@ -287,11 +288,12 @@ Set positions of multiple joints simultaneously.
 ```python
 def set_joints(
     self,
-    positions: Union[Dict[str, float], Sequence[float]],
-    unit: Literal["percent", "rad"] = "percent",
-    async_: bool = True,
-    timeout: float = 1.0,
+    positions: Dict[Union[str, Joint], float],
+    unit: Literal["percent", "rad", "deg"] = "percent",
+    async_: bool = False,
+    timeout: float = 2.0,
     tolerance: Optional[float] = None,
+    speed: Optional[float] = None,
 ) -> bool
 ```
 
@@ -299,11 +301,20 @@ def set_joints(
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `positions` | `Dict[str, float]` or `Sequence[float]` | *required* | Target positions. Either a dict mapping motor names to positions, or a sequence of 26 values in `MOTOR_NAMES` order. |
-| `unit` | `"percent"` or `"rad"` | `"percent"` | Unit for position values. |
-| `async_` | `bool` | `True` | If `True`, return immediately. If `False`, wait until joints reach targets. |
-| `timeout` | `float` | `1.0` | Maximum seconds to wait (only used when `async_=False`). |
+| `positions` | `Dict[str\|Joint, float]` | *required* | Dict mapping motor names (string or `Joint` enum) to target positions. A plain dict is **required** — passing a `HandPose` raises `TypeError` (use [`set_joints_pose()`](#set_joints_pose) instead); passing a `Sequence[float]` raises `TypeError` (use [`set_joints_sequence()`](#set_joints_sequence) instead). |
+| `unit` | `"percent"`, `"rad"`, or `"deg"` | `"percent"` | Unit for position values. |
+| `async_` | `bool` | `False` | If `True`, return immediately. If `False` (default), poll actual positions until they match targets. |
+| `timeout` | `float` | `2.0` | Maximum seconds to wait (only used when `async_=False`). |
 | `tolerance` | `float` or `None` | `None` | Acceptable error for completion. |
+| `speed` | `float` or `None` | `None` | Movement speed in degrees/second. `None` uses the backend's default. |
+
+!!! warning "`speed` is shared state on the Tinkerforge direct path"
+    On the real-robot direct path, `speed` rewrites the servo channel's
+    motion configuration, which is **shared state**. A later call (even
+    an `async_=True` one) that passes a different `speed` will change
+    the channel's velocity; subsequent calls that omit `speed` keep
+    using the last value. Don't rely on a per-call `speed` being
+    "sticky" only to that call.
 
 **Returns:** `bool`
 
@@ -331,12 +342,158 @@ with Robot(host="172.26.34.149") as robot:
 
     robot.set_joints(saved_pose)  # Restore saved pose
 
-    # Wait for completion
-    success = robot.set_joints(
+    # Fire-and-forget
+    robot.set_joints(
         {Joint.ELBOW_LEFT: 50.0, Joint.WRIST_LEFT: 50.0},
-        async_=False,
-        timeout=2.0,
+        async_=True,
     )
+
+    # Slow motion at 45 deg/s
+    robot.set_joints({Joint.ELBOW_LEFT: 50.0}, speed=45.0)
+```
+
+---
+
+### set_joints_pose()
+
+Apply a [`HandPose`](../hand-poses.md) preset to the robot.
+
+```python
+def set_joints_pose(
+    self,
+    pose: HandPose,
+    async_: bool = False,
+    timeout: float = 2.0,
+    tolerance: Optional[float] = None,
+    speed: Optional[float] = None,
+) -> bool
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `pose` | `HandPose` | *required* | A `HandPose` enum member (e.g. `HandPose.LEFT_OPEN`). Raises `TypeError` for any other type. |
+| `async_` | `bool` | `False` | If `True`, fire-and-forget. If `False` (default), wait for completion. |
+| `timeout` | `float` | `2.0` | Max wait time when `async_=False`. |
+| `tolerance` | `float` or `None` | `None` | Position tolerance (in percent — pose values are always percent). |
+| `speed` | `float` or `None` | `None` | Movement speed in degrees/second. |
+
+**Example:**
+
+```python
+from pib3 import Robot, HandPose
+
+with Robot(host="172.26.34.149") as robot:
+    robot.set_joints_pose(HandPose.LEFT_CLOSED)
+    robot.set_joints_pose(HandPose.RIGHT_OPEN, speed=45.0)
+```
+
+---
+
+### set_joints_sequence()
+
+Play a sequence of joint-position waypoints at a fixed rate. Lightweight sibling to `run_trajectory()` — no IK, no interpolation, no file format.
+
+```python
+def set_joints_sequence(
+    self,
+    sequence: Sequence[Dict[Union[str, Joint], float]],
+    unit: Literal["percent", "rad", "deg"] = "percent",
+    rate_hz: float = 20.0,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+    speed: Optional[float] = None,
+) -> bool
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `sequence` | `Sequence[Dict[str\|Joint, float]]` | *required* | Iterable of waypoint dicts. Joints omitted in a given waypoint stay at their last commanded value. |
+| `unit` | `"percent"`, `"rad"`, `"deg"` | `"percent"` | Unit for all positions. |
+| `rate_hz` | `float` | `20.0` | Waypoint dispatch rate. |
+| `progress_callback` | `Callable[[int, int], None]` or `None` | `None` | Optional `callback(current_index, total)`. |
+| `speed` | `float` or `None` | `None` | Per-waypoint movement speed (deg/s). Shares the same shared-state caveat as `set_joints(speed=...)`. |
+
+Stops early (and returns `False`) if [`stop()`](#stop) is called.
+
+**Example:**
+
+```python
+from pib3 import Joint
+
+backend.set_joints_sequence([
+    {Joint.ELBOW_LEFT: 0.0},
+    {Joint.ELBOW_LEFT: 50.0},
+    {Joint.ELBOW_LEFT: 0.0},
+], rate_hz=4.0)
+```
+
+---
+
+## Home Position
+
+### home_percent
+
+Property returning the home position (0 radians per joint) expressed as percentages.
+
+```python
+@property
+def home_percent(self) -> Dict[str, float]
+```
+
+For symmetric joints the value is ~50%, but asymmetric joints (e.g. elbow: −45° to +90°) will differ.
+
+### go_home()
+
+Move all joints to their home position (0 radians — Webots proto zero / real-robot servo midpoint).
+
+```python
+def go_home(self, async_: bool = False, timeout: float = 5.0) -> bool
+```
+
+Equivalent to `set_joints({...: 0.0}, unit="rad")` for every motor in `MOTOR_NAMES`.
+
+```python
+with backend as robot:
+    robot.go_home()
+```
+
+---
+
+## Emergency Stop
+
+A single **process-wide** pynput keyboard listener is shared across all backend instances — creating two `Robot()` objects does not install two competing global keyboard hooks.
+
+### stop() / resume() / stopped
+
+```python
+def stop(self) -> None     # Halt all motor movement immediately
+def resume(self) -> None   # Clear the flag and allow new commands
+@property
+def stopped(self) -> bool  # True while in emergency-stop state
+```
+
+`stop()` aborts any running trajectory or `set_joints_sequence()`.
+
+### enable_estop_key() / disable_estop_key()
+
+```python
+def enable_estop_key(self, key: str = "KP_0") -> None
+def disable_estop_key(self) -> None
+```
+
+Start/stop a background keyboard listener for emergency stop. Pressing the configured key toggles between `stop()` and `resume()`. Idempotent: calling twice on the same backend replaces the subscription, not duplicates it.
+
+Default key is `"KP_0"` (numpad 0). Other examples: `"KP_Insert"`, `"F12"`, `"pause"`, or any single character.
+
+Requires `pynput`: `pip install pynput`
+
+```python
+with Robot(host="172.26.34.149") as robot:
+    robot.enable_estop_key()       # Numpad 0 = emergency stop
+    robot.run_trajectory(traj)     # Press numpad 0 to abort
 ```
 
 ---
@@ -395,52 +552,6 @@ with Robot(host="172.26.34.149") as robot:
 ```
 
 ---
-
-    @abstractmethod
-    def _execute_waypoints(
-        self,
-        joint_names: List[str],
-        waypoints: np.ndarray,
-        rate_hz: float,
-        progress_callback: Optional[Callable[[int, int], None]],
-    ) -> bool:
-        """Backend-specific waypoint execution."""
-        ...
-
-    # ==================== AUDIO METHODS ====================
-
-    @property
-    def audio(self) -> "AudioBackend":
-        """
-        Access the audio backend.
-
-        Returns:
-            AudioBackend object (SystemAudioBackend or ROSAudioBackend).
-        """
-        return self._audio
-
-
-class AudioBackend(ABC):
-    """Abstract base class for audio playback."""
-
-    @abstractmethod
-    def play(self, data: Union[bytes, np.ndarray, List[int]], sample_rate: int = 16000) -> bool:
-        """
-        Play audio data.
-
-        Args:
-            data: Audio data (bytes, numpy array, or list of int16).
-            sample_rate: Sample rate in Hz (default: 16000).
-
-        Returns:
-            True if playback started, False otherwise.
-        """
-        ...
-
-    @abstractmethod
-    def stop(self) -> None:
-        """Stop current playback."""
-        ...
 
 ## Available Motor Names
 
@@ -507,12 +618,13 @@ print(RobotBackend.MOTOR_NAMES)
 
 ## Unit System
 
-All backends support two units for position values:
+All backends support three units for position values:
 
 | Unit | Value Range | Description |
 |------|-------------|-------------|
 | `"percent"` | 0.0 to 100.0 | Percentage of calibrated joint range (default) |
 | `"rad"` | varies | Raw angle in radians |
+| `"deg"` | varies | Raw angle in degrees |
 
 **Percentage** is recommended for most use cases:
 
@@ -525,11 +637,12 @@ from pib3 import Joint
 import math
 
 # These are equivalent ways to move to the middle
-backend.set_joint(Joint.ELBOW_LEFT, 50.0)               # 50%
+backend.set_joint(Joint.ELBOW_LEFT, 50.0)                  # 50%
 backend.set_joint(Joint.ELBOW_LEFT, 50.0, unit="percent")  # Explicit
 
-# Use radians for precise angular control
+# Use radians or degrees for precise angular control
 backend.set_joint(Joint.ELBOW_LEFT, math.pi / 4, unit="rad")  # 45 degrees
+backend.set_joint(Joint.ELBOW_LEFT, -30.0, unit="deg")        # -30 degrees
 ```
 
 ---

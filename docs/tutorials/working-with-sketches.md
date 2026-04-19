@@ -148,8 +148,10 @@ print(f"Total points: {sketch.total_points()}")
 print(f"Total path length: {sketch.total_length():.3f}")
 
 # Bounding box (min_u, min_v, max_u, max_v)
-bounds = sketch.bounds()
-print(f"Bounds: {bounds}")
+# Note: raises ValueError if the sketch has no strokes/points.
+if len(sketch) > 0:
+    bounds = sketch.bounds()
+    print(f"Bounds: {bounds}")
 
 # Source image size (if from image)
 if sketch.source_size:

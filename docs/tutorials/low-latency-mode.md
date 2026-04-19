@@ -83,6 +83,14 @@ with Robot(host="172.26.34.149") as robot:
     robot.low_latency_enabled = True
 ```
 
+!!! warning "Setter raises on unavailable path"
+    Assigning `True` to `low_latency_enabled` raises `RuntimeError` if
+    Tinkerforge isn't installed, the robot isn't connected, or servo
+    discovery failed. This surfaces configuration problems immediately
+    instead of silently falling back to ROS the next time you set a
+    joint. Guard enablement with `low_latency_available` if you want
+    the tolerant behavior.
+
 ---
 
 ## Reading Positions

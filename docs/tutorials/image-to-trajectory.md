@@ -229,15 +229,6 @@ print()  # New line after progress
 
 ---
 
-## Visualizing During Generation
-
-
-
-!!! note
-    Visualization slows down trajectory generation but helps debug IK issues.
-
----
-
 ## Grip Styles
 
 The library supports two drawing grip styles:

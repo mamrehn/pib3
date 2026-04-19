@@ -177,41 +177,54 @@ with open("pose.json") as f:
 
 ## Position Verification
 
-Wait for joints to reach targets using `async_=False`:
+`set_joint` / `set_joints` default to `async_=False` with a 2 s timeout, so
+calls block until the joint reaches its target (or times out). Pass
+`async_=True` for fire-and-forget commands.
 
 ```python
 from pib3 import Robot, Joint
 
 with Robot(host="172.26.34.149") as robot:
-    # Wait for single joint
+    # Default is blocking: waits for completion
     success = robot.set_joint(
         Joint.ELBOW_LEFT, 50.0,
-        async_=False,    # Wait for completion
-        timeout=2.0,     # Max wait (seconds)
+        timeout=2.0,     # Max wait (seconds), default
         tolerance=2.0,   # Acceptable error (%)
+        speed=30.0,      # Optional: %/s motion speed
     )
+
+    # Explicit fire-and-forget
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0, async_=True)
 
     # Wait for multiple joints
     success = robot.set_joints(
         {Joint.ELBOW_LEFT: 60.0, Joint.WRIST_LEFT: 50.0},
-        async_=False,
         timeout=3.0,
     )
 ```
+
+!!! note "`speed` on the real robot"
+    On `RealRobotBackend`'s direct-Tinkerforge path, `speed` mutates the
+    servo's shared motion-velocity register for the duration of the call.
+    Concurrent movers on the same servo will see the updated value until
+    the call returns — serialize `speed`-overriding moves per joint.
 
 ---
 
 ## Controlling the Hands
 
+`HandPose` presets are applied via `set_joints_pose()`. `set_joints()` is
+strictly dict-only and raises `TypeError` if you pass a `HandPose` directly.
+
 ```python
 from pib3 import Robot, HandPose, LEFT_HAND_JOINTS
 
 with Robot(host="172.26.34.149") as robot:
-    # Use preset poses
-    robot.set_joints(HandPose.LEFT_OPEN)     # Open hand (0%)
-    robot.set_joints(HandPose.LEFT_CLOSED)   # Close hand (100%)
+    # Preset poses via set_joints_pose
+    robot.set_joints_pose(HandPose.LEFT_OPEN)     # Open hand
+    robot.set_joints_pose(HandPose.LEFT_CLOSED)   # Close hand
 
-    # Partial grip
+    # Custom grip via set_joints (plain dict)
     robot.set_joints({j: 50.0 for j in LEFT_HAND_JOINTS})  # 50% closed
 ```
 
@@ -264,12 +277,12 @@ def main():
         initial_pose = robot.get_joints()
         print("Saved initial pose")
 
-        # Move to starting position
+        # Move to starting position (blocking by default)
         print("Moving to start position...")
         robot.set_joints({
             "shoulder_vertical_left": 50.0,
             "elbow_left": 50.0,
-        }, async_=False)
+        })
 
         # Execute drawing
         print("Drawing...")

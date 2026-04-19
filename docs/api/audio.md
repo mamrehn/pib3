@@ -187,14 +187,22 @@ robot.play_file("music.wav", output=AudioOutput.LOCAL, block=False)
 
 #### `speak()`
 
-Synthesize and play text-to-speech using Piper TTS.
+Synthesize and play text-to-speech.
+
+On `RealRobotBackend`, `speak()` prefers the on-board
+`/play_audio_from_speech` ROS service — TTS runs on the robot itself, so
+no audio data is streamed over rosbridge. It transparently falls back to
+the base-class Piper path for `AudioOutput.LOCAL` or if the robot service
+is unavailable. `WebotsBackend` (and any other backend) uses Piper locally.
 
 ```python
 robot.speak(
     text: str,
     output: Optional[AudioOutput] = None,
-    voice: Optional[str] = None,
-    block: bool = True
+    voice: Optional[str] = None,          # Piper voice (local path only)
+    block: bool = True,
+    use_robot_tts: Optional[bool] = None, # RealRobotBackend only; None = auto
+    language: str = "de",                 # RealRobotBackend only; robot TTS language
 ) -> bool
 ```
 
@@ -202,8 +210,10 @@ robot.speak(
 
 - `text`: Text to speak
 - `output`: Playback destination. If None, uses backend default
-- `voice`: Piper voice model name (default: `"de_DE-thorsten-high"` for German)
+- `voice`: Piper voice model name (default: `"de_DE-thorsten-high"` for German). Ignored when the robot-side TTS path is taken.
 - `block`: If True, wait for speech to complete
+- `use_robot_tts` *(RealRobotBackend)*: Force robot-side TTS (`True`), force local Piper (`False`), or auto-decide (`None`, default — prefers robot TTS whenever `output` includes `ROBOT`)
+- `language` *(RealRobotBackend)*: Language code for the robot's TTS service (e.g. `"en"`, `"de"`)
 
 **Returns:** `True` if speech was played successfully
 

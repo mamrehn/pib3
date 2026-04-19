@@ -166,6 +166,21 @@ robot_waypoints = trajectory.to_robot_format()
 }
 ```
 
+### Schema Validation
+
+`Trajectory.from_json()` validates the file and raises a clear error instead of silently accepting malformed data:
+
+| Check | Failure mode |
+|-------|--------------|
+| Top level is a `dict` | `ValueError` |
+| `format_version` matches supported | warning logged |
+| `unit` equals the expected value | `ValueError` on mismatch |
+| `joint_names` is a `list[str]` | `ValueError` |
+| `waypoints` is a 2D numeric array with columns matching `len(joint_names)` | `ValueError` |
+| `metadata` is a `dict` | `ValueError` |
+
+This keeps downstream execution from failing deep inside IK or motor code with opaque `IndexError`/`KeyError` tracebacks.
+
 ---
 
 ## IK Solver Details

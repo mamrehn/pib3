@@ -107,17 +107,18 @@ The Webots backend inherits all methods from [`RobotBackend`](base.md). Key meth
 
 ### set_joint()
 
-Set a single joint position.
+Set a single joint position. Inherits from [`RobotBackend`](base.md#set_joint) — see the base class for the full parameter list (including `speed` and the `"deg"` unit).
 
 ```python
 def set_joint(
     self,
-    motor_name: str,
+    motor_name: Union[str, Joint],
     position: float,
-    unit: Literal["percent", "rad"] = "percent",
-    async_: bool = True,
-    timeout: float = 1.0,
+    unit: Literal["percent", "rad", "deg"] = "percent",
+    async_: bool = False,
+    timeout: float = 2.0,
     tolerance: Optional[float] = None,
+    speed: Optional[float] = None,
 ) -> bool
 ```
 
@@ -125,12 +126,13 @@ def set_joint(
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `motor_name` | `str` | *required* | Motor name (e.g., `"elbow_left"`). |
-| `position` | `float` | *required* | Target position (0-100 for percent, radians for rad). |
-| `unit` | `"percent"` or `"rad"` | `"percent"` | Position unit. |
-| `async_` | `bool` | `True` | If `True`, return immediately. If `False`, wait for joint to reach target. |
-| `timeout` | `float` | `1.0` | Max wait time (only used when `async_=False`). |
-| `tolerance` | `float` or `None` | `None` | Acceptable error (2.0% or 0.05 rad default). |
+| `motor_name` | `str` or `Joint` | *required* | Motor name or `Joint` enum (e.g., `Joint.ELBOW_LEFT`). |
+| `position` | `float` | *required* | Target position (0-100 for percent, radians for rad, degrees for deg). |
+| `unit` | `"percent"`, `"rad"`, `"deg"` | `"percent"` | Position unit. |
+| `async_` | `bool` | `False` | If `True`, return immediately. If `False` (default), step simulation until motor reaches target. |
+| `timeout` | `float` | `2.0` | Max wait time (only used when `async_=False`). |
+| `tolerance` | `float` or `None` | `None` | Acceptable error (2.0%, 3.0°, or 0.05 rad default). |
+| `speed` | `float` or `None` | `None` | Movement speed in deg/s. |
 
 **Returns:** `bool` - `True` if successful.
 
@@ -149,16 +151,17 @@ with WebotsBackend() as robot:
 
 ### set_joints()
 
-Set multiple joint positions simultaneously.
+Set multiple joint positions simultaneously. Takes a plain dict — for hand-pose presets use [`set_joints_pose()`](base.md#set_joints_pose); for a sequence of waypoints use [`set_joints_sequence()`](base.md#set_joints_sequence).
 
 ```python
 def set_joints(
     self,
-    positions: Union[Dict[str, float], Sequence[float]],
-    unit: Literal["percent", "rad"] = "percent",
-    async_: bool = True,
-    timeout: float = 1.0,
+    positions: Dict[Union[str, Joint], float],
+    unit: Literal["percent", "rad", "deg"] = "percent",
+    async_: bool = False,
+    timeout: float = 2.0,
     tolerance: Optional[float] = None,
+    speed: Optional[float] = None,
 ) -> bool
 ```
 
@@ -166,20 +169,23 @@ def set_joints(
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `positions` | `Dict[str, float]` or `Sequence[float]` | *required* | Target positions as dict or sequence. |
-| `unit` | `"percent"` or `"rad"` | `"percent"` | Position unit. |
-| `async_` | `bool` | `True` | If `True`, return immediately. If `False`, wait for joints to reach targets. |
-| `timeout` | `float` | `1.0` | Max wait time (only used when `async_=False`). |
+| `positions` | `Dict[str\|Joint, float]` | *required* | Target positions. Passing a `HandPose` or a plain sequence raises `TypeError`. |
+| `unit` | `"percent"`, `"rad"`, `"deg"` | `"percent"` | Position unit. |
+| `async_` | `bool` | `False` | If `True`, return immediately. If `False` (default), step simulation until motors reach targets. |
+| `timeout` | `float` | `2.0` | Max wait time (only used when `async_=False`). |
 | `tolerance` | `float` or `None` | `None` | Acceptable error. |
+| `speed` | `float` or `None` | `None` | Movement speed in deg/s. |
 
 **Example:**
 
 ```python
+from pib3 import Joint
+
 with WebotsBackend() as robot:
     robot.set_joints({
-        "shoulder_vertical_left": 30.0,
-        "shoulder_horizontal_left": 40.0,
-        "elbow_left": 60.0,
+        Joint.SHOULDER_VERTICAL_LEFT: 30.0,
+        Joint.SHOULDER_HORIZONTAL_LEFT: 40.0,
+        Joint.ELBOW_LEFT: 60.0,
     })
 ```
 
@@ -190,8 +196,8 @@ Read a single joint position. Waits for motor readings to stabilize (same value 
 ```python
 def get_joint(
     self,
-    motor_name: str,
-    unit: Literal["percent", "rad"] = "percent",
+    motor_name: Union[str, Joint],
+    unit: Literal["percent", "rad", "deg"] = "percent",
     timeout: Optional[float] = None,
 ) -> Optional[float]
 ```
@@ -200,8 +206,8 @@ def get_joint(
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `motor_name` | `str` | *required* | Motor name to query. |
-| `unit` | `"percent"` or `"rad"` | `"percent"` | Return unit. |
+| `motor_name` | `str` or `Joint` | *required* | Motor name or `Joint` enum to query. |
+| `unit` | `"percent"`, `"rad"`, `"deg"` | `"percent"` | Return unit. |
 | `timeout` | `float` or `None` | `5.0` | Max time to wait for motor reading to stabilize (seconds). |
 
 **Returns:** `float` or `None` - Current position, or `None` if unavailable or motor still moving.
@@ -227,8 +233,8 @@ Read multiple joint positions. Waits for each motor reading to stabilize before 
 ```python
 def get_joints(
     self,
-    motor_names: Optional[List[str]] = None,
-    unit: Literal["percent", "rad"] = "percent",
+    motor_names: Optional[List[Union[str, Joint]]] = None,
+    unit: Literal["percent", "rad", "deg"] = "percent",
     timeout: Optional[float] = None,
 ) -> Dict[str, float]
 ```
@@ -237,8 +243,8 @@ def get_joints(
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `motor_names` | `List[str]` or `None` | `None` | Motors to query. `None` returns all. |
-| `unit` | `"percent"` or `"rad"` | `"percent"` | Return unit. |
+| `motor_names` | `List[str\|Joint]` or `None` | `None` | Motors to query. `None` returns all. |
+| `unit` | `"percent"`, `"rad"`, `"deg"` | `"percent"` | Return unit. |
 | `timeout` | `float` or `None` | `5.0` | Max time to wait for each motor reading to stabilize (seconds). |
 
 **Returns:** `Dict[str, float]` - Motor names mapped to positions.
@@ -379,23 +385,24 @@ from pib3 import Joint
 from pib3.backends import WebotsBackend
 
 with WebotsBackend() as robot:
-    # Raise arm (async_=False waits for motor to reach position)
-    robot.set_joint(Joint.SHOULDER_VERTICAL_LEFT, 30.0, async_=False)
+    # Raise arm (default async_=False waits for motor to reach position)
+    robot.set_joint(Joint.SHOULDER_VERTICAL_LEFT, 30.0)
 
     # Wave back and forth
     for _ in range(5):
-        robot.set_joint(Joint.WRIST_LEFT, 20.0, async_=False)
-        robot.set_joint(Joint.WRIST_LEFT, 80.0, async_=False)
+        robot.set_joint(Joint.WRIST_LEFT, 20.0)
+        robot.set_joint(Joint.WRIST_LEFT, 80.0)
 
     # Return to neutral
-    robot.set_joint(Joint.WRIST_LEFT, 50.0, async_=False)
-    robot.set_joint(Joint.SHOULDER_VERTICAL_LEFT, 50.0, async_=False)
+    robot.set_joint(Joint.WRIST_LEFT, 50.0)
+    robot.set_joint(Joint.SHOULDER_VERTICAL_LEFT, 50.0)
 ```
 
-!!! tip "Use `async_=False` instead of `time.sleep()`"
+!!! tip "The default `async_=False` replaces `time.sleep()`"
     In Webots, simulation time only advances when `robot.step()` is called internally.
     Using `time.sleep()` wastes wall-clock time without advancing the simulation.
-    The `async_=False` parameter automatically steps the simulation until motors reach their targets.
+    The default `async_=False` automatically steps the simulation until motors reach their targets.
+    Pass `async_=True` to override and fire-and-forget.
 
 ### Complete Drawing Session
 
@@ -452,16 +459,16 @@ with WebotsBackend() as robot:
     ```
 
 !!! warning "Motors Don't Reach Target Position"
-    **Cause:** Using `async_=True` (default) only steps simulation once.
+    **Cause:** Explicitly passing `async_=True` only steps the simulation once.
 
-    **Solution:** Use `async_=False` to wait for motors to reach their targets:
+    **Solution:** Drop the `async_=True` override — the default `async_=False` waits for motors to reach their targets:
 
     ```python
     # Wrong - returns immediately, motor barely moves
-    robot.set_joint(Joint.ELBOW_LEFT, 50.0)
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0, async_=True)
 
-    # Correct - waits for motor to reach position
-    robot.set_joint(Joint.ELBOW_LEFT, 50.0, async_=False)
+    # Correct - default behavior waits for motor to reach position
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0)
     ```
 
     This also ensures code compatibility with the real robot, which behaves the same way.

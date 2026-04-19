@@ -161,9 +161,10 @@ def set_joint(
     motor_name: Union[str, Joint],
     position: float,
     unit: Literal["percent", "rad", "deg"] = "percent",
-    async_: bool = True,
-    timeout: float = 1.0,
+    async_: bool = False,
+    timeout: float = 2.0,
     tolerance: Optional[float] = None,
+    speed: Optional[float] = None,
 ) -> bool
 ```
 
@@ -172,9 +173,10 @@ def set_joint(
 | `motor_name` | `str` or `Joint` | *required* | Motor name or `Joint` enum (e.g., `Joint.ELBOW_LEFT`). |
 | `position` | `float` | *required* | Target position in specified unit. |
 | `unit` | `"percent"`, `"rad"`, `"deg"` | `"percent"` | Position unit. |
-| `async_` | `bool` | `True` | If `False`, wait for joint to reach target. |
-| `timeout` | `float` | `1.0` | Max wait time when `async_=False`. |
+| `async_` | `bool` | `False` | If `False` (default), poll until joint reaches target. |
+| `timeout` | `float` | `2.0` | Max wait time when `async_=False`. |
 | `tolerance` | `float` | `None` | Acceptable error (default: 2%, 3°, or 0.05 rad). |
+| `speed` | `float` or `None` | `None` | Movement speed in deg/s. `None` uses the servo channel's current motion config (default ≈ 150°/s on the direct path — see [`DEFAULT_MOTION_VELOCITY`](#default-motion-config)). |
 
 **Example:**
 
@@ -182,12 +184,12 @@ def set_joint(
 from pib3 import Robot, Joint
 
 with Robot(host="172.26.34.149") as robot:
-    robot.set_joint(Joint.TURN_HEAD, 50.0)           # Percentage
+    robot.set_joint(Joint.TURN_HEAD, 50.0)               # Percentage
     robot.set_joint(Joint.ELBOW_LEFT, 1.25, unit="rad")  # Radians
     robot.set_joint(Joint.ELBOW_LEFT, -30.0, unit="deg") # Degrees
 
-    # Wait for completion
-    success = robot.set_joint(Joint.ELBOW_LEFT, 50.0, async_=False)
+    # Fire and forget (default waits for completion)
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0, async_=True)
 ```
 
 ### set_joints()
@@ -197,21 +199,23 @@ Set multiple joint positions simultaneously.
 ```python
 def set_joints(
     self,
-    positions: Union[Dict[Union[str, Joint], float], Sequence[float]],
+    positions: Dict[Union[str, Joint], float],
     unit: Literal["percent", "rad", "deg"] = "percent",
-    async_: bool = True,
-    timeout: float = 1.0,
+    async_: bool = False,
+    timeout: float = 2.0,
     tolerance: Optional[float] = None,
+    speed: Optional[float] = None,
 ) -> bool
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `positions` | `Dict[str\|Joint, float]` or `Sequence[float]` | *required* | Target positions. |
+| `positions` | `Dict[str\|Joint, float]` | *required* | Target positions. A `HandPose` or sequence raises `TypeError` — use `set_joints_pose()` / `set_joints_sequence()` instead. |
 | `unit` | `"percent"`, `"rad"`, `"deg"` | `"percent"` | Position unit. |
-| `async_` | `bool` | `True` | If `False`, wait for joints to reach targets. |
-| `timeout` | `float` | `1.0` | Max wait time when `async_=False`. |
+| `async_` | `bool` | `False` | If `False` (default), poll until joints reach targets. |
+| `timeout` | `float` | `2.0` | Max wait time when `async_=False`. |
 | `tolerance` | `float` | `None` | Acceptable error. |
+| `speed` | `float` or `None` | `None` | Movement speed in deg/s. On the direct path this rewrites the servo's shared motion config — see [base class docs](base.md#set_joints). |
 
 **Example:**
 
@@ -490,6 +494,25 @@ mask = rle_decode(result['mask_rle'])  # Returns np.ndarray (height, width)
 
 ---
 
+## Text-to-Speech
+
+`RealRobotBackend.speak()` overrides the base implementation and prefers the robot's on-board TTS service `/play_audio_from_speech` — speech is synthesized directly on the robot, avoiding Piper inference on the client and streaming audio over rosbridge. Falls back to base-class Piper synthesis for `AudioOutput.LOCAL` or when the robot service is unavailable.
+
+```python
+def speak(
+    text: str,
+    output: Optional[AudioOutput] = None,
+    voice: Optional[str] = None,          # Piper voice (local fallback only)
+    block: bool = True,
+    use_robot_tts: Optional[bool] = None, # None = auto (prefer robot when output includes ROBOT)
+    language: str = "de",                 # Robot TTS language code
+) -> bool
+```
+
+See [`play_audio_from_speech()`](../audio.md) for the underlying ROS service (supports `wait=False` for fire-and-forget).
+
+---
+
 ## Low-Latency Mode
 
 Bypass ROS for direct Tinkerforge motor control with ~5-20ms latency (vs ~100-200ms via ROS). When enabled, both `get_joint()`/`get_joints()` and `set_joint()`/`set_joints()` use direct Tinkerforge communication.
@@ -515,9 +538,19 @@ with Robot(host="172.26.34.149", motor_mode="ros") as robot:
 | Property | Type | Description |
 |----------|------|-------------|
 | `low_latency_available` | `bool` | True if connected and configured |
-| `low_latency_enabled` | `bool` | Get/set enabled state |
+| `low_latency_enabled` | `bool` | Get/set enabled state. The setter **raises `RuntimeError`** when the backend is not connected or when Tinkerforge discovery fails (the flag is rolled back). |
 | `low_latency_sync_to_ros` | `bool` | Get/set cache sync setting |
 | `discovered_servo_uids` | `List[str]` | UIDs from last discovery |
+
+### Default motion config
+
+The direct Tinkerforge path uses these class-level defaults whenever `speed` is not provided. Override per call via `speed=...` or per channel via `configure_servo_channel()`.
+
+| Constant | Default | Unit | Notes |
+|----------|---------|------|-------|
+| `RealRobotBackend.DEFAULT_MOTION_VELOCITY` | `15000` | 0.01 °/s | ≈ 150°/s |
+| `RealRobotBackend.DEFAULT_MOTION_ACCELERATION` | `15000` | 0.01 °/s² | |
+| `RealRobotBackend.DEFAULT_MOTION_DECELERATION` | `15000` | 0.01 °/s² | |
 
 ### Methods
 

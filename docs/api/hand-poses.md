@@ -8,22 +8,34 @@ The PIB robot has 12 finger joints (6 per hand). All values are in percent where
 
 ## HandPose Enum
 
-The `HandPose` enum provides preset poses for quick hand control:
+The `HandPose` enum provides preset poses for quick hand control. Use `set_joints_pose()` to apply one:
 
 ```python
 from pib3 import HandPose, LEFT_HAND_JOINTS, RIGHT_HAND_JOINTS
 
 with Robot(host="172.26.34.149") as robot:
     # Preset poses
-    robot.set_joints(HandPose.LEFT_OPEN)      # Open left hand
-    robot.set_joints(HandPose.LEFT_CLOSED)    # Close left hand
-    robot.set_joints(HandPose.RIGHT_OPEN)     # Open right hand
-    robot.set_joints(HandPose.RIGHT_CLOSED)   # Close right hand
+    robot.set_joints_pose(HandPose.LEFT_OPEN)      # Open left hand
+    robot.set_joints_pose(HandPose.LEFT_CLOSED)    # Close left hand
+    robot.set_joints_pose(HandPose.RIGHT_OPEN)     # Open right hand
+    robot.set_joints_pose(HandPose.RIGHT_CLOSED)   # Close right hand
 
-    # Partial grip using joint lists
+    # Partial grip using joint lists (plain dict → set_joints)
     robot.set_joints({j: 50.0 for j in LEFT_HAND_JOINTS})   # 50% grip
     robot.set_joints({j: 75.0 for j in RIGHT_HAND_JOINTS})  # 75% grip
 ```
+
+!!! note "`set_joints` vs `set_joints_pose`"
+    `set_joints()` takes a plain `dict` and raises `TypeError` if a
+    `HandPose` is passed. Use `set_joints_pose()` for enum presets and
+    `set_joints()` for custom dicts. This split keeps call sites
+    self-documenting and prevents accidental type confusion.
+
+!!! tip "`HandPose` values are immutable"
+    Each enum value is wrapped in `types.MappingProxyType`, so attempts
+    to mutate the shared pose dict (e.g. `HandPose.LEFT_OPEN.value["index_left_stretch"] = 0.0`)
+    raise `TypeError`. This prevents a single caller from corrupting
+    every later `set_joints_pose(HandPose.X)` call in the process.
 
 ## Available Poses
 
@@ -142,16 +154,16 @@ with Robot(host="172.26.34.149") as robot:
 from pib3 import Robot, Joint, HandPose, LEFT_HAND_JOINTS
 
 with Robot(host="172.26.34.149") as robot:
-    # Open hand
-    robot.set_joints(HandPose.LEFT_OPEN, async_=False)
+    # Open hand (default async_=False waits for completion)
+    robot.set_joints_pose(HandPose.LEFT_OPEN)
 
     # Wave by moving wrist
     for _ in range(3):
-        robot.set_joint(Joint.WRIST_LEFT, 30.0, async_=False)
-        robot.set_joint(Joint.WRIST_LEFT, 70.0, async_=False)
+        robot.set_joint(Joint.WRIST_LEFT, 30.0)
+        robot.set_joint(Joint.WRIST_LEFT, 70.0)
 
     # Return to neutral
-    robot.set_joint(Joint.WRIST_LEFT, 50.0, async_=False)
+    robot.set_joint(Joint.WRIST_LEFT, 50.0)
 ```
 
 ## Mirrored Gestures
