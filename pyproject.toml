@@ -75,22 +75,33 @@ packages = ["pib3", "pib3.backends", "pib3.tools"]
 [tool.setuptools.package-data]
 pib3 = ["resources/*.urdf", "resources/*.proto", "resources/*.yaml", "resources/stl/*.stl"]
 
-[tool.black]
-line-length = 88
-target-version = ["py38", "py39", "py310", "py311", "py312"]
-
 [tool.ruff]
 line-length = 88
 target-version = "py38"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W"]
-ignore = ["E501"]  # Line too long (handled by black)
+select = ["ALL"]
+ignore = [
+    "E501",    # Line too long (handled by formatter)
+    "W191",    # Formatter conflict
+    "E111",    # Formatter conflict
+    "E114",    # Formatter conflict
+    "E117",    # Formatter conflict
+    "D206",    # Formatter conflict
+    "D300",    # Formatter conflict
+    "Q000",    # Formatter conflict
+    "Q001",    # Formatter conflict
+    "Q002",    # Formatter conflict
+    "Q003",    # Formatter conflict
+    "COM812",  # Formatter conflict
+    "COM819",  # Formatter conflict
+    "ISC001",  # Formatter conflict
+    "ISC002",  # Formatter conflict
+]
 
 [tool.mypy]
 python_version = "3.8"
-warn_return_any = true
-warn_unused_configs = true
+strict = true
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
