@@ -1,6 +1,7 @@
 """Core data types for pib3 package."""
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import List, Optional, Tuple
 import numpy as np
 from enum import Enum
@@ -131,41 +132,43 @@ class HandPose(Enum):
         >>> robot.set_joints({j: 50.0 for j in LEFT_HAND_JOINTS})  # 50% = half grip
     """
 
-    LEFT_OPEN = {
+    # Values are wrapped in MappingProxyType so callers can't mutate the
+    # shared pose dict and corrupt every future set_joints(HandPose.X) call.
+    LEFT_OPEN = MappingProxyType({
         "thumb_left_opposition": 100.0,
         "thumb_left_stretch": 100.0,
         "index_left_stretch": 100.0,
         "middle_left_stretch": 100.0,
         "ring_left_stretch": 100.0,
         "pinky_left_stretch": 100.0,
-    }
+    })
 
-    LEFT_CLOSED = {
+    LEFT_CLOSED = MappingProxyType({
         "thumb_left_opposition": 0.0,
         "thumb_left_stretch": 0.0,
         "index_left_stretch": 0.0,
         "middle_left_stretch": 0.0,
         "ring_left_stretch": 0.0,
         "pinky_left_stretch": 0.0,
-    }
+    })
 
-    RIGHT_OPEN = {
+    RIGHT_OPEN = MappingProxyType({
         "thumb_right_opposition": 100.0,
         "thumb_right_stretch": 100.0,
         "index_right_stretch": 100.0,
         "middle_right_stretch": 100.0,
         "ring_right_stretch": 100.0,
         "pinky_right_stretch": 100.0,
-    }
+    })
 
-    RIGHT_CLOSED = {
+    RIGHT_CLOSED = MappingProxyType({
         "thumb_right_opposition": 0.0,
         "thumb_right_stretch": 0.0,
         "index_right_stretch": 0.0,
         "middle_right_stretch": 0.0,
         "ring_right_stretch": 0.0,
         "pinky_right_stretch": 0.0,
-    }
+    })
 
 
 @dataclass
@@ -268,13 +271,27 @@ class Sketch:
         return sum(s.length() for s in self.strokes)
 
     def bounds(self) -> Tuple[float, float, float, float]:
-        """Return bounding box (min_u, min_v, max_u, max_v) of all strokes."""
+        """Return bounding box (min_u, min_v, max_u, max_v) of all strokes.
+
+        Raises:
+            ValueError: If the sketch is empty (no strokes or no points).
+                Callers should check ``total_points() > 0`` first, or handle
+                the exception — returning a dummy ``(0, 0, 1, 1)`` silently
+                has caused downstream scaling bugs.
+        """
         if not self.strokes:
-            return (0.0, 0.0, 1.0, 1.0)
+            raise ValueError("Cannot compute bounds of an empty sketch (no strokes)")
         all_points = np.vstack([s.points for s in self.strokes])
+        if all_points.size == 0:
+            raise ValueError("Cannot compute bounds of a sketch with no points")
         min_coords = all_points.min(axis=0)
         max_coords = all_points.max(axis=0)
-        return (min_coords[0], min_coords[1], max_coords[0], max_coords[1])
+        return (
+            float(min_coords[0]),
+            float(min_coords[1]),
+            float(max_coords[0]),
+            float(max_coords[1]),
+        )
 
     def add_stroke(self, stroke: Stroke) -> None:
         """Add a stroke to the sketch."""

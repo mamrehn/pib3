@@ -142,10 +142,18 @@ class RobotBackend(ABC):
 
     # Default tolerance for verification (radians)
     DEFAULT_VERIFY_TOLERANCE = 0.05  # ~2.9 degrees
-    # Default tolerance for verification (percentage)
+    # Default tolerance for verification (percentage of joint range)
     DEFAULT_VERIFY_TOLERANCE_PERCENT = 2.0  # 2%
     # Default tolerance for verification (degrees)
     DEFAULT_VERIFY_TOLERANCE_DEG = 3.0  # 3 degrees
+
+    # Stability / race-avoidance knobs for position verification and sensor reads
+    STABILITY_CONSECUTIVE_READS = 2
+    STABILITY_THRESHOLD_RAD = 1e-4
+    VERIFY_CONSECUTIVE_READS = 2
+    # Minimum delay before accepting the first "within tolerance" poll —
+    # avoids returning success before the motor has begun moving.
+    VERIFY_MIN_SETTLE_SECONDS = 0.05
 
     # Joint limits file for this backend (override in subclasses)
     # - "joint_limits_webots.yaml" for simulation (Webots)
@@ -1134,9 +1142,10 @@ class RobotBackend(ABC):
             >>> backend.set_joints(HandPose.LEFT_CLOSED)  # Hand pose preset
             >>> backend.set_joints({Joint.ELBOW_LEFT: 50.0}, speed=45.0)  # slow
         """
-        # Handle HandPose enum
+        # Handle HandPose enum — value is a MappingProxyType, copy into a
+        # plain dict so downstream isinstance(positions, dict) checks pass.
         if isinstance(positions, HandPose):
-            positions = positions.value
+            positions = dict(positions.value)
 
         # Convert sequence to dict if needed
         if not isinstance(positions, dict):
@@ -1238,6 +1247,13 @@ class RobotBackend(ABC):
 
         start_time = time.time()
         check_interval = 0.05  # 50ms between checks
+        required_stable = self.VERIFY_CONSECUTIVE_READS
+        min_settle = self.VERIFY_MIN_SETTLE_SECONDS
+        stable_count = 0
+
+        # Give the motor a chance to start moving before the first sensor poll.
+        if min_settle > 0:
+            time.sleep(min_settle)
 
         while (time.time() - start_time) < timeout:
             current = self.get_joints(list(target_positions.keys()), unit=unit)
@@ -1253,7 +1269,11 @@ class RobotBackend(ABC):
                     break
 
             if all_within_tolerance:
-                return True
+                stable_count += 1
+                if stable_count >= required_stable:
+                    return True
+            else:
+                stable_count = 0
 
             time.sleep(check_interval)
 

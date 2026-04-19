@@ -145,6 +145,20 @@ def build_motor_mapping(
     }
 
 
+class _CompositeImuSubscription:
+    """Bundle accel + gyro subscriptions behind a single .unsubscribe()."""
+
+    def __init__(self, *topics):
+        self._topics = topics
+
+    def unsubscribe(self) -> None:
+        for topic in self._topics:
+            try:
+                topic.unsubscribe()
+            except Exception as exc:
+                logger.debug("IMU topic unsubscribe failed: %s", exc)
+
+
 class RealRobotBackend(RobotBackend):
     """
     Control the real PIB robot.
@@ -233,6 +247,9 @@ class RealRobotBackend(RobotBackend):
         self._tinkerforge_motor_map: TinkerforgeMotorMapping = {}
         # Cache enabled state to avoid redundant USB calls: {(uid, channel): bool}
         self._servo_enabled_cache: Dict[Tuple[str, int], bool] = {}
+        # Cache last-known (velocity, acceleration, deceleration) per channel
+        # so _set_motor_direct can skip a USB round-trip on every call.
+        self._motion_config_cache: Dict[Tuple[str, int], Tuple[int, int, int]] = {}
         # Callback-based position reached tracking
         # Reverse map: (bricklet_uid, channel) -> motor_name
         self._tinkerforge_reverse_map: Dict[Tuple[str, int], str] = {}
@@ -463,14 +480,23 @@ class RealRobotBackend(RobotBackend):
             return
 
         discovered: List[Tuple[str, str]] = []  # (uid, position)
+        expected_bricklets = 3
+        discovery_timeout = 1.0
+        discovered_event = threading.Event()
+        discovered_lock = threading.Lock()
 
         def enumerate_callback(uid, connected_uid, position, hardware_version,
                                firmware_version, device_identifier, enumeration_type):
             # Servo Bricklet V2 device identifier is 2157
-            if device_identifier == 2157:
-                if not any(u == uid for u, _ in discovered):
-                    discovered.append((uid, position))
-                    logger.info(f"Discovered Servo Bricklet V2: UID={uid}, position={position}")
+            if device_identifier != 2157:
+                return
+            with discovered_lock:
+                if any(u == uid for u, _ in discovered):
+                    return
+                discovered.append((uid, position))
+                logger.info(f"Discovered Servo Bricklet V2: UID={uid}, position={position}")
+                if len(discovered) >= expected_bricklets:
+                    discovered_event.set()
 
         self._tinkerforge_conn.register_callback(
             self._tinkerforge_conn.CALLBACK_ENUMERATE,
@@ -478,8 +504,9 @@ class RealRobotBackend(RobotBackend):
         )
         self._tinkerforge_conn.enumerate()
 
-        # Wait for enumeration responses
-        time.sleep(1.0)
+        # Return as soon as we've seen the expected bricklets, else wait
+        # at most discovery_timeout for late responses.
+        discovered_event.wait(timeout=discovery_timeout)
 
         if len(discovered) != 3:
             self._discovered_servo_uids = [uid for uid, _ in discovered]
@@ -647,6 +674,7 @@ class RealRobotBackend(RobotBackend):
         if auto_configure and self._tinkerforge_servos:
             # Initialize cache for all mapped motors as False (unknown/disabled)
             self._servo_enabled_cache.clear()
+            self._motion_config_cache.clear()
             self.configure_all_servo_channels()
             logger.info("Auto-configured all servo channels with default settings")
 
@@ -704,6 +732,7 @@ class RealRobotBackend(RobotBackend):
             self._tinkerforge_servos.clear()
             self._tinkerforge_motor_map.clear()
             self._servo_enabled_cache.clear()
+            self._motion_config_cache.clear()
             self._tinkerforge_reverse_map.clear()
             self._position_reached_events.clear()
 
@@ -839,6 +868,9 @@ class RealRobotBackend(RobotBackend):
             servo.set_degree(channel, degree_min, degree_max)
             servo.set_pulse_width(channel, pulse_width_min, pulse_width_max)
             servo.set_motion_configuration(channel, velocity, acceleration, deceleration)
+            self._motion_config_cache[(uid, channel)] = (
+                int(velocity), int(acceleration), int(deceleration)
+            )
             logger.debug(
                 f"Configured servo {motor_name}: pulse_width=[{pulse_width_min}, {pulse_width_max}], "
                 f"motion=[{velocity}, {acceleration}, {deceleration}], "
@@ -880,6 +912,9 @@ class RealRobotBackend(RobotBackend):
                 continue
             try:
                 servo.set_motion_configuration(channel, velocity, acceleration, deceleration)
+                self._motion_config_cache[(uid, channel)] = (
+                    int(velocity), int(acceleration), int(deceleration)
+                )
                 logger.debug(
                     f"Configured motion for {motor_name}: "
                     f"velocity={velocity}, accel={acceleration}, decel={deceleration}"
@@ -931,15 +966,26 @@ class RealRobotBackend(RobotBackend):
                 self._servo_enabled_cache[cache_key] = True
 
 
-            # Set velocity if provided (overrides motion_configuration velocity)
+            # Set velocity if provided (overrides motion_configuration velocity).
+            # Cache the last-known (velocity, accel, decel) tuple per channel
+            # so we skip both the get_motion_configuration USB round-trip and
+            # the set_motion_configuration call when nothing changed.
             if velocity_centideg is not None:
-                current = servo.get_motion_configuration(channel)
-                servo.set_motion_configuration(
-                    channel,
-                    abs(velocity_centideg),
-                    current.acceleration,
-                    current.deceleration,
-                )
+                new_velocity = abs(int(velocity_centideg))
+                cached = self._motion_config_cache.get(cache_key)
+                if cached is None:
+                    current = servo.get_motion_configuration(channel)
+                    cached = (
+                        getattr(current, 'velocity', 0),
+                        getattr(current, 'acceleration', 0),
+                        getattr(current, 'deceleration', 0),
+                    )
+                if cached[0] != new_velocity:
+                    new_cfg = (new_velocity, cached[1], cached[2])
+                    servo.set_motion_configuration(channel, *new_cfg)
+                    self._motion_config_cache[cache_key] = new_cfg
+                else:
+                    self._motion_config_cache[cache_key] = cached
 
             # Set position.  Event clearing is handled by _verify_positions
             # (not here) to avoid a race where a stale callback from a
@@ -1737,7 +1783,10 @@ class RealRobotBackend(RobotBackend):
             logger.error(
                 f"Trajectory execution: {fail_count}/{total} waypoints failed"
             )
-        return fail_count < total  # True if at least one waypoint succeeded
+        # Succeed only if every waypoint was dispatched successfully. A
+        # partial run should surface as a failure so callers don't silently
+        # get a half-executed trajectory.
+        return fail_count == 0
 
     # ==================== CAMERA METHODS ====================
 
@@ -2238,6 +2287,7 @@ class RealRobotBackend(RobotBackend):
         request = roslibpy.ServiceRequest({
             'speech': text,
             'language': language,
+            'join': wait,
         })
 
         try:
@@ -2303,35 +2353,36 @@ class RealRobotBackend(RobotBackend):
         self,
         callback: Callable[[dict], None],
         data_type: Union[str, ImuType] = "full",
-    ) -> "roslibpy.Topic":
+    ):
         """
         Subscribe to IMU data from OAK-D Lite BMI270.
 
         Streaming only runs while subscribed (on-demand activation).
 
         Data types use individual topics:
-        - "full": Accelerometer data with IMU-like format (linear_acceleration)
+        - "full": Combined accel + gyro from both topics, merged on each
+          new message (latest value of the other channel is reused).
         - "accelerometer": Vector3Stamped from /camera/imu/accelerometer
         - "gyroscope": Vector3Stamped from /camera/imu/gyroscope
 
         Args:
-            callback: Called with IMU data dict.
+            callback: Called with IMU data dict. For "full" mode the dict
+                has ``header``, ``linear_acceleration`` and
+                ``angular_velocity`` keys.
             data_type: One of "full", "accelerometer", "gyroscope".
                 Also accepts ImuType enum members.
 
         Returns:
-            Topic object (call .unsubscribe() when done to stop streaming).
+            Subscription handle (call .unsubscribe() when done to stop
+            streaming). For "full" mode this handle cancels both underlying
+            topic subscriptions.
 
         Example:
             >>> def on_imu(data):
             ...     accel = data['linear_acceleration']
-            ...     print(f"Accel: x={accel['x']:.2f} m/s²")
+            ...     gyro = data['angular_velocity']
+            ...     print(f"Accel: x={accel['x']:.2f} m/s², Gyro: z={gyro.get('z', 0):.2f} rad/s")
             >>> sub = robot.subscribe_imu(on_imu, data_type=ImuType.FULL)
-            >>>
-            >>> # Or for accelerometer only:
-            >>> def on_accel(data):
-            ...     print(f"Accel: x={data['vector']['x']:.2f} m/s²")
-            >>> sub = robot.subscribe_imu(on_accel, data_type="accelerometer")
         """
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
@@ -2350,23 +2401,47 @@ class RealRobotBackend(RobotBackend):
         # The combined /camera/imu topic may not always publish data.
 
         if dtype_str == ImuType.FULL.value:
-            # For full IMU, we need to combine accel + gyro from separate topics
-            # Subscribe to accelerometer and pass through with both fields
-            topic = roslibpy.Topic(
+            # Combine both streams: subscribe to accel + gyro, buffer the
+            # latest reading of each and emit a merged payload whenever a
+            # new message arrives on either channel.
+            accel_topic = roslibpy.Topic(
                 self._client,
                 '/camera/imu/accelerometer',
-                'geometry_msgs/msg/Vector3Stamped'
+                'geometry_msgs/msg/Vector3Stamped',
+            )
+            gyro_topic = roslibpy.Topic(
+                self._client,
+                '/camera/imu/gyroscope',
+                'geometry_msgs/msg/Vector3Stamped',
             )
 
-            def convert_to_imu_format(msg):
-                # Convert Vector3Stamped to IMU-like format
+            lock = threading.Lock()
+            state = {'accel': None, 'gyro': None, 'header': None}
+
+            def emit_locked():
                 callback({
-                    'header': msg.get('header', {}),
-                    'linear_acceleration': msg.get('vector', {}),
-                    'angular_velocity': {},  # Not available in this message
+                    'header': state['header'] or {},
+                    'linear_acceleration': state['accel'] or {},
+                    'angular_velocity': state['gyro'] or {},
                 })
 
-            topic.subscribe(convert_to_imu_format)
+            def on_accel(msg):
+                with lock:
+                    state['accel'] = msg.get('vector', {})
+                    state['header'] = msg.get('header', state['header'])
+                    emit_locked()
+
+            def on_gyro(msg):
+                with lock:
+                    state['gyro'] = msg.get('vector', {})
+                    state['header'] = msg.get('header', state['header'])
+                    emit_locked()
+
+            accel_topic.subscribe(on_accel)
+            gyro_topic.subscribe(on_gyro)
+
+            return _CompositeImuSubscription(accel_topic, gyro_topic)
+
         elif dtype_str == ImuType.ACCELEROMETER.value:
             # Subscribe to accelerometer topic directly
             topic = roslibpy.Topic(
@@ -2375,7 +2450,8 @@ class RealRobotBackend(RobotBackend):
                 'geometry_msgs/msg/Vector3Stamped'
             )
             topic.subscribe(callback)
-        elif dtype_str == ImuType.GYROSCOPE.value:
+            return topic
+        else:
             # Subscribe to gyroscope topic directly
             topic = roslibpy.Topic(
                 self._client,
@@ -2383,8 +2459,7 @@ class RealRobotBackend(RobotBackend):
                 'geometry_msgs/msg/Vector3Stamped'
             )
             topic.subscribe(callback)
-
-        return topic
+            return topic
 
     def set_imu_frequency(self, frequency: int) -> None:
         """
@@ -2545,15 +2620,21 @@ def rle_decode(rle: dict) -> np.ndarray:
     runs = rle.get("runs", [])
     values = rle.get("values", [])
 
-    if not runs or not values:
+    total_pixels = int(shape[0]) * int(shape[1])
+    if not runs or not values or total_pixels == 0:
         return np.zeros(shape, dtype=np.uint8)
 
-    pixels = []
-    for run_length, value in zip(runs, values):
-        pixels.extend([value] * run_length)
+    pixels = np.repeat(
+        np.asarray(values, dtype=np.uint8),
+        np.asarray(runs, dtype=np.int64),
+    )
 
-    total_pixels = shape[0] * shape[1]
-    if len(pixels) < total_pixels:
-        pixels.extend([0] * (total_pixels - len(pixels)))
+    if pixels.size < total_pixels:
+        pixels = np.concatenate([
+            pixels,
+            np.zeros(total_pixels - pixels.size, dtype=np.uint8),
+        ])
+    elif pixels.size > total_pixels:
+        pixels = pixels[:total_pixels]
 
-    return np.array(pixels[:total_pixels], dtype=np.uint8).reshape(shape)
+    return pixels.reshape(shape)

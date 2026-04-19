@@ -44,17 +44,52 @@ def _load_image_to_array(
     Returns:
         Tuple of (grayscale_array, (width, height))
     """
+    # Luminance weights (ITU-R BT.601)
+    _W = np.array([0.299, 0.587, 0.114], dtype=np.float32)
+
+    def _to_uint8(a: np.ndarray) -> np.ndarray:
+        """Normalize an arbitrary-dtype image to uint8 in [0, 255]."""
+        if a.dtype == np.uint8:
+            return a
+        if a.dtype == np.uint16:
+            return (a.astype(np.float32) * (255.0 / 65535.0)).astype(np.uint8)
+        if np.issubdtype(a.dtype, np.floating):
+            hi = float(a.max()) if a.size else 0.0
+            scale = 1.0 if hi > 1.0 + 1e-6 else 255.0
+            return np.clip(a.astype(np.float32) * scale, 0, 255).astype(np.uint8)
+        return np.clip(a, 0, 255).astype(np.uint8)
+
+    def _rgb_to_gray(rgb: np.ndarray) -> np.ndarray:
+        rgb_f = rgb.astype(np.float32)
+        return (rgb_f @ _W)
+
+    def _composite_alpha(rgb: np.ndarray, alpha_u8: np.ndarray) -> np.ndarray:
+        """Alpha-composite RGB against white background; returns uint8 gray."""
+        gray = _rgb_to_gray(rgb)
+        a = alpha_u8.astype(np.float32) / 255.0
+        out = gray * a + 255.0 * (1.0 - a)
+        return np.clip(out, 0, 255).astype(np.uint8)
+
     if isinstance(image, np.ndarray):
         arr = image
         if arr.ndim == 3:
-            # Convert to grayscale
-            if arr.shape[2] == 4:  # RGBA
-                # Use luminosity method, respecting alpha
-                alpha = arr[:, :, 3] / 255.0
-                gray = np.mean(arr[:, :, :3], axis=2) * alpha + 255 * (1 - alpha)
-                arr = gray.astype(np.uint8)
-            else:  # RGB
-                arr = np.mean(arr, axis=2).astype(np.uint8)
+            arr_u8 = _to_uint8(arr)
+            if arr_u8.shape[2] == 4:  # RGBA
+                arr = _composite_alpha(arr_u8[:, :, :3], arr_u8[:, :, 3])
+            elif arr_u8.shape[2] == 3:  # RGB
+                arr = np.clip(_rgb_to_gray(arr_u8), 0, 255).astype(np.uint8)
+            elif arr_u8.shape[2] == 2:  # LA
+                arr = _composite_alpha(
+                    np.repeat(arr_u8[:, :, :1], 3, axis=2), arr_u8[:, :, 1]
+                )
+            elif arr_u8.shape[2] == 1:  # single channel
+                arr = arr_u8[:, :, 0]
+            else:
+                raise ValueError(f"Unsupported channel count: {arr_u8.shape[2]}")
+        elif arr.ndim == 2:
+            arr = _to_uint8(arr)
+        else:
+            raise ValueError(f"Unsupported image ndim: {arr.ndim}")
         height, width = arr.shape[:2]
         return arr, (width, height)
 
@@ -66,28 +101,16 @@ def _load_image_to_array(
 
         width, height = img.size
 
-        # Handle different image modes
-        if img.mode == 'RGBA':
-            img_array = np.array(img)
-            alpha = img_array[:, :, 3]
-            gray = np.mean(img_array[:, :, :3], axis=2)
-            # Transparent pixels become white (background)
-            arr = np.where(alpha > 128, gray, 255).astype(np.uint8)
-        elif img.mode == 'LA':
-            img_array = np.array(img)
-            gray = img_array[:, :, 0]
-            alpha = img_array[:, :, 1]
-            arr = np.where(alpha > 128, gray, 255).astype(np.uint8)
-        elif img.mode == 'P':
-            img_rgba = img.convert('RGBA')
-            img_array = np.array(img_rgba)
-            alpha = img_array[:, :, 3]
-            gray = np.mean(img_array[:, :, :3], axis=2)
-            arr = np.where(alpha > 128, gray, 255).astype(np.uint8)
+        if img.mode in ('RGBA', 'LA', 'P'):
+            if img.mode != 'RGBA':
+                img = img.convert('RGBA')
+            img_array = np.asarray(img, dtype=np.uint8)
+            arr = _composite_alpha(img_array[:, :, :3], img_array[:, :, 3])
+        elif img.mode == 'L':
+            arr = np.asarray(img, dtype=np.uint8)
         else:
-            if img.mode != 'L':
-                img = img.convert('L')
-            arr = np.array(img)
+            rgb = np.asarray(img.convert('RGB'), dtype=np.uint8)
+            arr = np.clip(_rgb_to_gray(rgb), 0, 255).astype(np.uint8)
 
         return arr, (width, height)
 

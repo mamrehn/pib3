@@ -649,21 +649,19 @@ def sketch_to_trajectory(
     if initial_q is not None:
         # Use provided initial configuration
         if isinstance(initial_q, Trajectory):
-            # Trajectory may be filtered (only drawing arm joints).
-            # Expand back to full robot configuration using direct index
-            # mapping (avoids ambiguity from duplicate motor names in
-            # URDF_TO_MOTOR_NAME, e.g. joints 11 & 12 both named
-            # 'index_left_stretch').
+            # Expand trajectory back to full robot configuration by mapping
+            # each motor name to all URDF indices that share that name
+            # (e.g. 'index_left_stretch' drives URDF indices 11 and 12).
             q_current = np.zeros(robot.n)
             q_current = _set_initial_arm_pose(q_current, arm, grip_style)
             last_wp = initial_q.waypoints[-1]
-            traj_arm = initial_q.metadata.get('arm', arm)
-            if traj_arm == 'left':
-                traj_joint_indices = list(range(2, 19))
-            else:
-                traj_joint_indices = list(range(19, 36))
-            for j, urdf_idx in enumerate(traj_joint_indices):
-                if j < len(last_wp):
+            motor_to_indices: Dict[str, List[int]] = {}
+            for idx, name in URDF_TO_MOTOR_NAME.items():
+                motor_to_indices.setdefault(name, []).append(idx)
+            for j, name in enumerate(initial_q.joint_names):
+                if j >= len(last_wp):
+                    break
+                for urdf_idx in motor_to_indices.get(name, []):
                     q_current[urdf_idx] = last_wp[j]
         elif isinstance(initial_q, dict):
             # Convert dict of joint names to array.
@@ -704,10 +702,11 @@ def sketch_to_trajectory(
     # Work on a copy of the paper config to avoid mutating the caller's config
     paper = deepcopy(config.paper)
     if paper.center_y is None:
-        # Use consistent center_y regardless of grip style
-        # This allows both grip styles to use the same paper position
-        paper.center_y = -0.34
-    paper.start_x = float(start_pos[0] - paper.size / 2.0)
+        # Auto-place paper in front of the active arm (negative y is left).
+        paper.center_y = -0.34 if arm == "left" else 0.34
+    if paper.start_x is None:
+        # Auto-place paper so the active arm's TCP sits at its near edge.
+        paper.start_x = float(start_pos[0] - paper.size / 2.0)
 
     # Generate 3D trajectory points
     trajectory_3d = []
@@ -779,14 +778,30 @@ def sketch_to_trajectory(
     else:
         q_array = np.array(q_traj)
 
-    # Filter trajectory to only include the drawing arm + hand joints.
-    # This prevents the non-drawing arm from being commanded during playback.
+    # Filter trajectory to only include the drawing arm + hand joints and
+    # deduplicate coupled finger joints. Real-robot fingers have a single
+    # motor driving both proximal and distal URDF joints via a mechanical
+    # linkage; the Webots digital twin mirrors this coupling in
+    # FINGER_PROXIMAL_MOTORS. IK never actuates finger joints (they stay at
+    # the pose set by _set_initial_arm_pose), so the proximal and distal
+    # columns are guaranteed to be identical — we emit only one column per
+    # unique motor name.
     if arm == "left":
-        drawing_joint_indices = list(range(2, 19))   # left arm (2-7) + hand (8-18)
+        candidate_indices = list(range(2, 19))   # left arm (2-7) + hand (8-18)
     else:
-        drawing_joint_indices = list(range(19, 36))  # right arm (19-24) + hand (25-35)
+        candidate_indices = list(range(19, 36))  # right arm (19-24) + hand (25-35)
 
-    joint_names = [URDF_TO_MOTOR_NAME.get(i, f"joint_{i}") for i in drawing_joint_indices]
+    drawing_joint_indices: List[int] = []
+    joint_names: List[str] = []
+    seen_motors = set()
+    for urdf_idx in candidate_indices:
+        motor_name = URDF_TO_MOTOR_NAME.get(urdf_idx, f"joint_{urdf_idx}")
+        if motor_name in seen_motors:
+            continue
+        seen_motors.add(motor_name)
+        drawing_joint_indices.append(urdf_idx)
+        joint_names.append(motor_name)
+
     q_array = q_array[:, drawing_joint_indices]
 
     # Create trajectory

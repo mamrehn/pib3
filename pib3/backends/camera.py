@@ -366,19 +366,16 @@ class HandLandmarks:
 
         def bend_angle(mcp: int, pip: int, dip: int, tip: int) -> float:
             """
-            Calculate finger bend angle.
+            Calculate finger bend angle in degrees (0° = straight, 180° = curled).
 
-            Uses vectors from MCP->PIP and DIP->TIP.
-            When straight, vectors are parallel (angle ~0°).
-            When bent, vectors diverge (angle increases).
+            Vectors run along the proximal and distal phalanx in the same
+            nominal direction (MCP->PIP and DIP->TIP). A straight finger
+            makes them parallel (~0°); a fully curled finger makes them
+            anti-parallel (~180°).
             """
-            # Vector along proximal phalanx (MCP to PIP direction)
             v1 = lm[pip][:2] - lm[mcp][:2]
-            # Vector along distal phalanx (DIP to TIP direction)
             v2 = lm[tip][:2] - lm[dip][:2]
-            raw_angle = angle_between_vectors(v1, v2)
-            # Convert: 0° parallel = straight, deviation = bend
-            return min(raw_angle, 180.0 - raw_angle) if raw_angle > 90 else raw_angle
+            return angle_between_vectors(v1, v2)
 
         try:
             # Thumb bend: angle at IP joint
@@ -1086,28 +1083,6 @@ class CameraSubsystem:
             self._subscription = None
 
 
-# ==================== UTILITY FUNCTIONS ====================
-
-
-def rle_decode(rle: dict) -> np.ndarray:
-    """
-    Decode RLE-encoded segmentation mask to numpy array.
-
-    Delegates to the canonical ``rle_decode`` in ``robot.py``.
-
-    Args:
-        rle: Dict with 'runs', 'values', and 'shape' keys
-             (produced by the robot's ``rle_encode()``).
-
-    Returns:
-        Mask as numpy array of shape (height, width).
-
-    Example:
-        >>> mask = rle_decode(detection.mask_rle)
-        >>> print(f"Mask shape: {mask.shape}")
-    """
-    from .robot import rle_decode as _rle_decode
-    return _rle_decode(rle)
 
 
 def parse_ai_result(data: dict) -> Union[List[Detection], List[HandLandmarks], List[PoseKeypoints], dict]:

@@ -365,13 +365,18 @@ class WebotsBackend(RobotBackend):
         if not valid_names:
             return {}
 
-        # Read all sensors, then step, then read again. Repeat until all
-        # readings have stabilized (same value twice in a row).
+        # Require several consecutive stable reads before accepting the
+        # value — a single stable step can be a velocity zero-crossing mid
+        # motion and give a false positive.
+        required_stable = self.STABILITY_CONSECUTIVE_READS
+        stable_threshold = self.STABILITY_THRESHOLD_RAD
+
         prev_readings: Dict[str, float] = {}
         for name in valid_names:
             sensor = self._motors[name].getPositionSensor()
             prev_readings[name] = sensor.getValue()
 
+        stable_count = 0
         start = time.time()
         while (time.time() - start) < timeout:
             self._robot.step(self._timestep)
@@ -382,16 +387,19 @@ class WebotsBackend(RobotBackend):
                 sensor = self._motors[name].getPositionSensor()
                 val = sensor.getValue()
                 current_readings[name] = val
-                if abs(val - prev_readings.get(name, float('inf'))) >= 0.0001:
+                if abs(val - prev_readings.get(name, float('inf'))) >= stable_threshold:
                     all_stable = False
 
             if all_stable:
-                # All joints stabilized — return absolute positions
-                result = {}
-                for name in valid_names:
-                    offset = self._home_offsets.get(name, 0.0)
-                    result[name] = current_readings[name] + offset
-                return result
+                stable_count += 1
+                if stable_count >= required_stable:
+                    result = {}
+                    for name in valid_names:
+                        offset = self._home_offsets.get(name, 0.0)
+                        result[name] = current_readings[name] + offset
+                    return result
+            else:
+                stable_count = 0
 
             prev_readings = current_readings
 
@@ -461,26 +469,49 @@ class WebotsBackend(RobotBackend):
         """
         import math
 
-        # Convert targets to radians for comparison
+        # Convert targets and per-joint tolerance to radians for comparison.
+        # In percent mode, 1% means different absolute angles for each joint
+        # (joints have different calibrated ranges), so tolerance must be
+        # computed per joint using the same linear map as _percent_to_radians.
+        targets_rad: Dict[str, float] = {}
+        tolerances_rad: Dict[str, float] = {}
+
         if unit == "percent":
-            targets_rad = {
-                name: self._percent_to_radians(name, pos)
-                for name, pos in target_positions.items()
-            }
-            # Convert tolerance from percent to radians (approximate)
-            tolerance_rad = tolerance * 0.01 * math.pi  # ~1.8° per 1%
+            for name, pos in target_positions.items():
+                targets_rad[name] = self._percent_to_radians(name, pos)
+                # 1% of the joint's calibrated range, applied symmetrically.
+                span_rad = abs(
+                    self._percent_to_radians(name, 100.0)
+                    - self._percent_to_radians(name, 0.0)
+                )
+                tolerances_rad[name] = tolerance * 0.01 * span_rad
         elif unit == "deg":
-            targets_rad = {name: math.radians(pos) for name, pos in target_positions.items()}
-            tolerance_rad = math.radians(tolerance)
+            tol_rad = math.radians(tolerance)
+            for name, pos in target_positions.items():
+                targets_rad[name] = math.radians(pos)
+                tolerances_rad[name] = tol_rad
         else:  # rad
-            targets_rad = dict(target_positions)
-            tolerance_rad = tolerance
+            for name, pos in target_positions.items():
+                targets_rad[name] = pos
+                tolerances_rad[name] = tolerance
 
         start_time = time.time()
         max_steps = int(timeout * 1000 / self._timestep)  # Convert timeout to max simulation steps
+        required_stable = self.VERIFY_CONSECUTIVE_READS
+        stable_count = 0
+
+        # Always step at least once before accepting a result — otherwise a
+        # request that is already within tolerance of the current (pre-move)
+        # position would return True before the motor had a chance to act.
+        stepped = False
 
         for _ in range(max_steps):
-            # Check if all joints are within tolerance
+            # Step simulation to let motors move (and register the new target)
+            if self._robot.step(self._timestep) == -1:
+                return False
+            stepped = True
+
+            # Check if all joints are within per-joint tolerance
             all_within_tolerance = True
             for joint_name, target_rad in targets_rad.items():
                 if joint_name not in self._motors:
@@ -495,23 +526,22 @@ class WebotsBackend(RobotBackend):
                 current_pos = sensor.getValue() + offset
                 error = abs(current_pos - target_rad)
 
-                if error > tolerance_rad:
+                if error > tolerances_rad[joint_name]:
                     all_within_tolerance = False
                     break
 
             if all_within_tolerance:
-                return True
-
-            # Step simulation to let motors move
-            if self._robot.step(self._timestep) == -1:
-                # Simulation ended
-                return False
+                stable_count += 1
+                if stable_count >= required_stable:
+                    return True
+            else:
+                stable_count = 0
 
             # Also check wall-clock timeout
             if (time.time() - start_time) >= timeout:
                 return False
 
-        return False
+        return stepped and stable_count >= required_stable
 
     def _execute_waypoints(
         self,
