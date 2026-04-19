@@ -3,7 +3,9 @@
 import time
 import logging
 import math
+import threading
 from abc import ABC, abstractmethod
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Dict, List, Literal, Optional, Sequence, Union
 
@@ -37,13 +39,10 @@ UnitType = Literal["percent", "rad", "deg"]
 # Type alias for motor name (accepts both str and Joint enum)
 MotorNameType = Union[str, Joint]
 
-# Cache for loaded joint limits files (filename -> limits dict)
-_JOINT_LIMITS_CACHE: Dict[str, Dict[str, Dict[str, float]]] = {}
-
-
+@lru_cache(maxsize=None)
 def load_joint_limits(filename: str) -> Dict[str, Dict[str, float]]:
     """
-    Load joint limits from a YAML config file.
+    Load joint limits from a YAML config file (memoized per filename).
 
     Args:
         filename: Name of the limits file (e.g., "joint_limits_robot.yaml").
@@ -51,9 +50,6 @@ def load_joint_limits(filename: str) -> Dict[str, Dict[str, float]]:
     Returns:
         Dict mapping joint names to their min/max limits.
     """
-    if filename in _JOINT_LIMITS_CACHE:
-        return _JOINT_LIMITS_CACHE[filename]
-
     config_path = Path(__file__).parent.parent / "resources" / filename
     if not config_path.exists():
         logger.warning(f"Joint limits config not found: {config_path}")
@@ -62,14 +58,12 @@ def load_joint_limits(filename: str) -> Dict[str, Dict[str, float]]:
     with open(config_path, "r") as f:
         data = yaml.safe_load(f)
 
-    limits = data.get("joints", {})
-    _JOINT_LIMITS_CACHE[filename] = limits
-    return limits
+    return data.get("joints", {})
 
 
 def clear_joint_limits_cache() -> None:
     """Clear the joint limits cache. Useful after calibration."""
-    _JOINT_LIMITS_CACHE.clear()
+    load_joint_limits.cache_clear()
 
 
 def get_joint_limits() -> Dict[str, Dict[str, float]]:
@@ -160,9 +154,10 @@ class RobotBackend(ABC):
     # - "joint_limits_robot.yaml" for real robot
     JOINT_LIMITS_FILE: str = "joint_limits_webots.yaml"
 
-    def __init__(self, host: str = "localhost", port: int = 9090):
-        self.host = host
-        self.port = port
+    def __init__(self):
+        # Networking (host/port) is a concern of networked backends only —
+        # see RealRobotBackend. Simulation backends (WebotsBackend) have no
+        # remote endpoint and must not pretend to.
 
         # Emergency stop flag — checked by trajectory execution loops
         self._stopped = False
@@ -998,12 +993,25 @@ class RobotBackend(ABC):
         self._stopped = False
         logger.info("Emergency stop cleared, robot resumed")
 
+    # Process-wide keyboard listener for emergency stop. A single pynput
+    # listener is shared across all backend instances so that creating two
+    # Robot() objects does not install two competing global hooks. Per-instance
+    # subscriptions live in ``_estop_subscribers``.
+    _estop_global_lock = threading.Lock()
+    _estop_global_listener = None  # pynput.keyboard.Listener
+    _estop_subscribers: Dict[int, tuple] = {}  # id(backend) -> (backend, target_key)
+
     def enable_estop_key(self, key: str = "KP_0") -> None:
         """
         Start a background keyboard listener for emergency stop.
 
         Pressing the configured key (default: numpad 0) triggers ``stop()``.
         Pressing it again triggers ``resume()``.
+
+        Idempotent: calling twice on the same backend replaces the subscription,
+        not duplicates it. Process-wide: all backend instances share one
+        pynput listener, so creating two ``Robot()`` objects does not install
+        two competing global keyboard hooks.
 
         Requires the ``pynput`` package. Install with: ``pip install pynput``
 
@@ -1038,26 +1046,64 @@ class RobotBackend(ABC):
             # Try as a single character
             target_key = keyboard.KeyCode.from_char(key)
 
-        def on_press(pressed_key):
-            if pressed_key == target_key:
-                if self._stopped:
-                    self.resume()
-                else:
-                    self.stop()
+        cls = type(self)._mro_base_with_estop()
 
-        # Stop any existing listener
-        self.disable_estop_key()
+        with cls._estop_global_lock:
+            cls._estop_subscribers[id(self)] = (self, target_key)
+            self._estop_listener = True  # sentinel so disable knows we subscribed
 
-        self._estop_listener = keyboard.Listener(on_press=on_press)
-        self._estop_listener.daemon = True
-        self._estop_listener.start()
+            if cls._estop_global_listener is None:
+                def _on_press(pressed_key):
+                    # Snapshot subscribers under lock; invoke callbacks outside.
+                    with cls._estop_global_lock:
+                        subs = list(cls._estop_subscribers.values())
+                    for backend, tkey in subs:
+                        if pressed_key == tkey:
+                            if backend._stopped:
+                                backend.resume()
+                            else:
+                                backend.stop()
+
+                listener = keyboard.Listener(on_press=_on_press)
+                listener.daemon = True
+                listener.start()
+                cls._estop_global_listener = listener
+
         logger.info(f"Emergency stop key enabled: {key} (toggle stop/resume)")
 
     def disable_estop_key(self) -> None:
-        """Stop the emergency stop keyboard listener."""
-        if self._estop_listener is not None:
-            self._estop_listener.stop()
+        """Stop listening for the keyboard emergency-stop key for this backend.
+
+        If this was the last subscriber, the shared pynput listener is also
+        stopped so the daemon thread is not leaked across the process.
+        """
+        cls = type(self)._mro_base_with_estop()
+        with cls._estop_global_lock:
+            if self._estop_listener is None:
+                return
             self._estop_listener = None
+            cls._estop_subscribers.pop(id(self), None)
+            should_stop_listener = (
+                not cls._estop_subscribers
+                and cls._estop_global_listener is not None
+            )
+            listener = cls._estop_global_listener if should_stop_listener else None
+            if should_stop_listener:
+                cls._estop_global_listener = None
+
+        if listener is not None:
+            try:
+                listener.stop()
+            except Exception:
+                pass
+
+    @classmethod
+    def _mro_base_with_estop(cls) -> type:
+        """Return the class that owns the shared estop listener (RobotBackend)."""
+        for klass in cls.__mro__:
+            if klass.__dict__.get("_estop_global_lock") is not None:
+                return klass
+        return cls
 
     # --- Set Methods ---
 
@@ -1107,7 +1153,7 @@ class RobotBackend(ABC):
 
     def set_joints(
         self,
-        positions: Union[Dict[MotorNameType, float], Sequence[float], HandPose],
+        positions: Dict[MotorNameType, float],
         unit: UnitType = "percent",
         async_: bool = False,
         timeout: float = 2.0,
@@ -1117,10 +1163,11 @@ class RobotBackend(ABC):
         """
         Set positions of multiple joints simultaneously.
 
+        For a hand-pose preset, use ``set_joints_pose(HandPose.X)``. For a
+        sequence of waypoints, use ``set_joints_sequence([...])``.
+
         Args:
-            positions: Dict mapping motor names (str or Joint) to positions,
-                      sequence of positions for all MOTOR_NAMES in order,
-                      or a HandPose enum member.
+            positions: Dict mapping motor names (str or Joint) to positions.
             unit: Unit for positions ("percent", "deg", or "rad"). Default: "percent".
             async_: If True, return immediately. If False (default), wait for
                 completion by polling actual positions until they match.
@@ -1129,33 +1176,37 @@ class RobotBackend(ABC):
             speed: Movement speed in degrees/second (e.g. 90.0 = 90°/s).
                 None uses the backend's default speed.
 
+                .. note::
+                   On the Tinkerforge direct path, ``speed`` rewrites the
+                   servo channel's motion configuration, which is **shared
+                   state**. A later call (even an ``async_=True`` one) that
+                   passes a different ``speed`` will change the channel's
+                   velocity; subsequent calls that omit ``speed`` keep using
+                   the last value. Don't rely on a per-call speed being
+                   "sticky" only to that call.
+
         Returns:
             True if successful (and positions reached if async_=False).
 
         Example:
-            >>> from pib3 import Joint, HandPose
+            >>> from pib3 import Joint
             >>> backend.set_joints({
             ...     Joint.SHOULDER_VERTICAL_LEFT: 50.0,
             ...     Joint.ELBOW_LEFT: 0.0,
             ... })  # waits for completion
             >>> backend.set_joints({Joint.ELBOW_LEFT: -30.0}, unit="deg")
-            >>> backend.set_joints(HandPose.LEFT_CLOSED)  # Hand pose preset
             >>> backend.set_joints({Joint.ELBOW_LEFT: 50.0}, speed=45.0)  # slow
         """
-        # Handle HandPose enum — value is a MappingProxyType, copy into a
-        # plain dict so downstream isinstance(positions, dict) checks pass.
         if isinstance(positions, HandPose):
-            positions = dict(positions.value)
-
-        # Convert sequence to dict if needed
+            raise TypeError(
+                "Use set_joints_pose(HandPose.X) for a pose preset; "
+                "set_joints takes only a plain dict of motor->position."
+            )
         if not isinstance(positions, dict):
-            positions_list = list(positions)
-            if len(positions_list) != len(self.MOTOR_NAMES):
-                raise ValueError(
-                    f"Expected {len(self.MOTOR_NAMES)} positions, "
-                    f"got {len(positions_list)}"
-                )
-            positions = dict(zip(self.MOTOR_NAMES, positions_list))
+            raise TypeError(
+                f"set_joints expects a dict[str|Joint, float], got {type(positions).__name__}. "
+                f"For a sequence of waypoints, use set_joints_sequence()."
+            )
 
         # Normalize Joint enum keys to strings
         positions_str: Dict[str, float] = {
@@ -1203,6 +1254,111 @@ class RobotBackend(ABC):
                 timeout=timeout,
                 tolerance=tolerance,
             )
+
+        return True
+
+    def set_joints_pose(
+        self,
+        pose: HandPose,
+        async_: bool = False,
+        timeout: float = 2.0,
+        tolerance: Optional[float] = None,
+        speed: Optional[float] = None,
+    ) -> bool:
+        """
+        Apply a hand-pose preset (HandPose enum) to the robot.
+
+        Args:
+            pose: HandPose enum member (e.g. ``HandPose.LEFT_OPEN``).
+            async_: If True, fire-and-forget. If False (default), wait for completion.
+            timeout: Max wait time when async_=False (seconds).
+            tolerance: Position tolerance (in percent; pose values are always percent).
+            speed: Movement speed in degrees/second. None = backend default.
+
+        Returns:
+            True on success.
+
+        Example:
+            >>> from pib3 import HandPose
+            >>> backend.set_joints_pose(HandPose.LEFT_CLOSED)
+            >>> backend.set_joints_pose(HandPose.RIGHT_OPEN, speed=45.0)
+        """
+        if not isinstance(pose, HandPose):
+            raise TypeError(
+                f"set_joints_pose expects a HandPose member, got {type(pose).__name__}"
+            )
+        # HandPose values are MappingProxyType — copy into a plain dict for set_joints.
+        return self.set_joints(
+            dict(pose.value),
+            unit="percent",
+            async_=async_,
+            timeout=timeout,
+            tolerance=tolerance,
+            speed=speed,
+        )
+
+    def set_joints_sequence(
+        self,
+        sequence: Sequence[Dict[MotorNameType, float]],
+        unit: UnitType = "percent",
+        rate_hz: float = 20.0,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+        speed: Optional[float] = None,
+    ) -> bool:
+        """
+        Play a sequence of joint-position waypoints at a fixed rate.
+
+        Lightweight sibling to ``run_trajectory()`` — no IK, no interpolation,
+        no file format. Each dict in ``sequence`` is dispatched via
+        ``set_joints(..., async_=True)`` every ``1/rate_hz`` seconds. Good
+        for scripted demos, keyframe animations, or quick motion tests.
+
+        Stops early (and returns False) if ``stop()`` is called.
+
+        Args:
+            sequence: Iterable of dicts mapping motor names to positions.
+                Each dict is one waypoint. Waypoints need not cover the
+                same set of joints — joints omitted in a given waypoint
+                stay at their previously commanded value.
+            unit: Unit for all positions ("percent", "deg", "rad").
+            rate_hz: Waypoint dispatch rate.
+            progress_callback: Optional ``callback(current_index, total)``.
+            speed: Movement speed in degrees/second. Applied per waypoint.
+                See ``set_joints`` for the shared-state caveat.
+
+        Returns:
+            True if all waypoints were dispatched successfully.
+
+        Example:
+            >>> backend.set_joints_sequence([
+            ...     {Joint.ELBOW_LEFT: 0.0},
+            ...     {Joint.ELBOW_LEFT: 50.0},
+            ...     {Joint.ELBOW_LEFT: 0.0},
+            ... ], rate_hz=4.0)
+        """
+        seq = list(sequence)
+        total = len(seq)
+        if total == 0:
+            return True
+
+        period = 1.0 / max(rate_hz, 1e-6)
+        for i, waypoint in enumerate(seq):
+            if self._stopped:
+                logger.info("Sequence stopped at waypoint %d/%d", i, total)
+                return False
+            ok = self.set_joints(
+                waypoint,
+                unit=unit,
+                async_=True,
+                speed=speed,
+            )
+            if not ok:
+                logger.error("Sequence waypoint %d/%d failed to dispatch", i + 1, total)
+                return False
+            if progress_callback:
+                progress_callback(i + 1, total)
+            if i < total - 1:
+                time.sleep(period)
 
         return True
 

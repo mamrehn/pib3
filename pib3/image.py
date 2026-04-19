@@ -128,7 +128,9 @@ def _threshold_image(
     Args:
         gray_array: Grayscale image (0-255)
         threshold: Pixel value threshold
-        auto_foreground: Auto-detect foreground as minority pixels
+        auto_foreground: Auto-detect which polarity is the background by
+            sampling the 1-pixel border. Whichever polarity dominates the
+            perimeter is treated as background; the other is drawn.
 
     Returns:
         Binary image where True = foreground (to draw)
@@ -136,12 +138,25 @@ def _threshold_image(
     # Apply threshold: pixels below threshold are foreground
     binary = gray_array < threshold
 
-    if auto_foreground:
-        fg_count = np.sum(binary)
-        total_pixels = binary.size
+    if auto_foreground and binary.ndim == 2 and binary.size > 0:
+        # Perimeter-only heuristic: a correctly-oriented line drawing almost
+        # always has a clean border (paper edge / framing), so the majority of
+        # border pixels tell us the background polarity.  Counting the whole
+        # image instead flips dense drawings incorrectly once strokes cover
+        # >50% of the area.
+        h, w = binary.shape
+        if h >= 2 and w >= 2:
+            top = binary[0, :]
+            bottom = binary[-1, :]
+            # Exclude corners (already counted in top/bottom) to avoid double-counting.
+            left = binary[1:-1, 0]
+            right = binary[1:-1, -1]
+            border = np.concatenate([top, bottom, left, right])
+        else:
+            border = binary.ravel()
 
-        if fg_count > total_pixels / 2:
-            # More foreground than background - invert
+        if border.size > 0 and np.sum(border) > border.size / 2:
+            # Border is mostly foreground -> image is inverted (dark bg, light fg).
             binary = ~binary
 
     return binary

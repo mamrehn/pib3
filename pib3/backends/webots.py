@@ -97,19 +97,15 @@ class WebotsBackend(RobotBackend):
 
     def __init__(
         self,
-        host: str = "localhost",
-        port: int = 9090,
         step_ms: int = 50,
     ):
         """
         Initialize Webots backend.
 
         Args:
-            host: Webots host (unused).
-            port: Webots port (unused).
             step_ms: Time step per waypoint in milliseconds.
         """
-        super().__init__(host=host, port=port)
+        super().__init__()
         self.step_ms = step_ms
         self._robot = None
         self._timestep = None

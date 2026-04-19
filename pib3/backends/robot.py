@@ -197,6 +197,14 @@ class RealRobotBackend(RobotBackend):
     # Default timeout for waiting for joint data from ROS (seconds)
     DEFAULT_GET_JOINTS_TIMEOUT = 5.0
 
+    # Default Tinkerforge motion configuration (units: 0.01°/s, 0.01°/s², 0.01°/s²).
+    # 15000 ≈ 150°/s, which is ~2/3 of the slower MG996R/DS3225MG servos and
+    # gives smooth, non-jerky motion. Full-throttle (0 = no limit) is neither
+    # safe for fingers nor kind to the gearboxes.
+    DEFAULT_MOTION_VELOCITY = 15000
+    DEFAULT_MOTION_ACCELERATION = 15000
+    DEFAULT_MOTION_DECELERATION = 15000
+
     def __init__(
         self,
         host: str = "172.26.34.149",
@@ -220,7 +228,9 @@ class RealRobotBackend(RobotBackend):
                   (~100-200 ms latency). Use this if Tinkerforge is
                   unavailable or you need ROS-based motor control.
         """
-        super().__init__(host=host, port=port)
+        super().__init__()
+        self.host = host
+        self.port = port
         self.timeout = timeout
         self._client = None
         self._service = None
@@ -755,12 +765,34 @@ class RealRobotBackend(RobotBackend):
     def low_latency_enabled(self, value: bool) -> None:
         """Enable or disable low-latency mode at runtime.
 
-        If enabling and not yet connected to Tinkerforge, attempts connection.
+        When enabling, a Tinkerforge connection is attempted (requires an
+        active ROS connection so that ``self.host`` is reachable). The flag
+        is only set to True if the connection actually succeeds — otherwise
+        a RuntimeError is raised so callers don't silently end up with a
+        "enabled" flag pointing at nothing.
         """
         if value and not self._low_latency_config.enabled:
+            if not self.is_connected:
+                raise RuntimeError(
+                    "Cannot enable low-latency mode: not connected to robot. "
+                    "Call connect() (or use the Robot() context manager) first."
+                )
+            # Set the flag before attempting the connection so _connect_tinkerforge
+            # sees the intent; roll it back if the attempt fails.
             self._low_latency_config.enabled = True
-            if self._tinkerforge_conn is None and self.is_connected:
-                self._connect_tinkerforge()
+            try:
+                if self._tinkerforge_conn is None:
+                    self._connect_tinkerforge()
+            except Exception:
+                self._low_latency_config.enabled = False
+                raise
+            if not self.low_latency_available:
+                self._low_latency_config.enabled = False
+                raise RuntimeError(
+                    "Failed to enable low-latency mode: Tinkerforge daemon "
+                    "reachable? servo bricklets discovered? Check "
+                    "`low_latency_available` for the connection-state diagnosis."
+                )
         elif not value:
             self._low_latency_config.enabled = False
 
@@ -883,9 +915,9 @@ class RealRobotBackend(RobotBackend):
 
     def configure_all_servo_channels(
         self,
-        velocity: int = 0,
-        acceleration: int = 0,
-        deceleration: int = 0,
+        velocity: Optional[int] = None,
+        acceleration: Optional[int] = None,
+        deceleration: Optional[int] = None,
     ) -> bool:
         """
         Configure motion parameters for all mapped servo channels.
@@ -895,13 +927,26 @@ class RealRobotBackend(RobotBackend):
         left at whatever the robot's firmware has configured.
 
         Args:
-            velocity: Maximum velocity in 0.01°/s (default: 0 = no limit / max speed).
-            acceleration: Acceleration in 0.01°/s² (default: 0 = no limit).
-            deceleration: Deceleration in 0.01°/s² (default: 0 = no limit).
+            velocity: Maximum velocity in 0.01°/s.
+                None (default) → ``DEFAULT_MOTION_VELOCITY`` (15000 ≈ 150°/s).
+                Pass 0 explicitly to remove the limit (servo runs full-speed).
+            acceleration: Acceleration in 0.01°/s².
+                None → ``DEFAULT_MOTION_ACCELERATION`` (15000).
+                Pass 0 to disable ramping.
+            deceleration: Deceleration in 0.01°/s².
+                None → ``DEFAULT_MOTION_DECELERATION`` (15000).
+                Pass 0 to disable ramping.
 
         Returns:
             True if all channels were configured successfully.
         """
+        if velocity is None:
+            velocity = self.DEFAULT_MOTION_VELOCITY
+        if acceleration is None:
+            acceleration = self.DEFAULT_MOTION_ACCELERATION
+        if deceleration is None:
+            deceleration = self.DEFAULT_MOTION_DECELERATION
+
         all_success = True
         for motor_name in self._tinkerforge_motor_map:
             uid, channel = self._tinkerforge_motor_map[motor_name]
@@ -2590,6 +2635,61 @@ class RealRobotBackend(RobotBackend):
         except Exception as e:
             logger.warning(f"Robot audio recording failed: {e}")
             return None
+
+    def speak(
+        self,
+        text: str,
+        output: Optional[AudioOutput] = None,
+        voice: Optional[str] = None,
+        block: bool = True,
+        use_robot_tts: Optional[bool] = None,
+        language: str = "de",
+    ) -> bool:
+        """
+        Synthesize and play text-to-speech.
+
+        On the real robot, prefers the on-board ``/play_audio_from_speech``
+        ROS service (synthesized on the robot, no audio streamed over
+        rosbridge). Falls back to local Piper synthesis + audio transport
+        when the robot service is unavailable or ``output`` targets LOCAL.
+
+        Args:
+            text: Text to speak.
+            output: Playback destination. If None, uses backend default
+                (ROBOT for RealRobotBackend).
+            voice: Piper voice model (only used for local synthesis).
+            block: If True, wait for playback to complete.
+            use_robot_tts: Force robot-side TTS (True), force local Piper
+                (False), or auto-decide (None, default). Auto prefers robot
+                TTS whenever the output includes ROBOT.
+            language: Language code for the robot's TTS service (e.g. "en",
+                "de"). Ignored for local Piper, which picks language via
+                ``voice``.
+
+        Returns:
+            True on success.
+        """
+        if output is None:
+            output = self._audio_output or self.default_audio_output
+
+        wants_robot_path = output in (AudioOutput.ROBOT, AudioOutput.LOCAL_AND_ROBOT)
+        try_robot_tts = use_robot_tts if use_robot_tts is not None else wants_robot_path
+
+        if try_robot_tts and self.is_connected:
+            try:
+                ok = self.play_audio_from_speech(
+                    text, language=language, wait=block
+                )
+                if ok and output == AudioOutput.ROBOT:
+                    return True
+                if ok and output == AudioOutput.LOCAL_AND_ROBOT:
+                    # Robot side already played; also play locally via Piper.
+                    return super().speak(text, output=AudioOutput.LOCAL, voice=voice, block=block)
+                # On failure, fall through to the base-class Piper path.
+            except Exception as e:
+                logger.warning(f"Robot TTS service failed ({e}); falling back to local Piper")
+
+        return super().speak(text, output=output, voice=voice, block=block)
 
 
 # ==================== RLE DECODER HELPER ====================

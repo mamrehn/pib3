@@ -5,6 +5,7 @@ import warnings
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
@@ -162,20 +163,85 @@ class Trajectory:
 
     @classmethod
     def from_json(cls, path: Union[str, Path]) -> "Trajectory":
-        """Load trajectory from JSON file."""
+        """Load trajectory from JSON file.
+
+        Validates the file shape up front so a slightly malformed file fails
+        loudly (with a pointer to what's wrong) instead of silently degrading
+        downstream — e.g. a missing ``arm`` metadata field misrouting joints
+        in sequential-trajectory code.
+        """
         with open(path) as f:
             data = json.load(f)
 
-        unit = data.get("unit")
-        waypoints = np.array(data.get("waypoints", data.get("points", [])))
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"Trajectory file {path} must contain a JSON object at the top level, "
+                f"got {type(data).__name__}."
+            )
 
-        if unit is not None and unit != "radians":
-            raise ValueError(f"Unsupported trajectory unit: {unit}")
+        # Version guard — unknown future versions may carry incompatible fields.
+        version = data.get("format_version")
+        if version is not None and str(version) != cls.FORMAT_VERSION:
+            logger.warning(
+                f"Trajectory {path} was written with format_version={version!r}; "
+                f"this package expects {cls.FORMAT_VERSION!r}. Proceeding, but "
+                f"field semantics may not match."
+            )
+
+        unit = data.get("unit")
+        if unit is not None and unit != cls.UNIT:
+            raise ValueError(
+                f"Unsupported trajectory unit {unit!r} (expected {cls.UNIT!r})."
+            )
+
+        # Accept legacy "points"/"link_names" aliases but require one to exist.
+        joint_names = data.get("joint_names", data.get("link_names"))
+        if joint_names is None:
+            raise ValueError(
+                f"Trajectory file {path} is missing 'joint_names' (or legacy 'link_names')."
+            )
+        if not isinstance(joint_names, list) or not all(isinstance(n, str) for n in joint_names):
+            raise ValueError(
+                f"Trajectory file {path}: 'joint_names' must be a list of strings."
+            )
+
+        raw_waypoints = data.get("waypoints", data.get("points"))
+        if raw_waypoints is None:
+            raise ValueError(
+                f"Trajectory file {path} is missing 'waypoints' (or legacy 'points')."
+            )
+
+        try:
+            waypoints = np.asarray(raw_waypoints, dtype=np.float64)
+        except (TypeError, ValueError) as e:
+            raise ValueError(
+                f"Trajectory file {path}: 'waypoints' is not a numeric 2-D array ({e})."
+            ) from e
+
+        if waypoints.size == 0:
+            waypoints = waypoints.reshape(0, len(joint_names))
+        elif waypoints.ndim != 2:
+            raise ValueError(
+                f"Trajectory file {path}: 'waypoints' must be 2-D "
+                f"(N waypoints × M joints); got shape {waypoints.shape}."
+            )
+        elif waypoints.shape[1] != len(joint_names):
+            raise ValueError(
+                f"Trajectory file {path}: waypoint width {waypoints.shape[1]} "
+                f"does not match joint_names length {len(joint_names)}."
+            )
+
+        metadata = data.get("metadata", {})
+        if not isinstance(metadata, dict):
+            raise ValueError(
+                f"Trajectory file {path}: 'metadata' must be an object, "
+                f"got {type(metadata).__name__}."
+            )
 
         return cls(
-            joint_names=data.get("joint_names", data.get("link_names", [])),
+            joint_names=joint_names,
             waypoints=waypoints,
-            metadata=data.get("metadata", {}),
+            metadata=metadata,
         )
 
     def validate(self, backend: "RobotBackend") -> List[Dict]:
@@ -287,28 +353,58 @@ def _prepare_urdf_with_absolute_paths() -> Path:
     return temp_urdf
 
 
-def _load_robot():
-    """Load robot model from bundled URDF."""
-    # Patch numpy for compatibility with numpy 2.x (must be done before importing rtb)
-    if not hasattr(np, 'disp'):
+def _patch_np_disp_if_missing() -> None:
+    """Add np.disp back if it's been removed (numpy 2.x).
+
+    roboticstoolbox still references np.disp in a few code paths. We do this
+    on demand rather than unconditionally so the monkey-patch only happens
+    when the environment actually needs it.
+    """
+    if not hasattr(np, "disp"):
         np.disp = lambda x: print(x)
 
+
+def _rtb_call_with_np_disp(fn, *args, **kwargs):
+    """Call a roboticstoolbox function, retrying with the np.disp patch if needed.
+
+    Narrow dance: don't touch numpy unless the failure actually points at
+    a missing np.disp. If any AttributeError without 'disp' in the message
+    bubbles up, let it propagate.
+    """
     try:
+        return fn(*args, **kwargs)
+    except AttributeError as e:
+        if "disp" not in str(e):
+            raise
+        _patch_np_disp_if_missing()
+        return fn(*args, **kwargs)
+
+
+@lru_cache(maxsize=1)
+def _load_robot():
+    """Load robot model from bundled URDF (memoized — parsed once per process)."""
+
+    def _attempt():
         import roboticstoolbox as rtb
+        urdf_path = _get_urdf_path()
+        if not urdf_path.exists():
+            raise FileNotFoundError(f"URDF file not found: {urdf_path}")
+        resolved_urdf = _prepare_urdf_with_absolute_paths()
+        return rtb.ERobot.URDF(str(resolved_urdf))
+
+    try:
+        return _attempt()
+    except AttributeError as e:
+        # numpy 2.x dropped np.disp; rtb still references it.
+        if "disp" not in str(e):
+            raise
+        _patch_np_disp_if_missing()
+        return _attempt()
     except ImportError:
         raise ImportError(
             "roboticstoolbox-python is required for trajectory generation. "
             "Install with: pip install roboticstoolbox-python"
         )
-
-    urdf_path = _get_urdf_path()
-    if not urdf_path.exists():
-        raise FileNotFoundError(f"URDF file not found: {urdf_path}")
-
-    # Prepare URDF with absolute paths for mesh files
-    resolved_urdf = _prepare_urdf_with_absolute_paths()
-
-    return rtb.ERobot.URDF(str(resolved_urdf))
 
 
 def _get_joint_limits(robot) -> List[Tuple[float, float]]:
@@ -392,7 +488,8 @@ def _solve_ik_point(
     q0 = np.array([q_init[idx] for idx in arm_joint_indices])
 
     try:
-        sol = dh_robot.ikine_LM(
+        sol = _rtb_call_with_np_disp(
+            dh_robot.ikine_LM,
             target_se3,
             q0=q0,
             mask=mask,
