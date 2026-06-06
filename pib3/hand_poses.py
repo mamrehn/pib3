@@ -3,9 +3,12 @@
 Deprecated: Use ``HandPose`` enum from ``pib3.types`` instead::
 
     >>> from pib3 import HandPose
-    >>> robot.set_joints(HandPose.LEFT_OPEN)
+    >>> robot.set_joints_pose(HandPose.LEFT_OPEN)
 
-These module-level aliases are kept for backward compatibility.
+These module-level aliases are kept for backward compatibility. They are
+plain mappings, so they can also be passed to ``set_joints`` directly::
+
+    >>> robot.set_joints(LEFT_HAND_OPEN)
 """
 
 from .types import HandPose, LEFT_HAND_JOINTS, RIGHT_HAND_JOINTS

@@ -418,14 +418,18 @@ class HandLandmarks:
     def from_keypoints_list(
         cls,
         keypoints: List[dict],
-        handedness_value: float = 0.5,
+        handedness: Union[float, int, str, dict, "Handedness", None] = None,
     ) -> "HandLandmarks":
         """
         Create HandLandmarks from robot's keypoints list.
 
         Args:
-            keypoints: List of {"x": float, "y": float, "confidence": float} dicts
-            handedness_value: 0.0 = left, 1.0 = right, 0.5 = unknown
+            keypoints: List of {"x": float, "y": float, "confidence": float} dicts.
+            handedness: Hand classification as published by the robot. Accepts a
+                float/int score (MediaPipe/depthai convention: ``> 0.5`` = right,
+                ``< 0.5`` = left), a ``"left"``/``"right"`` string, a dict with a
+                ``"label"`` and/or ``"score"``/``"value"`` key, an existing
+                ``Handedness``, or ``None`` (→ ``UNKNOWN``).
         """
         landmarks = np.array([[kp["x"], kp["y"]] for kp in keypoints])
         kp_objects = [
@@ -433,18 +437,51 @@ class HandLandmarks:
             for kp in keypoints
         ]
 
-        if handedness_value < 0.3:
-            handedness = Handedness.LEFT
-        elif handedness_value > 0.7:
-            handedness = Handedness.RIGHT
-        else:
-            handedness = Handedness.UNKNOWN
-
         return cls(
             landmarks=landmarks,
             keypoints=kp_objects,
-            handedness=handedness,
+            handedness=cls._normalize_handedness(handedness),
         )
+
+    @staticmethod
+    def _normalize_handedness(value) -> Handedness:
+        """Normalize a robot-provided handedness value to a Handedness enum.
+
+        Handles the shapes the camera node may emit: a float/int score
+        (``> 0.5`` = right, per MediaPipe/depthai), a ``"left"``/``"right"``
+        string, a dict with ``"label"`` and/or ``"score"``/``"value"``, an
+        existing ``Handedness``, or ``None``.
+        """
+        if value is None:
+            return Handedness.UNKNOWN
+        if isinstance(value, Handedness):
+            return value
+        if isinstance(value, str):
+            v = value.strip().lower()
+            if v in ("left", "l"):
+                return Handedness.LEFT
+            if v in ("right", "r"):
+                return Handedness.RIGHT
+            return Handedness.UNKNOWN
+        if isinstance(value, dict):
+            if value.get("label") is not None:
+                return HandLandmarks._normalize_handedness(value["label"])
+            for key in ("value", "score", "handedness", "probability"):
+                num = value.get(key)
+                if isinstance(num, (int, float)) and not isinstance(num, bool):
+                    return HandLandmarks._normalize_handedness(float(num))
+            return Handedness.UNKNOWN
+        if isinstance(value, bool):
+            # bool is an int subclass; treat True = right explicitly.
+            return Handedness.RIGHT if value else Handedness.LEFT
+        if isinstance(value, (int, float)):
+            f = float(value)
+            if f > 0.5:
+                return Handedness.RIGHT
+            if f < 0.5:
+                return Handedness.LEFT
+            return Handedness.UNKNOWN
+        return Handedness.UNKNOWN
 
 
 @dataclass
@@ -803,9 +840,12 @@ class AIDetectionReceiver:
         with self._lock:
             for result in self._results:
                 if result.get("type") == "hand":
-                    keypoints = result.get("result", {}).get("keypoints", [])
+                    res = result.get("result", {})
+                    keypoints = res.get("keypoints", [])
                     if keypoints:
-                        hands.append(HandLandmarks.from_keypoints_list(keypoints))
+                        hands.append(HandLandmarks.from_keypoints_list(
+                            keypoints, handedness=res.get("handedness")
+                        ))
         return hands
 
     def get_poses(self, timeout: float = 5.0) -> List[PoseKeypoints]:
@@ -1107,7 +1147,9 @@ def parse_ai_result(data: dict) -> Union[List[Detection], List[HandLandmarks], L
     elif model_type == "hand":
         keypoints = result.get("keypoints", [])
         if keypoints:
-            return [HandLandmarks.from_keypoints_list(keypoints)]
+            return [HandLandmarks.from_keypoints_list(
+                keypoints, handedness=result.get("handedness")
+            )]
         return []
 
     elif model_type == "pose":

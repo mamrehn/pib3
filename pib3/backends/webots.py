@@ -316,6 +316,11 @@ class WebotsBackend(RobotBackend):
                         return webots_pos + offset
                     else:
                         webots_pos_old = webots_pos
+                # Timed out without two identical consecutive reads. In
+                # simulation the sensor is always readable and motion is
+                # expected to complete, so return the latest reading rather
+                # than None (matches _get_joints_radians on timeout).
+                return webots_pos_old + offset
             return None
 
         return None

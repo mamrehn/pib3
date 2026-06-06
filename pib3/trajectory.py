@@ -1,7 +1,7 @@
 """Trajectory generation via inverse kinematics for pib3 package."""
 
 import json
-import warnings
+import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -11,8 +11,16 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
+from ._compat import ensure_numpy2_compat
 from .config import IKConfig, PaperConfig, TrajectoryConfig
 from .types import Sketch, Stroke
+
+logger = logging.getLogger(__name__)
+
+# Make sure numpy<2 attributes used by roboticstoolbox/spatialmath exist before
+# those libraries are (lazily) imported below, so trajectory generation works
+# under numpy >= 2.0.
+ensure_numpy2_compat()
 
 
 # Joint indices for left and right arms
@@ -353,19 +361,8 @@ def _prepare_urdf_with_absolute_paths() -> Path:
     return temp_urdf
 
 
-def _patch_np_disp_if_missing() -> None:
-    """Add np.disp back if it's been removed (numpy 2.x).
-
-    roboticstoolbox still references np.disp in a few code paths. We do this
-    on demand rather than unconditionally so the monkey-patch only happens
-    when the environment actually needs it.
-    """
-    if not hasattr(np, "disp"):
-        np.disp = lambda x: print(x)
-
-
 def _rtb_call_with_np_disp(fn, *args, **kwargs):
-    """Call a roboticstoolbox function, retrying with the np.disp patch if needed.
+    """Call a roboticstoolbox function, retrying with the numpy-2 shim if needed.
 
     Narrow dance: don't touch numpy unless the failure actually points at
     a missing np.disp. If any AttributeError without 'disp' in the message
@@ -376,7 +373,7 @@ def _rtb_call_with_np_disp(fn, *args, **kwargs):
     except AttributeError as e:
         if "disp" not in str(e):
             raise
-        _patch_np_disp_if_missing()
+        ensure_numpy2_compat()
         return fn(*args, **kwargs)
 
 
@@ -398,7 +395,7 @@ def _load_robot():
         # numpy 2.x dropped np.disp; rtb still references it.
         if "disp" not in str(e):
             raise
-        _patch_np_disp_if_missing()
+        ensure_numpy2_compat()
         return _attempt()
     except ImportError:
         raise ImportError(
@@ -508,10 +505,7 @@ def _solve_ik_point(
         return q_solution, True
 
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(
-            f"IK solver exception for target {target_pos}: {e}"
-        )
+        logger.warning(f"IK solver exception for target {target_pos}: {e}")
         return q_init, False
 
 

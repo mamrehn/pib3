@@ -124,16 +124,16 @@ class HandPose(Enum):
 
     Physical mapping: 0% = bent/closed, 100% = stretched/open
 
-    Use with robot.set_joints():
-        >>> robot.set_joints(HandPose.LEFT_OPEN)
-        >>> robot.set_joints(HandPose.RIGHT_CLOSED)
+    Use with robot.set_joints_pose():
+        >>> robot.set_joints_pose(HandPose.LEFT_OPEN)
+        >>> robot.set_joints_pose(HandPose.RIGHT_CLOSED)
 
     For partial grip, use the joint lists:
         >>> robot.set_joints({j: 50.0 for j in LEFT_HAND_JOINTS})  # 50% = half grip
     """
 
     # Values are wrapped in MappingProxyType so callers can't mutate the
-    # shared pose dict and corrupt every future set_joints(HandPose.X) call.
+    # shared pose dict and corrupt every future set_joints_pose(HandPose.X) call.
     LEFT_OPEN = MappingProxyType({
         "thumb_left_opposition": 100.0,
         "thumb_left_stretch": 100.0,

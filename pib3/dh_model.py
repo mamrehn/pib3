@@ -17,6 +17,13 @@ Note on DHRobot.base property:
 from typing import Dict, Literal, Optional, Tuple
 
 import numpy as np
+
+from ._compat import ensure_numpy2_compat
+
+# Restore numpy<2 attributes that roboticstoolbox/spatialmath reference, before
+# importing them, so this module loads under numpy >= 2.0.
+ensure_numpy2_compat()
+
 from roboticstoolbox import DHRobot, RevoluteDH
 from spatialmath import SE3
 

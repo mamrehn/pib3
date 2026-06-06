@@ -10,7 +10,7 @@ Repository statistics:
 | 📜 Documentation | ![Documentation LOC](https://img.shields.io/endpoint?url=https://ghloc.vercel.app/api/mamrehn/pib3/badge?filter=.md$&format=human) |
 | 🤖 Robot Definition | ![Robot Config LOC](https://img.shields.io/endpoint?url=https://ghloc.vercel.app/api/mamrehn/pib3/badge?filter=.proto$,.urdf$,.yaml$,.stl$&format=human) |
 
-**piB3** provides motor control, inverse kinematics, and seamless code sharing between digital twin and the [pib](https://pib.rocks/) printable humanoid robot.
+**piB3** provides motor control, inverse kinematics, and seamless code sharing between digital twin and the [pib](https://github.com/pib-rocks) printable humanoid robot.
 
 **Key Features:**
 
@@ -98,9 +98,9 @@ with Robot(host="172.26.34.149") as robot:
 from pib3 import Robot, HandPose, LEFT_HAND_JOINTS
 
 with Robot(host="172.26.34.149") as robot:
-    robot.set_joints(HandPose.LEFT_OPEN)                    # Open hand
-    robot.set_joints(HandPose.LEFT_CLOSED)                  # Close hand
-    robot.set_joints({j: 50.0 for j in LEFT_HAND_JOINTS})   # 50% grip
+    robot.set_joints_pose(HandPose.LEFT_OPEN)              # Open hand
+    robot.set_joints_pose(HandPose.LEFT_CLOSED)            # Close hand
+    robot.set_joints({j: 50.0 for j in LEFT_HAND_JOINTS})  # 50% grip
 ```
 
 ### Image to Drawing Trajectory

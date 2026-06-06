@@ -5,6 +5,7 @@ import logging
 import math
 import threading
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Dict, List, Literal, Optional, Sequence, Union
@@ -153,6 +154,12 @@ class RobotBackend(ABC):
     # - "joint_limits_webots.yaml" for simulation (Webots)
     # - "joint_limits_robot.yaml" for real robot
     JOINT_LIMITS_FILE: str = "joint_limits_webots.yaml"
+
+    # Coordinate frame a Trajectory is stored in (canonical = Webots motor
+    # radians, matching Trajectory.COORDINATE_FRAME). Used to remap trajectory
+    # joints into this backend's own joint convention at playback time — see
+    # _trajectory_to_backend_radians.
+    TRAJECTORY_SOURCE_LIMITS_FILE: str = "joint_limits_webots.yaml"
 
     def __init__(self):
         # Networking (host/port) is a concern of networked backends only —
@@ -920,9 +927,16 @@ class RobotBackend(ABC):
         """
         Home position (0 radians) expressed as percentage for each joint.
 
-        This is the Webots starting position / real robot midpoint.
+        This is the Webots starting position / real robot servo zero.
         For symmetric joints (-90° to +90°), this is 50%.
         For asymmetric joints (e.g. elbow: -45° to +90°), this varies.
+
+        Note:
+            0 radians is a *physical* convention, not a fixed percentage:
+            finger joints differ between backends (Webots fingers map 0 rad to
+            100% = open; the real robot maps 0 rad to 50%), so the same joint
+            can report a different home percentage per backend. See
+            ``go_home`` for the startup-state caveat.
 
         Example:
             >>> hp = backend.home_percent
@@ -939,11 +953,20 @@ class RobotBackend(ABC):
 
     def go_home(self, async_: bool = False, timeout: float = 5.0) -> bool:
         """
-        Move all joints to their home position (0 radians).
+        Move all joints to the neutral starting position (0 radians).
 
-        This is the neutral starting position: Webots proto zero / real robot
-        servo midpoint.  Equivalent to ``set_joints({...: 0.0}, unit="rad")``
-        for all joints.
+        This is the canonical zero pose: Webots proto zero / real robot servo
+        zero.  Equivalent to ``set_joints({...: 0.0}, unit="rad")`` for all
+        joints.
+
+        Note:
+            Startup state differs between backends. In Webots every motor is
+            already holding 0 rad at simulation start (read from the proto
+            file). The real robot powers on with its servos **un-driven** — the
+            arms and fingers hang loose and report arbitrary positions until a
+            command is sent. Calling ``go_home()`` is therefore the way to put
+            the real robot into the same defined pose the simulator starts in
+            (in direct mode this also enables/holds the servos).
 
         Args:
             async_: If True, return immediately without waiting.
@@ -1200,11 +1223,14 @@ class RobotBackend(ABC):
         if isinstance(positions, HandPose):
             raise TypeError(
                 "Use set_joints_pose(HandPose.X) for a pose preset; "
-                "set_joints takes only a plain dict of motor->position."
+                "set_joints takes only a mapping of motor->position."
             )
-        if not isinstance(positions, dict):
+        # Accept any Mapping (plain dict, MappingProxyType from the deprecated
+        # hand-pose constants, etc.) but reject non-mapping sequences.
+        if not isinstance(positions, Mapping):
             raise TypeError(
-                f"set_joints expects a dict[str|Joint, float], got {type(positions).__name__}. "
+                f"set_joints expects a mapping of motor->position (e.g. dict), "
+                f"got {type(positions).__name__}. "
                 f"For a sequence of waypoints, use set_joints_sequence()."
             )
 
@@ -1457,8 +1483,14 @@ class RobotBackend(ABC):
         if isinstance(trajectory, (str, Path)):
             trajectory = Trajectory.from_json(trajectory)
 
-        # Convert to backend format
-        waypoints = self._to_backend_format(trajectory.waypoints)
+        # Remap canonical (Webots-frame) joint angles into this backend's own
+        # joint convention, then into the backend's wire format. The remap is a
+        # no-op on Webots and for arm/head joints; it corrects finger joints on
+        # the real robot (different open/closed sign and range).
+        backend_radians = self._trajectory_to_backend_radians(
+            trajectory.joint_names, trajectory.waypoints
+        )
+        waypoints = self._to_backend_format(backend_radians)
 
         return self._execute_waypoints(
             trajectory.joint_names,
@@ -1466,6 +1498,60 @@ class RobotBackend(ABC):
             rate_hz,
             progress_callback,
         )
+
+    def _trajectory_to_backend_radians(
+        self,
+        joint_names: List[str],
+        waypoints: np.ndarray,
+    ) -> np.ndarray:
+        """Remap canonical trajectory angles into this backend's joint convention.
+
+        Trajectories are stored in the canonical Webots motor-radian frame
+        (``Trajectory.COORDINATE_FRAME``). Arm and head joints share identical
+        limits across backends, so they pass through unchanged. Finger joints
+        differ — Webots fingers run ``0 → +π/2`` (open → closed) while the real
+        robot runs ``-π/2 → +π/2`` (closed → open) — so for those the *physical*
+        open/closed fraction is preserved by mapping through percent:
+        ``source_radians → percent (source limits) → backend_radians``.
+
+        This is a no-op on the Webots backend (source limits == backend limits)
+        and for any joint whose limits already match the source frame.
+
+        Args:
+            joint_names: Joint name for each waypoint column.
+            waypoints: Array of shape (N, len(joint_names)) in canonical radians.
+
+        Returns:
+            Array of the same shape in this backend's joint convention.
+        """
+        source = load_joint_limits(self.TRAJECTORY_SOURCE_LIMITS_FILE)
+        target = self._get_joint_limits()
+
+        out = np.array(waypoints, dtype=np.float64, copy=True)
+        if out.ndim != 2:
+            return out
+
+        for col, name in enumerate(joint_names):
+            if col >= out.shape[1]:
+                break
+            s = source.get(name)
+            t = target.get(name)
+            if not s or not t:
+                continue
+            s_min, s_max = s.get("min"), s.get("max")
+            t_min, t_max = t.get("min"), t.get("max")
+            if s_min is None or s_max is None or t_min is None or t_max is None:
+                continue
+            # Identical limits (arm/head joints, or the Webots backend) → no-op.
+            if abs(s_min - t_min) < 1e-9 and abs(s_max - t_max) < 1e-9:
+                continue
+            s_range = s_max - s_min
+            if abs(s_range) < 1e-12:
+                continue
+            frac = (out[:, col] - s_min) / s_range
+            out[:, col] = t_min + frac * (t_max - t_min)
+
+        return out
 
     @abstractmethod
     def _execute_waypoints(
