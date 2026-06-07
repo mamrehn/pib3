@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -445,36 +445,32 @@ def _get_joint_limits(robot) -> List[Tuple[float, float]]:
 
 
 def _solve_ik_point(
-    robot,
     target_pos: np.ndarray,
     q_init: np.ndarray,
-    end_link: str,
     tool_offset,
     arm_joint_indices: List[int],
-    joint_limits: List[Tuple[float, float]],
     config: IKConfig,
     target_orientation: Optional[np.ndarray] = None,
     orientation_weight: float = 0.5,
 ) -> Tuple[np.ndarray, bool]:
     """
-    Solve IK using roboticstoolbox's ikine_LM() with expert DH parameters.
+    Solve IK using roboticstoolbox's ikine_LM() with the expert DH model.
 
-    Uses the calibrated DH model from dh_model.py with Levenberg-Marquardt
-    optimization. Targets are transformed to shoulder-relative coordinates
-    to ensure compatibility between URDF world frame and DH model.
+    The DH model carries the calibrated ``base`` (torso → shoulder) and ``tool``
+    transforms, exactly like the expert pib_DH.py / pib-sdk. The target is given
+    in the **torso frame, in meters**, converted to mm; ``ikine_LM`` applies the
+    base internally. The returned joint coordinates are in the motor convention
+    (DH degrees map directly to motor commands).
 
-    Only the arm joints are used as IK degrees of freedom.  Finger joints
-    stay fixed — they are part of the kinematic chain (for forward
-    kinematics to the TCP) but are never moved by the solver.
+    Only the 6 arm joints are IK degrees of freedom. Finger joints stay fixed at
+    the grip pose set by ``_set_initial_arm_pose``.
 
     Args:
-        robot: URDF robot model (used for shoulder position).
-        target_pos: Target position [x, y, z] in meters (world frame).
-        q_init: Initial joint configuration.
-        end_link: End effector link name.
-        tool_offset: SE3 transform from end link to tool tip.
-        arm_joint_indices: URDF indices of the arm joints to actuate.
-        joint_limits: Joint limits (unused - DH model has built-in limits).
+        target_pos: Target position [x, y, z] in meters, **torso frame**.
+        q_init: Full joint configuration (used for warm start + finger pose).
+        tool_offset: Extra drawing-tool offset (SE3, meters) from the standard
+            tooltip; composed onto the calibrated tool inside get_dh_robot.
+        arm_joint_indices: Indices of the arm joints to actuate within q_init.
         config: IK configuration.
         target_orientation: Optional target orientation as rotation matrix (3x3).
         orientation_weight: Weight for orientation error (0-1).
@@ -484,28 +480,25 @@ def _solve_ik_point(
     """
     from spatialmath import SE3
 
-    from .dh_model import get_dh_robot, get_shoulder_position
+    from .dh_model import get_dh_robot
 
     # Determine which arm based on joint indices
     arm = "left" if arm_joint_indices[0] < 10 else "right"
 
-    # Get shoulder position to compute relative target
-    shoulder_pos = get_shoulder_position(robot, arm)
+    # Target in torso frame, meters → mm (the frame the DH base is defined in).
+    target_mm = np.array(target_pos, dtype=float) * 1000.0
 
-    # Compute target relative to shoulder, convert to mm
-    target_rel_mm = (np.array(target_pos) - shoulder_pos) * 1000
-
-    # Get calibrated DH robot
+    # Calibrated DH robot (with base + tool).
     dh_robot = get_dh_robot(arm, tool_offset)
 
     # Build target SE3 and mask for ikine_LM
     use_orientation = target_orientation is not None and orientation_weight > 0
     if use_orientation:
-        target_se3 = SE3.Rt(target_orientation, target_rel_mm)
+        target_se3 = SE3.Rt(target_orientation, target_mm)
         mask = [1, 1, 1, 1, 1, 1]
     else:
         # Position-only IK (most common for drawing)
-        target_se3 = SE3(target_rel_mm)
+        target_se3 = SE3(target_mm)
         mask = [1, 1, 1, 0, 0, 0]
 
     # Extract initial guess from current arm configuration (warm start). This
@@ -555,6 +548,69 @@ def _solve_ik_point(
             return q_solution, True
 
     return q_init, False
+
+
+def verify_ik(
+    arm: str,
+    xyz_mm: Sequence[float],
+    tool_offset=None,
+    config: Optional[IKConfig] = None,
+) -> Tuple[Optional[np.ndarray], float, bool]:
+    """Offline IK self-check: solve a torso-frame target, then FK the result.
+
+    Pure software round-trip — **no robot/hardware involved**. Use it (with
+    roboticstoolbox installed) to confirm the IK is self-consistent and matches
+    the expert SDK before driving real motors. The returned joint degrees should
+    match ``pib_sdk.kinematics.ik(arm, xyz=xyz_mm)`` for the same target.
+
+    Args:
+        arm: "left" or "right".
+        xyz_mm: Target [x, y, z] in millimetres, **torso frame** (same frame the
+            expert ``ik()`` uses, e.g. ``[150, 0, 350]``).
+        tool_offset: Optional extra drawing-tool offset (SE3, meters). Defaults
+            to the index-finger offset.
+        config: Optional IKConfig (its ``arm`` is overridden by ``arm``).
+
+    Returns:
+        (q_deg, position_error_mm, success). ``q_deg`` is the 6 arm-joint angles
+        in degrees (= motor commands), or None on failure. ``position_error_mm``
+        is the FK round-trip error (how far the solved pose lands from target).
+
+    Example:
+        >>> from pib3.trajectory import verify_ik
+        >>> q_deg, err_mm, ok = verify_ik("left", [150, 0, 350])
+        >>> print(ok, round(err_mm, 3), q_deg)
+    """
+    import spatialmath as sm
+
+    from .dh_model import get_dh_robot
+
+    if config is None:
+        config = IKConfig(arm=arm)
+    if tool_offset is None:
+        tool_offset = sm.SE3(0, 0.027, 0)
+
+    arm_joint_indices = list(
+        (LEFT_ARM_JOINTS if arm == "left" else RIGHT_ARM_JOINTS).values()
+    )
+    n_joints = max(URDF_TO_MOTOR_NAME) + 1
+    q_init = _set_initial_arm_pose(np.zeros(n_joints), arm, config.grip_style)
+
+    target_mm = np.asarray(xyz_mm, dtype=float)
+    q_sol, ok = _solve_ik_point(
+        target_mm / 1000.0, q_init, tool_offset, arm_joint_indices, config
+    )
+    if not ok:
+        return None, float("inf"), False
+
+    q_arm = np.array([q_sol[idx] for idx in arm_joint_indices])
+    dh_robot = get_dh_robot(arm, tool_offset)
+    T = dh_robot.fkine(q_arm)
+    if isinstance(T, np.ndarray):
+        T = sm.SE3(T)
+    reached_mm = np.array(T.t).flatten()
+    error_mm = float(np.linalg.norm(reached_mm - target_mm))
+    return np.degrees(q_arm), error_mm, True
 
 
 def _interpolate_failed_points(
@@ -750,12 +806,10 @@ def sketch_to_trajectory(
     """
     import spatialmath as sm
 
+    from .dh_model import get_dh_robot
+
     if config is None:
         config = TrajectoryConfig()
-
-    # Load robot
-    robot = _load_robot()
-    joint_limits = _get_joint_limits(robot)
 
     # Determine arm configuration
     arm = config.ik.arm
@@ -771,11 +825,12 @@ def sketch_to_trajectory(
         tcp_link_pencil = RIGHT_TCP_LINK_PENCIL
 
     arm_joint_indices = list(arm_joints.values())
+    n_joints = max(URDF_TO_MOTOR_NAME) + 1
 
-    # Configure TCP and tool offset based on grip style.
-    # Only the 6 arm joints are IK degrees of freedom; finger joints stay
-    # fixed at the pose set by _set_initial_arm_pose.  Forward kinematics
-    # still runs through the finger chain to reach the TCP.
+    # Drawing tool offset (extra finger/pencil tip offset from the standard
+    # tooltip). Only the 6 arm joints are IK degrees of freedom; finger joints
+    # stay fixed at the grip pose set by _set_initial_arm_pose. The DH model
+    # carries the calibrated base + tool; tool_offset is composed onto the tool.
     if grip_style == "pencil_grip":
         tcp_link = tcp_link_pencil
         tool_offset = sm.SE3(0.04, -0.06, 0)  # 40mm forward, 60mm toward pinky
@@ -784,15 +839,18 @@ def sketch_to_trajectory(
         tcp_link = tcp_link_finger
         tool_offset = sm.SE3(0, 0.027, 0)  # 27mm in Y (finger tip direction)
 
-    # Initialize configuration
+    # Calibrated DH model (base + tool) — used for IK and the paper anchor.
+    dh_robot = get_dh_robot(arm, tool_offset)
+
+    # Initialize full joint configuration: arm slots are the IK warm start,
+    # finger slots hold the fixed grip pose.
     if initial_q is not None:
         # Use provided initial configuration
         if isinstance(initial_q, Trajectory):
             # Expand trajectory back to full robot configuration by mapping
             # each motor name to all URDF indices that share that name
             # (e.g. 'index_left_stretch' drives URDF indices 11 and 12).
-            q_current = np.zeros(robot.n)
-            q_current = _set_initial_arm_pose(q_current, arm, grip_style)
+            q_current = _set_initial_arm_pose(np.zeros(n_joints), arm, grip_style)
             last_wp = initial_q.waypoints[-1]
             motor_to_indices: Dict[str, List[int]] = {}
             for idx, name in URDF_TO_MOTOR_NAME.items():
@@ -808,8 +866,7 @@ def sketch_to_trajectory(
             # coupled finger joints share the same motor name for both proximal
             # and distal URDF joints (e.g. indices 11 & 12 are both
             # "index_left_stretch") and both must be set to the same value.
-            q_current = np.zeros(robot.n)
-            q_current = _set_initial_arm_pose(q_current, arm, grip_style)  # Start with defaults
+            q_current = _set_initial_arm_pose(np.zeros(n_joints), arm, grip_style)
             joint_name_to_indices: Dict[str, List[int]] = {}
             for idx, name in URDF_TO_MOTOR_NAME.items():
                 joint_name_to_indices.setdefault(name, []).append(idx)
@@ -820,32 +877,37 @@ def sketch_to_trajectory(
         else:
             # Assume numpy array (full robot configuration)
             q_current = np.asarray(initial_q, dtype=np.float64).copy()
-            if q_current.shape[0] != robot.n:
+            if q_current.shape[0] != n_joints:
                 raise ValueError(
                     f"initial_q array has {q_current.shape[0]} elements, "
-                    f"expected {robot.n}"
+                    f"expected {n_joints}"
                 )
     else:
         # Default: start from fixed initial pose
-        q_current = np.zeros(robot.n)
-        q_current = _set_initial_arm_pose(q_current, arm, grip_style)
-    robot.q = q_current
+        q_current = _set_initial_arm_pose(np.zeros(n_joints), arm, grip_style)
 
-    # Get initial TCP position
-    T_start = robot.fkine(q_current, end=tcp_link)
-    if isinstance(T_start, np.ndarray):
-        T_start = sm.SE3(T_start)
-    T_start = T_start * tool_offset
-    start_pos = T_start.t
+    # Paper geometry is expressed in the torso frame (meters), matching the DH
+    # base. Auto-place any unspecified field around a reachable anchor — the FK
+    # of the workspace-middle joint configuration — so the paper centre is
+    # reachable by construction. Tune PaperConfig on hardware for the real
+    # drawing surface.
+    qmid = np.array([
+        0.5 * (lk.qlim[0] + lk.qlim[1]) if lk.qlim is not None else 0.0
+        for lk in dh_robot.links
+    ])
+    T_anchor = dh_robot.fkine(qmid)
+    if isinstance(T_anchor, np.ndarray):
+        T_anchor = sm.SE3(T_anchor)
+    anchor_m = np.array(T_anchor.t).flatten() / 1000.0  # mm -> m (torso frame)
 
     # Work on a copy of the paper config to avoid mutating the caller's config
     paper = deepcopy(config.paper)
+    if paper.height_z is None:
+        paper.height_z = float(anchor_m[2])
     if paper.center_y is None:
-        # Auto-place paper in front of the active arm (negative y is left).
-        paper.center_y = -0.34 if arm == "left" else 0.34
+        paper.center_y = float(anchor_m[1])
     if paper.start_x is None:
-        # Auto-place paper so the active arm's TCP sits at its near edge.
-        paper.start_x = float(start_pos[0] - paper.size / 2.0)
+        paper.start_x = float(anchor_m[0] - paper.size / 2.0)
 
     # Generate 3D trajectory points
     trajectory_3d = []
@@ -884,13 +946,10 @@ def sketch_to_trajectory(
 
     for i, (x, y, z, is_lift) in enumerate(trajectory_3d):
         q_sol, success = _solve_ik_point(
-            robot,
             np.array([x, y, z]),
             q_current,
-            tcp_link,
             tool_offset,
             arm_joint_indices,
-            joint_limits,
             config.ik,
             target_orientation=target_orientation,
             orientation_weight=orientation_weight,

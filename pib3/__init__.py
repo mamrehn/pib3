@@ -39,7 +39,7 @@ from .config import PaperConfig, IKConfig, ImageConfig, TrajectoryConfig, LowLat
 
 # Core functions
 from .image import image_to_sketch
-from .trajectory import Trajectory, sketch_to_trajectory
+from .trajectory import Trajectory, sketch_to_trajectory, verify_ik
 
 # Backends
 from .backends import (
@@ -99,6 +99,7 @@ __all__ = [
     "image_to_sketch",
     "sketch_to_trajectory",
     "generate_trajectory",
+    "verify_ik",
     # Backends
     "RobotBackend",
     "WebotsBackend",

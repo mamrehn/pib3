@@ -4,14 +4,17 @@ Expert-calibrated Denavit-Hartenberg parameters for the PIB humanoid robot arms.
 Based on pib_DH.py from the PIB SDK.
 
 Coordinate frames:
-    - Robot base frame: The robot's torso origin (used by CAMERA_TRANSFORM)
-    - Shoulder frame: Origin at the shoulder joint (used by DH models)
+    - Torso frame: The robot's torso origin. This is the frame IK targets are
+      expressed in (mm), matching the expert pib_DH.py / pib-sdk.
+    - The DH ``base`` transform places and orients the shoulder within the torso
+      frame; ``ikine_LM`` accounts for it automatically.
 
 Note on DHRobot.base property:
-    The expert's pib_DH.py sets DHRobot.base to position the shoulder in the
-    robot's world frame. We omit this because our IK solver gets shoulder
-    position from the URDF model instead, then passes shoulder-relative
-    targets to the DH model. This keeps DH and URDF coordinate frames separate.
+    These models set ``DHRobot.base`` exactly as the expert pib_DH.py does, so a
+    target given in torso-frame mm solves to joint angles whose *degrees map
+    directly to motor commands* (no extra offset/sign). Earlier revisions omitted
+    the base and bridged via the URDF shoulder position; that dropped the base
+    orientation and produced wrong/`unreachable` solves on the real robot.
 """
 
 from typing import Dict, Literal, Optional, Tuple
@@ -122,7 +125,7 @@ class PibLeft(DHRobot):
             links,
             name="pib_left",
             manufacturer="isento GmbH",
-            tool=tool,
+            tool=tool if tool is not None else DEFAULT_TOOL_TRANSFORM,
         )
 
         # Named configurations
@@ -132,6 +135,12 @@ class PibLeft(DHRobot):
         self.addconfiguration("q_observe", self.q_observe)
         self.q_rest = np.radians([-90, 90, 0, -40, 0, 0])
         self.addconfiguration("q_rest", self.q_rest)
+
+        # Base: position + orientation of the shoulder in the torso frame
+        # (exact expert pib_DH.py). IK targets are given in this torso frame
+        # (mm); ikine_LM applies the base internally.
+        self.base = SE3.Tz(480.5) * SE3.Tx(-7.3) * SE3.Rx(pi / 2) * SE3.Tz(-160)
+        self.base = SE3.Rz(pi) * self.base
 
 
 class PibRight(DHRobot):
@@ -163,7 +172,7 @@ class PibRight(DHRobot):
             links,
             name="pib_right",
             manufacturer="isento GmbH",
-            tool=tool,
+            tool=tool if tool is not None else DEFAULT_TOOL_TRANSFORM,
         )
 
         # Named configurations
@@ -173,6 +182,11 @@ class PibRight(DHRobot):
         self.addconfiguration("q_observe", self.q_observe)
         self.q_rest = np.radians([90, -90, 0, -40, 0, 0])
         self.addconfiguration("q_rest", self.q_rest)
+
+        # Base: position + orientation of the shoulder in the torso frame
+        # (exact expert pib_DH.py). IK targets are given in this torso frame
+        # (mm); ikine_LM applies the base internally.
+        self.base = SE3.Tz(480.5) * SE3.Tx(7.3) * SE3.Rx(pi / 2) * SE3.Tz(-160)
 
 
 # Module-level caches
@@ -190,20 +204,26 @@ def get_dh_robot(arm: Literal["left", "right"], tool_offset: SE3) -> DHRobot:
     """
     Get or create a cached DH robot for the given arm and tool offset.
 
+    The robot uses the calibrated base + tool from the expert model, so a
+    target given in torso-frame mm solves to joint degrees that map directly to
+    motor commands. The drawing ``tool_offset`` (finger tip / pencil tip) is
+    composed *after* the calibrated wrist→tooltip transform.
+
     Args:
         arm: Which arm ("left" or "right").
-        tool_offset: SE3 transform from wrist to tool tip (in meters).
+        tool_offset: Extra drawing-tool offset from the standard tooltip,
+            as an SE3 in **meters** (translation is used; converted to mm).
 
     Returns:
-        DHRobot configured with the tool offset (converted to mm).
+        DHRobot configured with base + composed tool.
     """
     tool_key = tuple(np.array(tool_offset.t).flatten().round(6))
     cache_key = (arm, tool_key)
 
     if cache_key not in _DH_ROBOT_CACHE:
-        # Convert tool offset from meters to mm
+        # Calibrated wrist→tooltip, then the drawing offset (m → mm).
         tool_t_mm = np.array(tool_offset.t).flatten() * 1000
-        tool_transform = SE3(tool_t_mm)
+        tool_transform = DEFAULT_TOOL_TRANSFORM * SE3(tool_t_mm)
 
         if arm == "left":
             _DH_ROBOT_CACHE[cache_key] = PibLeft(tool=tool_transform)

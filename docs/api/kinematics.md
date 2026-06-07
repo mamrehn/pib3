@@ -26,8 +26,9 @@ left_arm = PibLeft()
 q = [0, 0, 0, 0, 0, 0]  # 6 joint angles in radians
 T = left_arm.fkine(q)  # Returns SE3 transform
 
-# Inverse kinematics
-target = SE3.Trans(100, 0, 200)  # Target position in mm
+# Inverse kinematics — target in TORSO-frame millimetres
+# (the calibrated DH base is included, matching the expert pib-sdk)
+target = SE3.Trans(100, 0, 200)
 solution = left_arm.ikine_LM(target)
 ```
 
@@ -36,7 +37,7 @@ solution = left_arm.ikine_LM(target)
 ```python
 left_arm.q_observe  # Observation pose (arm raised, looking forward)
 left_arm.q_rest     # Rest pose (arm relaxed at side)
-left_arm.q_draw     # Drawing pose (arm extended for drawing)
+left_arm.qz         # Zero configuration (all joints at 0)
 ```
 
 ### PibRight
@@ -48,6 +49,59 @@ from pib3.dh_model import PibRight
 
 right_arm = PibRight()
 ```
+
+---
+
+## Validating Inverse Kinematics
+
+`verify_ik()` is an **offline** self-check: it solves IK for a target, then runs
+forward kinematics on the solution and returns the round-trip position error. It
+involves **no robot/hardware** — run it (with `roboticstoolbox` installed) to
+confirm the IK is correct *before* driving real motors.
+
+Targets are given in **millimetres in the torso frame** — the same frame and
+units the calibrated DH `base` uses (matching the expert pib-sdk). The returned
+joint angles are in **degrees, which map directly to motor commands**.
+
+```python
+from pib3 import verify_ik
+
+# Solve a torso-frame target, then FK the result
+q_deg, error_mm, ok = verify_ik("left", [150, 0, 350])
+
+print(ok)         # True if a solution was found
+print(error_mm)   # FK round-trip error in mm; expect ~sub-millimetre
+print(q_deg)      # 6 arm-joint angles in degrees (== motor commands)
+```
+
+A small `error_mm` means the IK is self-consistent. The returned `q_deg` should
+also match the expert SDK for the same target:
+
+```python
+# Optional cross-check against the expert pib-sdk (if installed)
+from pib_sdk.kinematics import ik
+
+print(ik("left", xyz=[150, 0, 350]))   # should match q_deg above
+```
+
+You can pass a custom tool offset or IK config:
+
+```python
+from spatialmath import SE3
+from pib3 import IKConfig, verify_ik
+
+q_deg, error_mm, ok = verify_ik(
+    "right",
+    [150, 0, 350],
+    tool_offset=SE3(0.04, -0.06, 0),       # e.g. pencil-grip tip offset (m)
+    config=IKConfig(arm="right", slimit=200),  # more restarts for hard targets
+)
+```
+
+!!! warning "Paper placement still needs hardware tuning"
+    `verify_ik` validates the IK *math* only. When generating drawing
+    trajectories, the paper geometry (`PaperConfig`, torso frame, metres) and the
+    physical surface must still be tuned on the real robot.
 
 ---
 

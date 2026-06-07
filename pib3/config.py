@@ -6,19 +6,25 @@ from typing import Dict, Literal, Optional
 
 @dataclass
 class PaperConfig:
-    """Configuration for the drawing surface (paper).
+    """Configuration for the drawing surface (paper), in the robot TORSO frame.
+
+    Coordinates are in meters in the torso frame — the frame the DH ``base`` is
+    defined in, and the frame IK targets use. Any field left as ``None`` is
+    auto-placed by ``sketch_to_trajectory`` around a reachable anchor (so the
+    paper centre is reachable by construction); override these on hardware to
+    match the real drawing surface.
 
     Attributes:
-        start_x: Paper front edge X position in meters (distance from robot).
+        start_x: Paper near-edge X (torso frame, m). None → auto from anchor.
         size: Paper width/height in meters (assumes square paper).
-        height_z: Table/paper height in meters (Z coordinate).
-        center_y: Paper center Y position. If None, auto-calculated based on arm reach.
+        height_z: Drawing-plane Z (torso frame, m). None → auto from anchor.
+        center_y: Paper center Y (torso frame, m). None → auto from anchor.
         drawing_scale: Scale factor for drawing within paper bounds (0.0-1.0).
         lift_height: Pen-up distance in meters when moving between strokes.
     """
-    start_x: float = 0.25
+    start_x: Optional[float] = None
     size: float = 0.10
-    height_z: float = 0.85
+    height_z: Optional[float] = None
     center_y: Optional[float] = None
     drawing_scale: float = 0.8
     lift_height: float = 0.03
