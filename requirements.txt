@@ -1,5 +1,5 @@
 # Core dependencies
-numpy>=1.20.0,<2.0  # roboticstoolbox/spatialmath not yet compatible with numpy 2.x
+numpy>=1.20.0  # numpy 2.x supported; pib3._compat shims attrs older rtb/spatialmath need
 Pillow>=8.0.0
 PyYAML>=5.0.0
 roboticstoolbox-python>=1.0.0
