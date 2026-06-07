@@ -110,10 +110,16 @@ class Trajectory:
         joint_names: Names of joints in order (36 for PIB).
         waypoints: Array of shape (N, num_joints) with joint positions in radians.
         metadata: Additional info (paper position, IK stats, etc.)
+        coordinate_frame: Frame the waypoints are stored in. Canonical is
+            "webots" (Webots motor radians); backends remap from this frame at
+            playback time (see RobotBackend._trajectory_to_backend_radians).
     """
     joint_names: List[str]
     waypoints: np.ndarray
     metadata: dict = field(default_factory=dict)
+    # Literal default mirrors COORDINATE_FRAME (which is defined below as a
+    # class constant, so it can't be referenced here at field-definition time).
+    coordinate_frame: str = "webots"
 
     # Constants
     FORMAT_VERSION = "1.0"
@@ -145,7 +151,14 @@ class Trajectory:
         return self.waypoints
 
     def to_robot_format(self) -> np.ndarray:
-        """Convert waypoints to real robot format (centidegrees)."""
+        """Convert waypoints to real robot format (centidegrees).
+
+        Raw unit conversion only (radians → centidegrees). It does **not**
+        apply the per-backend joint-convention remap that finger joints need
+        (Webots vs real-robot finger sign/range differ). For correct playback
+        on the real robot use ``RealRobotBackend.run_trajectory(traj)``, which
+        remaps via ``_trajectory_to_backend_radians`` before sending.
+        """
         return np.round(np.degrees(self.waypoints) * 100).astype(int)
 
     def to_json(self, path: Union[str, Path]) -> None:
@@ -153,7 +166,7 @@ class Trajectory:
         data = {
             "format_version": self.FORMAT_VERSION,
             "unit": self.UNIT,
-            "coordinate_frame": self.COORDINATE_FRAME,
+            "coordinate_frame": self.coordinate_frame,
             "joint_names": self.joint_names,
             "waypoints": self.waypoints.tolist(),
             "metadata": {
@@ -246,10 +259,13 @@ class Trajectory:
                 f"got {type(metadata).__name__}."
             )
 
+        coordinate_frame = data.get("coordinate_frame", cls.COORDINATE_FRAME)
+
         return cls(
             joint_names=joint_names,
             waypoints=waypoints,
             metadata=metadata,
+            coordinate_frame=coordinate_frame,
         )
 
     def validate(self, backend: "RobotBackend") -> List[Dict]:
@@ -266,7 +282,10 @@ class Trajectory:
         Returns:
             List of dicts, each describing a violation:
             ``{"waypoint": int, "joint": str, "value": float,
-              "min": float, "max": float}``
+              "min": float, "max": float}``. ``value``/``min``/``max`` are in
+            the backend's own joint convention (i.e. the values that will
+            actually be commanded after the playback remap), not the canonical
+            trajectory frame.
 
         Example:
             >>> traj = pib3.generate_trajectory("drawing.png")
@@ -283,6 +302,14 @@ class Trajectory:
         limits = backend._get_joint_limits()
         violations = []
 
+        # Validate the values that will actually be commanded: apply the same
+        # per-backend frame remap that run_trajectory uses, so finger joints
+        # (which differ between the canonical Webots frame and the real robot)
+        # are checked against the right convention.
+        backend_waypoints = backend._trajectory_to_backend_radians(
+            self.joint_names, self.waypoints, source_frame=self.coordinate_frame
+        )
+
         for j, name in enumerate(self.joint_names):
             joint_limits = limits.get(name)
             if joint_limits is None:
@@ -295,7 +322,7 @@ class Trajectory:
             # Handle inverted ranges (e.g. Webots finger joints where min > max)
             lo, hi = min(min_rad, max_rad), max(min_rad, max_rad)
 
-            col = self.waypoints[:, j]
+            col = backend_waypoints[:, j]
             out_of_range = np.where((col < lo - 1e-6) | (col > hi + 1e-6))[0]
             for wp_idx in out_of_range:
                 violations.append({
@@ -481,32 +508,53 @@ def _solve_ik_point(
         target_se3 = SE3(target_rel_mm)
         mask = [1, 1, 1, 0, 0, 0]
 
-    # Extract initial guess from current arm configuration
+    # Extract initial guess from current arm configuration (warm start). This
+    # is DH-space after the first successful solve and only URDF-space for the
+    # very first cold point.
     q0 = np.array([q_init[idx] for idx in arm_joint_indices])
 
-    try:
-        sol = _rtb_call_with_np_disp(
-            dh_robot.ikine_LM,
-            target_se3,
-            q0=q0,
-            mask=mask,
-            tol=config.tolerance * 1000,  # convert m tolerance to mm
-            ilimit=config.max_iterations,
-        )
+    tol_mm = max(config.tolerance * 1000.0, 1e-9)  # convert m tolerance to mm
 
-        if not sol.success:
-            return q_init, False
+    # Layered attempts — first success wins. Each later step relaxes a
+    # constraint that commonly makes ikine_LM report failure for a pose that is
+    # actually reachable:
+    #   1. warm start, respect joint limits   (the original behaviour)
+    #   2. warm start, ignore joint limits    (the conservative DH qlim — wrist
+    #      ±45°, elbow −45..90° — can block poses the hardware can reach)
+    #   3. random restarts, respect limits    (escape a bad warm-start basin)
+    #   4. random restarts, ignore limits     (last resort)
+    # ikine_LM already does up to ``slimit`` random restarts internally; the
+    # explicit q0=None attempts add restarts that don't start from the warm seed.
+    attempts = (
+        {"q0": q0, "joint_limits": True},
+        {"q0": q0, "joint_limits": False},
+        {"q0": None, "joint_limits": True},
+        {"q0": None, "joint_limits": False},
+    )
 
-        # Build full configuration with DH solution
-        q_solution = q_init.copy()
-        for i, idx in enumerate(arm_joint_indices):
-            q_solution[idx] = sol.q[i]
+    for kw in attempts:
+        try:
+            sol = _rtb_call_with_np_disp(
+                dh_robot.ikine_LM,
+                target_se3,
+                mask=mask,
+                tol=tol_mm,
+                ilimit=config.max_iterations,
+                slimit=config.slimit,
+                **kw,
+            )
+        except Exception as e:
+            logger.warning(f"IK solver exception for target {target_pos}: {e}")
+            continue
 
-        return q_solution, True
+        if getattr(sol, "success", False):
+            # Build full configuration with DH solution
+            q_solution = q_init.copy()
+            for i, idx in enumerate(arm_joint_indices):
+                q_solution[idx] = sol.q[i]
+            return q_solution, True
 
-    except Exception as e:
-        logger.warning(f"IK solver exception for target {target_pos}: {e}")
-        return q_init, False
+    return q_init, False
 
 
 def _interpolate_failed_points(

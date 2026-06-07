@@ -156,10 +156,18 @@ class RobotBackend(ABC):
     JOINT_LIMITS_FILE: str = "joint_limits_webots.yaml"
 
     # Coordinate frame a Trajectory is stored in (canonical = Webots motor
-    # radians, matching Trajectory.COORDINATE_FRAME). Used to remap trajectory
-    # joints into this backend's own joint convention at playback time — see
+    # radians, matching Trajectory.COORDINATE_FRAME). Used as the fallback
+    # source when a trajectory's coordinate_frame is unknown — see
     # _trajectory_to_backend_radians.
     TRAJECTORY_SOURCE_LIMITS_FILE: str = "joint_limits_webots.yaml"
+
+    # Maps a Trajectory.coordinate_frame name to the joint-limits file that
+    # describes that frame's joint conventions, so playback can remap a
+    # trajectory from whatever frame it was authored in into this backend's.
+    TRAJECTORY_FRAME_LIMITS: Dict[str, str] = {
+        "webots": "joint_limits_webots.yaml",
+        "robot": "joint_limits_robot.yaml",
+    }
 
     def __init__(self):
         # Networking (host/port) is a concern of networked backends only —
@@ -1482,13 +1490,16 @@ class RobotBackend(ABC):
 
         if isinstance(trajectory, (str, Path)):
             trajectory = Trajectory.from_json(trajectory)
+        assert isinstance(trajectory, Trajectory)  # narrows the union below
 
-        # Remap canonical (Webots-frame) joint angles into this backend's own
-        # joint convention, then into the backend's wire format. The remap is a
-        # no-op on Webots and for arm/head joints; it corrects finger joints on
-        # the real robot (different open/closed sign and range).
+        # Remap the trajectory's stored frame into this backend's own joint
+        # convention, then into the backend's wire format. The remap is a no-op
+        # on Webots and for arm/head joints; it corrects finger joints on the
+        # real robot (different open/closed sign and range).
         backend_radians = self._trajectory_to_backend_radians(
-            trajectory.joint_names, trajectory.waypoints
+            trajectory.joint_names,
+            trajectory.waypoints,
+            source_frame=trajectory.coordinate_frame,
         )
         waypoints = self._to_backend_format(backend_radians)
 
@@ -1503,11 +1514,12 @@ class RobotBackend(ABC):
         self,
         joint_names: List[str],
         waypoints: np.ndarray,
+        source_frame: Optional[str] = None,
     ) -> np.ndarray:
-        """Remap canonical trajectory angles into this backend's joint convention.
+        """Remap trajectory angles from their stored frame into this backend's.
 
-        Trajectories are stored in the canonical Webots motor-radian frame
-        (``Trajectory.COORDINATE_FRAME``). Arm and head joints share identical
+        Trajectories are stored in a named coordinate frame (canonical is
+        ``"webots"`` = Webots motor radians). Arm and head joints share identical
         limits across backends, so they pass through unchanged. Finger joints
         differ — Webots fingers run ``0 → +π/2`` (open → closed) while the real
         robot runs ``-π/2 → +π/2`` (closed → open) — so for those the *physical*
@@ -1519,12 +1531,18 @@ class RobotBackend(ABC):
 
         Args:
             joint_names: Joint name for each waypoint column.
-            waypoints: Array of shape (N, len(joint_names)) in canonical radians.
+            waypoints: Array of shape (N, len(joint_names)) in source-frame radians.
+            source_frame: Name of the trajectory's coordinate frame (e.g.
+                ``"webots"`` or ``"robot"``). Unknown/None falls back to the
+                canonical ``TRAJECTORY_SOURCE_LIMITS_FILE`` (Webots).
 
         Returns:
             Array of the same shape in this backend's joint convention.
         """
-        source = load_joint_limits(self.TRAJECTORY_SOURCE_LIMITS_FILE)
+        source_file = self.TRAJECTORY_FRAME_LIMITS.get(
+            (source_frame or "").lower(), self.TRAJECTORY_SOURCE_LIMITS_FILE
+        )
+        source = load_joint_limits(source_file)
         target = self._get_joint_limits()
 
         out = np.array(waypoints, dtype=np.float64, copy=True)

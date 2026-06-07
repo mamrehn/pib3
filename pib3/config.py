@@ -29,7 +29,10 @@ class IKConfig:
     """Configuration for the inverse kinematics solver.
 
     Attributes:
-        max_iterations: Maximum iterations for gradient descent.
+        max_iterations: Max iterations per IK search attempt (ikine_LM ilimit).
+        slimit: Number of search attempts with random restarts per point
+            (ikine_LM slimit). Higher values find solutions for more poses at
+            the cost of more compute on hard/unreachable targets.
         tolerance: Position tolerance in meters.
         step_size: Gradient descent step size.
         damping: Damping factor for damped least squares.
@@ -39,6 +42,7 @@ class IKConfig:
             - "pencil_grip": Clenched fist holding a pencil, tip near pinky base.
     """
     max_iterations: int = 300
+    slimit: int = 100
     tolerance: float = 0.002
     step_size: float = 0.2
     damping: float = 0.1
