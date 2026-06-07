@@ -34,14 +34,15 @@ class PaperConfig:
 class IKConfig:
     """Configuration for the inverse kinematics solver.
 
+    The solver is roboticstoolbox ``ikine_LM`` (Levenberg-Marquardt). Only
+    ``max_iterations``, ``slimit`` and ``tolerance`` affect it.
+
     Attributes:
         max_iterations: Max iterations per IK search attempt (ikine_LM ilimit).
         slimit: Number of search attempts with random restarts per point
             (ikine_LM slimit). Higher values find solutions for more poses at
             the cost of more compute on hard/unreachable targets.
         tolerance: Position tolerance in meters.
-        step_size: Gradient descent step size.
-        damping: Damping factor for damped least squares.
         arm: Which arm to use for drawing ("left" or "right").
         grip_style: Drawing grip style:
             - "index_finger": Use extended index finger as drawing tool (default).
@@ -50,8 +51,6 @@ class IKConfig:
     max_iterations: int = 300
     slimit: int = 100
     tolerance: float = 0.002
-    step_size: float = 0.2
-    damping: float = 0.1
     arm: str = "left"
     grip_style: Literal["index_finger", "pencil_grip"] = "index_finger"
 

@@ -126,16 +126,16 @@ paper = PaperConfig(
 
 ## IKConfig
 
-Tune the inverse kinematics solver:
+Tune the inverse kinematics solver (roboticstoolbox `ikine_LM` on the
+expert-calibrated DH model):
 
 ```python
 from pib3 import IKConfig
 
 ik = IKConfig(
-    max_iterations=150,  # Max gradient descent iterations
+    max_iterations=300,  # ikine_LM iterations per attempt
+    slimit=100,          # random-restart attempts per point
     tolerance=0.002,     # Position tolerance (meters)
-    step_size=0.4,       # Gradient descent step size
-    damping=0.01,        # Damping for numerical stability
     arm="left",          # Which arm to use
 )
 ```
@@ -144,11 +144,11 @@ ik = IKConfig(
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `max_iterations` | 150 | Maximum solver iterations per point |
+| `max_iterations` | 300 | `ikine_LM` iterations per search attempt |
+| `slimit` | 100 | Random-restart attempts per point (more = more poses solved) |
 | `tolerance` | 0.002 | Success if within 2mm of target |
-| `step_size` | 0.4 | How far to move each iteration |
-| `damping` | 0.01 | Prevents oscillation near singularities |
 | `arm` | "left" | Drawing arm ("left" or "right") |
+| `grip_style` | "index_finger" | "index_finger" or "pencil_grip" |
 
 ### Tuning for Better Results
 
@@ -157,21 +157,16 @@ ik = IKConfig(
 ik = IKConfig(
     max_iterations=300,
     tolerance=0.001,  # 1mm accuracy
-    step_size=0.2,    # Smaller steps
 )
 
 # Faster (less accurate)
 ik = IKConfig(
     max_iterations=50,
     tolerance=0.005,  # 5mm accuracy
-    step_size=0.6,    # Larger steps
 )
 
-# For difficult poses (near singularities)
-ik = IKConfig(
-    damping=0.05,     # More damping
-    step_size=0.2,    # Careful steps
-)
+# For hard-to-reach poses: more random restarts
+ik = IKConfig(slimit=200)
 ```
 
 ---
@@ -271,7 +266,7 @@ HIGH_QUALITY = TrajectoryConfig(
     ik=IKConfig(
         max_iterations=200,
         tolerance=0.001,
-        step_size=0.3,
+        slimit=150,
     ),
     image=ImageConfig(
         simplify_tolerance=1.0,
@@ -291,7 +286,7 @@ FAST_PREVIEW = TrajectoryConfig(
     ik=IKConfig(
         max_iterations=50,
         tolerance=0.005,
-        step_size=0.5,
+        slimit=50,
     ),
     image=ImageConfig(
         simplify_tolerance=4.0,

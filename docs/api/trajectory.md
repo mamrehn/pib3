@@ -39,11 +39,12 @@ config = TrajectoryConfig(
 )
 trajectory = pib3.generate_trajectory("drawing.png", config=config)
 
-# With visualization during IK solving
-trajectory = pib3.generate_trajectory(
-    "drawing.png",
-    visualize=True  # Ignored (Swift removed)
-)
+# Save directly while generating
+trajectory = pib3.generate_trajectory("drawing.png", output_path="output.json")
+
+# Sequential trajectories: start each IK from the previous trajectory's end pose
+traj1 = pib3.generate_trajectory("image1.png")
+traj2 = pib3.generate_trajectory("image2.png", initial_q=traj1)
 ```
 
 ---
@@ -145,6 +146,12 @@ webots_waypoints = trajectory.to_webots_format()
 robot_waypoints = trajectory.to_robot_format()
 ```
 
+!!! warning "`to_robot_format()` is a raw unit conversion"
+    It only converts radians → centidegrees; it does **not** apply the
+    per-backend finger-convention remap. For correct playback on the real robot
+    use `RealRobotBackend.run_trajectory(traj)`, which remaps finger joints
+    before sending.
+
 ### JSON Format
 
 ```json
@@ -187,16 +194,34 @@ This keeps downstream execution from failing deep inside IK or motor code with o
 
 The inverse kinematics solver uses:
 
-- **Algorithm**: Damped Least Squares (DLS) gradient descent
-- **Convergence**: Position error below tolerance
-- **Limits**: Joint limits enforced during solving
-- **Fallback**: Linear interpolation for failed points
+- **Algorithm**: Levenberg-Marquardt via roboticstoolbox `ikine_LM`, on the
+  expert-calibrated DH model (with `base` + `tool`). Targets are solved in the
+  **torso frame, in millimetres**; the returned joint degrees map directly to
+  motor commands.
+- **Robustness**: Each point is attempted in layers (warm-start → ignore joint
+  limits → random restarts), first success wins. This recovers many poses that a
+  single limited solve would report as failures.
+- **Convergence**: Position error below `tolerance`.
+- **Fallback**: Linear interpolation for points that still fail.
 
 ### Solver Parameters
 
 | Parameter | Effect |
 |-----------|--------|
-| `max_iterations` | More iterations = better accuracy, slower |
-| `tolerance` | Smaller = more precise, harder to converge |
-| `step_size` | Larger = faster convergence, risk of oscillation |
-| `damping` | Higher = more stable near singularities |
+| `max_iterations` | Iterations per search attempt (`ikine_LM` ilimit). |
+| `slimit` | Random-restart attempts per point. Higher = more poses solved, slower on hard targets. |
+| `tolerance` | Position tolerance (m). Smaller = more precise, harder to converge. |
+
+### Validating the IK
+
+Before driving real motors, sanity-check the IK **offline** (no hardware) with
+[`verify_ik`](kinematics.md#validating-inverse-kinematics). It solves a
+torso-frame target, runs forward kinematics on the result, and returns the
+round-trip position error:
+
+```python
+from pib3 import verify_ik
+
+q_deg, error_mm, ok = verify_ik("left", [150, 0, 350])  # torso-frame mm
+print(ok, round(error_mm, 3), q_deg)  # expect ok=True, sub-mm error
+```

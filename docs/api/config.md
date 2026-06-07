@@ -112,8 +112,10 @@ ik = IKConfig()
 ik = IKConfig(
     max_iterations=300,
     tolerance=0.001,  # 1mm
-    step_size=0.2,
 )
+
+# Solve more hard poses (more random restarts)
+ik = IKConfig(slimit=200)
 
 # Fast (less accurate)
 ik = IKConfig(
@@ -125,15 +127,19 @@ ik = IKConfig(
 ik = IKConfig(arm="right")
 ```
 
+The solver is roboticstoolbox `ikine_LM` (Levenberg-Marquardt) on the
+expert-calibrated DH model. Only `max_iterations`, `slimit` and `tolerance`
+affect it.
+
 ### Parameter Guide
 
 | Parameter | Default | Range | Notes |
 |-----------|---------|-------|-------|
-| `max_iterations` | 150 | 50-500 | More = slower but better |
+| `max_iterations` | 300 | 30-500 | `ikine_LM` iterations per attempt |
+| `slimit` | 100 | 50-300 | Random-restart attempts per point; higher solves more poses |
 | `tolerance` | 0.002 | 0.001-0.01 | Position accuracy (meters) |
-| `step_size` | 0.4 | 0.1-0.8 | Gradient descent step |
-| `damping` | 0.01 | 0.001-0.1 | Numerical stability |
 | `arm` | "left" | "left"/"right" | Which arm to use |
+| `grip_style` | "index_finger" | "index_finger"/"pencil_grip" | Drawing tool |
 
 ---
 

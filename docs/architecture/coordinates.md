@@ -2,7 +2,15 @@
 
 Understanding the coordinate frames used in pib3.
 
-## Robot Frame
+!!! warning "Authoritative frame: the torso frame"
+    The IK now solves directly in the **torso frame** (millimetres), matching the
+    expert pib-sdk — the calibrated DH `base` places/orients the shoulder, and
+    `PaperConfig` is expressed in that frame (metres). Some numeric examples on
+    this page predate that refactor and are illustrative only. For the source of
+    truth see [`PaperConfig`](../api/config.md#paperconfig) and
+    [Kinematics](../api/kinematics.md). In particular, `PaperConfig` has
+    `start_x` (paper near-edge), **not** `center_x`, and unset fields are
+    auto-placed around a reachable anchor.
 
 The robot uses a right-handed coordinate system:
 
@@ -69,13 +77,14 @@ Physical coordinates on the drawing paper, relative to paper center.
 - Y: Up on paper (+paper_size/2 to -paper_size/2)
 
 ```python
-# Paper coordinates (meters from paper center)
+# Paper config (torso frame, metres). Leave fields as None to auto-place
+# around a reachable anchor; set them to pin the paper for your hardware.
 from pib3 import PaperConfig
 
 config = PaperConfig(
-    center_x=0.15,   # Paper center X in robot frame
-    center_y=0.15,   # Paper center Y in robot frame
-    height_z=0.74,   # Paper surface Z in robot frame
+    start_x=None,    # paper near-edge X (None = auto)
+    center_y=None,   # paper centre Y    (None = auto)
+    height_z=None,   # drawing-plane Z   (None = auto)
     size=0.12,       # Paper is 12cm x 12cm
 )
 ```

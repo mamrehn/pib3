@@ -204,8 +204,9 @@ Get or create a cached DH robot for the given arm and tool offset.
 from pib3.dh_model import get_dh_robot
 from spatialmath import SE3
 
-# Get left arm with pen tool offset
-tool = SE3.Tz(50)  # 50mm tool in Z direction
+# Get left arm with an extra drawing-tool offset.
+# NOTE: tool_offset is in METERS (composed onto the calibrated tool).
+tool = SE3.Tz(0.05)  # 50 mm beyond the standard tooltip
 robot = get_dh_robot("left", tool)
 ```
 

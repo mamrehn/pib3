@@ -203,7 +203,7 @@ from typing import Optional
 class PaperConfig:
     """Configuration for drawing paper position."""
 
-    center_x: float = 0.15
+    start_x: float = 0.15
     center_y: float = 0.15
     height_z: float = 0.74
     size: float = 0.12

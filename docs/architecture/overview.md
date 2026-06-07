@@ -163,24 +163,36 @@ The inverse kinematics solver converts Cartesian end-effector positions to joint
 
 ### Algorithm
 
-1. **Jacobian Computation**: Calculate the geometric Jacobian for the kinematic chain from base to left index finger tip
-2. **Damped Least Squares**: Solve `Δq = J^T (JJ^T + λI)^{-1} Δx` for numerical stability
-3. **Iterative Refinement**: Repeat until position error < tolerance or max iterations
-4. **Joint Limits**: Clamp solutions to valid ranges
+The solver uses the expert-calibrated **DH model** for each arm (from
+`pib3.dh_model`), which carries a `base` transform (torso → shoulder) and a
+`tool` transform (wrist → drawing tip). Targets are expressed in the **torso
+frame, in millimetres**, matching the expert pib-sdk.
+
+1. **Target**: Map each 2-D sketch point to a 3-D torso-frame point on the paper plane.
+2. **Solve**: roboticstoolbox `ikine_LM` (Levenberg-Marquardt) on the 6 arm joints (position-only mask).
+3. **Layered retries**: warm-start → ignore joint limits → random restarts; first success wins. This recovers reachable poses that a single limited solve would reject.
+4. **Fallback**: linearly interpolate any points that still fail.
+
+The solved joint angles are in the motor convention — **degrees map directly to
+motor commands** (no per-joint sign/offset). Validate offline with
+[`verify_ik`](../api/kinematics.md#validating-inverse-kinematics).
 
 ### Kinematic Chain
 
-The solver uses the left arm chain for drawing:
+The DH solver actuates only the 6 arm joints; the `base` and `tool` transforms
+bracket them. Finger joints are **not** part of the chain — they stay at a fixed
+grip pose, and the drawing tip is reached via the `tool` transform.
 
 ```
-base_link
-  └─ shoulder_vertical_left
-       └─ shoulder_horizontal_left
-            └─ upper_arm_left_rotation
-                 └─ elbow_left
-                      └─ lower_arm_left_rotation
-                           └─ wrist_left
-                                └─ index_left_stretch (end effector)
+torso frame
+  └─ base  (torso → shoulder)
+       └─ shoulder_vertical_left
+            └─ shoulder_horizontal_left
+                 └─ upper_arm_left_rotation
+                      └─ elbow_left
+                           └─ lower_arm_left_rotation
+                                └─ wrist_left
+                                     └─ tool  (→ drawing tip = end effector)
 ```
 
 ### Configuration
@@ -189,10 +201,9 @@ base_link
 from pib3 import IKConfig
 
 config = IKConfig(
-    max_iterations=100,
-    tolerance=0.001,    # 1mm
-    damping=0.1,
-    step_size=0.5,
+    max_iterations=100,   # ikine_LM iterations per attempt
+    slimit=100,           # random-restart attempts per point
+    tolerance=0.001,      # 1 mm
 )
 ```
 
@@ -207,17 +218,17 @@ class TrajectoryConfig:
     ik: IKConfig
 
 @dataclass
-class PaperConfig:
-    center_x: float = 0.15
-    center_y: float = 0.15
-    height_z: float = 0.74
-    size: float = 0.12
+class PaperConfig:  # torso frame, metres; None fields are auto-placed
+    start_x: Optional[float] = None
+    center_y: Optional[float] = None
+    height_z: Optional[float] = None
+    size: float = 0.10
 
 @dataclass
 class IKConfig:
-    max_iterations: int = 100
-    tolerance: float = 0.001
-    damping: float = 0.1
+    max_iterations: int = 300
+    slimit: int = 100
+    tolerance: float = 0.002
 ```
 
 ## Error Handling
