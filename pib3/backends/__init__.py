@@ -29,6 +29,13 @@ from .webots_camera import (
     WebotsAISubsystem,
     RECOGNITION_MODEL,
 )
+from .sim_ai import (
+    rle_encode,
+    build_runner,
+    build_payload,
+    SimInference,
+    SIM_MODEL_ALIASES,
+)
 from .audio import (
     # Unified audio system - enums
     AudioOutput,
@@ -86,6 +93,11 @@ __all__ = [
     "WebotsCameraSubsystem",
     "WebotsAISubsystem",
     "RECOGNITION_MODEL",
+    "rle_encode",
+    "build_runner",
+    "build_payload",
+    "SimInference",
+    "SIM_MODEL_ALIASES",
     # Unified audio system - enums
     "AudioOutput",
     "AudioInput",

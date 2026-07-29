@@ -281,28 +281,46 @@ There is no buffer: Webots renders synchronously, so `get_frame()` always descri
 
 ### ai
 
-Two perception sources, selected with `set_model()`:
+Webots gives only RGB pixels, so `sim.ai` runs equivalent (or newer) models on the host and emits **the same payload dicts** the robot publishes on `/camera/ai/detections`. Those payloads go through the same `AIDetectionReceiver` and parser as real ones, so the typed results are identical — `Detection`, `HandLandmarks`, `PoseKeypoints`, buffering, `fps`, `avg_latency_ms`, `latest_only`.
 
-| Source | What it is | When to use |
+The topologies match by construction, which is what makes this a substitution rather than an approximation:
+
+| pib3 type | Convention | Simulated with |
 |---|---|---|
-| `"recognition"` (default) | Webots ground truth via the `Recognition` node — exact boxes, `confidence` always `1.0`, no model | Teaching downstream logic (debouncing, state machines, control) without perception noise in the way |
-| `"yolov8n"`, any `AIModel` | A real ultralytics model run on the simulated frames, on the host CPU | Honest latency; comparing against the real camera |
+| `PoseKeypoints` | 17 COCO keypoints | ultralytics `*-pose` |
+| `HandLandmarks` | 21 MediaPipe hand landmarks | `mediapipe` Hands |
+| `Detection` | normalized xyxy + class id | ultralytics detect / seg |
+
+Install the optional backends with `pip install "pib3[sim]"`.
 
 ```python
-sim.ai.set_model("recognition")
-for det in sim.ai.get_detections():
-    print(det.label, det.confidence, det.bbox.center)
+sim.ai.set_model("pose")                       # -> yolo11n-pose.pt
+for p in sim.ai.get_poses(latest_only=True):
+    print(p.left_shoulder, p.nose)             # same code as on the robot
+
+sim.ai.set_model("hand")                       # -> MediaPipe Hands
+for h in sim.ai.get_hand_landmarks(latest_only=True):
+    print(h.handedness, h.finger_angles.index)
+
+sim.ai.set_model("yolov8n-seg")                # masks, RLE-encoded like the robot
 ```
 
-For ground-truth recognition, objects in the **world** must opt in:
+`AIModel` names are mapped onto available weights by `SIM_MODEL_ALIASES` — where the OAK-D blob has no host equivalent, the closest current model is substituted (`mobilenet-ssd` and `yolov6n` → `yolo11n.pt`). `gaze` and `lines` have no simulated equivalent and raise a clear error.
+
+`"recognition"` (the default) is the fourth source and needs no model at all: Webots ground truth via the `Recognition` node — exact boxes, `confidence` always `1.0`. Ideal for teaching downstream logic (debouncing, state machines, control) without perception noise in the way. Objects in the **world** must opt in:
 
 - set `recognitionColors` on a Solid, otherwise it is never reported;
 - the Solid's `model` field becomes `det.label`.
 
-!!! note "COCO detectors see little in a synthetic scene"
-    A COCO-trained YOLO will detect almost nothing in an untextured Webots world. That is the world, not a bug — texture the objects, or use `"recognition"`. Classical CV (HSV masks, contours) works *better* in simulation than in reality, because a saturated primary-colour object is a perfect blob.
+Inference runs at most once per rendered frame, so polling several getters within one `step()` costs one inference.
 
-`get_hand_landmarks()` and `get_poses()` always return empty lists: those models live on the OAK-D. Use the real camera station for gesture work.
+!!! note "What synthetic imagery does and does not support"
+    A COCO-trained detector sees very little in an untextured Webots world — that is the world, not a bug. Likewise, pose and hand models need something human-shaped in the scene to find; they are most useful for **developing and debugging the pipeline** without hardware, not for judging perception quality. Two things that help: texture your objects, or project a real photo/video onto a plane in front of the camera.
+
+    Conversely, classical CV (HSV masks, contours) works *better* in simulation than in reality, because a saturated primary-colour object is a perfect blob.
+
+!!! note "Latency is honest, and that is the point"
+    `avg_latency_ms` reports real host-hardware timing, which is usually **slower** than the OAK-D's dedicated accelerator. Showing that gap is the whole argument for edge AI — do not read it as a defect of the simulation.
 
 ### Fixing the camera orientation
 

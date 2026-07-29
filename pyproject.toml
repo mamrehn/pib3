@@ -54,6 +54,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Simulated AI perception: run OAK-D-equivalent models on Webots RGB frames
+# so sim.ai returns the same typed results as robot.ai.
+#   ultralytics -> detection, pose (COCO-17), instance segmentation
+#   mediapipe   -> hand landmarks (21-point topology, as on the OAK-D)
+sim = [
+    "ultralytics>=8.0.0",
+    "mediapipe>=0.10.0",
+]
+
 # Development dependencies
 dev = [
     "pytest>=7.0.0",

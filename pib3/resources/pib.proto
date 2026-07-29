@@ -147,7 +147,12 @@ PROTO pib [
                             recognition Recognition {
                               maxRange 5.0
                               maxObjects 16
-                              occlusion TRUE
+                              # occlusion is an integer, not a boolean (it was
+                              # SFBool before R2022a): 0 = report objects even
+                              # when hidden, 1 = skip objects occluded by other
+                              # objects, 2 = also skip those occluded by the
+                              # robot itself (e.g. its own arm).
+                              occlusion 1
                             }
                           }
                           Transform {

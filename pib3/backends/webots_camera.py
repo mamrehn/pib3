@@ -34,7 +34,7 @@ import numpy as np
 
 from .camera import (
     COCO_LABELS,
-    BoundingBox,
+    AIDetectionReceiver,
     CameraFrame,
     Detection,
     HandLandmarks,
@@ -88,6 +88,8 @@ class WebotsCameraSubsystem:
         self._backend = backend
         self._device = None
         self._frame_id = 0
+        self._cached_frame: Optional[CameraFrame] = None
+        self._cached_time: float = -1.0
 
     # --- device lifecycle ---------------------------------------------
 
@@ -147,12 +149,22 @@ class WebotsCameraSubsystem:
         the current simulation step. ``timeout`` is accepted for API
         compatibility and ignored.
 
+        The frame is cached per simulation step, so calling this repeatedly
+        without a :meth:`~pib3.backends.WebotsBackend.step` returns the same
+        object (and the same ``frame_id``) instead of re-copying pixels. That
+        also lets ``ai`` skip re-running inference on an image it has already
+        seen.
+
         Returns:
             A :class:`CameraFrame` carrying a decoded BGR array, or None if
             the robot has no camera.
         """
         if not self._ensure_enabled():
             return None
+
+        now = self._sim_time()
+        if self._cached_frame is not None and now == self._cached_time:
+            return self._cached_frame
 
         raw = self._device.getImage()
         if not raw:
@@ -166,11 +178,18 @@ class WebotsCameraSubsystem:
         bgr = np.ascontiguousarray(bgra[:, :, :3])
 
         self._frame_id += 1
-        return CameraFrame.from_numpy(
+        self._cached_frame = CameraFrame.from_numpy(
             bgr,
             frame_id=self._frame_id,
             timestamp_ns=time.time_ns(),
         )
+        self._cached_time = now
+        return self._cached_frame
+
+    def _sim_time(self) -> float:
+        """Current simulation time, used to invalidate the frame cache."""
+        robot = getattr(self._backend, "_robot", None)
+        return robot.getTime() if robot is not None else 0.0
 
     def get_frames(self) -> List[CameraFrame]:
         """Current frame as a one-element list (no buffering in simulation)."""
@@ -213,10 +232,12 @@ class WebotsAISubsystem:
     def __init__(self, backend: "Any") -> None:
         self._backend = backend
         self._model_name: str = RECOGNITION_MODEL
-        self._net = None                 # lazily loaded ultralytics model
+        self._runner = None              # SimInference, for real models
         self._recognition_on = False
-        self._latencies: List[float] = []
-        self._frame_times: List[float] = []
+        # Results go through the SAME receiver the real robot feeds, so
+        # buffering, fps and latency behave identically on both backends.
+        self._receiver = AIDetectionReceiver()
+        self._last_inferred_frame = -1
 
     # --- model selection ------------------------------------------------
 
@@ -235,9 +256,10 @@ class WebotsAISubsystem:
         Choose the perception source for the simulation.
 
         Args:
-            model: ``"recognition"`` for Webots ground truth (default), or an
+            model: ``"recognition"`` for Webots ground truth (default), or any
                 ``AIModel`` / model name to run a real network on the
-                simulated frames (requires ``ultralytics``).
+                simulated frames. Detection, pose and segmentation need
+                ``ultralytics``; ``"hand"`` needs ``mediapipe``.
             timeout: Accepted for API compatibility; unused.
 
         Returns:
@@ -248,32 +270,36 @@ class WebotsAISubsystem:
             scene. If YOLO returns nothing in Webots, that is the world, not a
             bug — either texture the objects or use ``"recognition"``.
         """
-        name = getattr(model, "value", model)
-        name = str(name)
+        name = str(getattr(model, "value", model))
+
+        if self._runner is not None:
+            self._runner.close()
+            self._runner = None
 
         if name == RECOGNITION_MODEL:
             self._model_name = name
-            self._net = None
+            self._receiver.clear()
+            self._last_inferred_frame = -1
             return self._enable_recognition()
 
+        from .sim_ai import build_runner
+
         try:
-            from ultralytics import YOLO
-        except ImportError:
-            logger.error(
-                "ultralytics is not installed, so only %r is available in "
-                "simulation. Install it, or call set_model(%r).",
-                RECOGNITION_MODEL, RECOGNITION_MODEL,
-            )
+            self._runner = build_runner(name)
+        except (ImportError, ValueError) as exc:
+            logger.error("Cannot use %r in simulation: %s", name, exc)
+            return False
+        except Exception as exc:
+            logger.error("Could not load a simulated model for %r: %s", name, exc)
             return False
 
-        weights = name if name.endswith(".pt") else f"{name}.pt"
-        try:
-            self._net = YOLO(weights)
-        except Exception as exc:
-            logger.error("Could not load %s: %s", weights, exc)
-            return False
         self._model_name = name
-        logger.info("Webots AI: running %s on simulated frames (CPU)", weights)
+        self._receiver.clear()
+        self._last_inferred_frame = -1
+        logger.info(
+            "Webots AI: %r simulated with %s on host hardware",
+            name, type(self._runner).__name__,
+        )
         return True
 
     def _enable_recognition(self) -> bool:
@@ -298,40 +324,51 @@ class WebotsAISubsystem:
 
     # --- results --------------------------------------------------------
 
-    def get_detections(
-        self,
-        timeout: float = 5.0,
-        latest_only: bool = False,
-    ) -> List[Detection]:
-        """
-        Objects visible to the simulated camera.
+    def _infer_current_frame(self) -> None:
+        """Produce one robot-shaped payload for the current simulation step.
 
-        Webots renders synchronously and keeps no buffer, so this always
-        describes the current simulation step. ``timeout`` and ``latest_only``
-        are accepted for API compatibility — on this backend every call is
-        already "latest only".
-
-        Returns:
-            List of :class:`Detection`. With ground-truth recognition,
-            ``confidence`` is always 1.0.
+        Runs at most once per rendered frame: Webots is synchronous, so
+        polling three getters in one step must not pay for three inferences.
         """
+        camera = self._backend.camera
+        frame = camera.get_frame()
+        if frame is None or frame.frame_id == self._last_inferred_frame:
+            return
+        self._last_inferred_frame = frame.frame_id
+
+        from .sim_ai import build_payload
+
         started = time.perf_counter()
         if self.uses_recognition:
-            detections = self._detections_from_recognition()
+            result, model_type = self._recognition_result(), "detection"
+        elif self._runner is not None:
+            img = frame.to_numpy()
+            if img is None:
+                return
+            result, model_type = self._runner.infer(img), self._runner.model_type
         else:
-            detections = self._detections_from_network()
-        self._record_timing(started)
-        return detections
+            return
+        latency_ms = (time.perf_counter() - started) * 1000.0
 
-    def _detections_from_recognition(self) -> List[Detection]:
+        # Feed the real receiver exactly as rosbridge would on the robot.
+        self._receiver.on_detection(build_payload(
+            result=result,
+            model=self._model_name,
+            model_type=model_type,
+            frame_id=frame.frame_id,
+            latency_ms=latency_ms,
+        ))
+
+    def _recognition_result(self) -> dict:
+        """Webots ground-truth objects in the robot's detection format."""
         if not self._enable_recognition():
-            return []
+            return {"detections": []}
         camera = self._backend.camera
         device, w, h = camera.device, camera.width, camera.height
         if not w or not h:
-            return []
+            return {"detections": []}
 
-        results: List[Detection] = []
+        detections = []
         for obj in device.getRecognitionObjects():
             try:
                 cx, cy = _call_first(obj, "getPositionOnImage", "get_position_on_image")
@@ -342,85 +379,97 @@ class WebotsAISubsystem:
                 continue
 
             label = model.decode() if isinstance(model, bytes) else str(model)
-            # Webots gives centre + size in pixels; Detection wants normalized
-            # corners, matching the real backend's convention.
-            bbox = BoundingBox(
-                xmin=max(0.0, (cx - bw / 2) / w),
-                ymin=max(0.0, (cy - bh / 2) / h),
-                xmax=min(1.0, (cx + bw / 2) / w),
-                ymax=min(1.0, (cy + bh / 2) / h),
-            )
-            results.append(Detection(
-                label_id=COCO_LABELS.index(label) if label in COCO_LABELS else -1,
-                confidence=1.0,          # ground truth: the simulator knows
-                bbox=bbox,
-                label=label,
-            ))
-        return results
+            # Webots gives centre + size in pixels; the wire format wants
+            # normalized corners, a numeric `label` and a `label_name`.
+            detections.append({
+                "label": COCO_LABELS.index(label) if label in COCO_LABELS else -1,
+                "label_name": label,
+                "confidence": 1.0,        # ground truth: the simulator knows
+                "bbox": {
+                    "xmin": max(0.0, (cx - bw / 2) / w),
+                    "ymin": max(0.0, (cy - bh / 2) / h),
+                    "xmax": min(1.0, (cx + bw / 2) / w),
+                    "ymax": min(1.0, (cy + bh / 2) / h),
+                },
+            })
+        return {"detections": detections}
 
-    def _detections_from_network(self) -> List[Detection]:
-        frame = self._backend.camera.get_frame()
-        if frame is None or self._net is None:
-            return []
-        img = frame.to_numpy()
-        if img is None:
-            return []
-
-        h, w = img.shape[:2]
-        results: List[Detection] = []
-        for res in self._net(img, verbose=False):
-            names = getattr(res, "names", {})
-            for box in getattr(res, "boxes", []):
-                x1, y1, x2, y2 = (float(v) for v in box.xyxy[0].tolist())
-                cls_id = int(box.cls[0])
-                results.append(Detection(
-                    label_id=cls_id,
-                    confidence=float(box.conf[0]),
-                    bbox=BoundingBox(x1 / w, y1 / h, x2 / w, y2 / h),
-                    label=str(names.get(cls_id, "")),
-                ))
-        return results
-
-    def get_hand_landmarks(self, timeout: float = 5.0, latest_only: bool = False) -> List[HandLandmarks]:
-        """Not available in simulation — always empty.
-
-        Hand landmarks come from a dedicated model on the OAK-D. Use the real
-        camera station for gesture work; the simulation covers motion.
+    def get_detections(
+        self,
+        timeout: float = 5.0,
+        latest_only: bool = False,
+    ) -> List[Detection]:
         """
-        logger.debug("Hand landmarks are not simulated — use the real camera.")
-        return []
+        Objects visible to the simulated camera.
 
-    def get_poses(self, timeout: float = 5.0, latest_only: bool = False) -> List[PoseKeypoints]:
-        """Not available in simulation — always empty. See :meth:`get_hand_landmarks`."""
-        logger.debug("Pose keypoints are not simulated — use the real camera.")
-        return []
+        Webots renders synchronously, so results always describe the current
+        step; ``timeout`` is accepted for API compatibility and ignored.
+
+        Returns:
+            List of :class:`Detection`. With ground-truth recognition,
+            ``confidence`` is always 1.0.
+        """
+        self._infer_current_frame()
+        return self._receiver.get_detections(timeout=0.0, latest_only=latest_only)
+
+    def get_hand_landmarks(
+        self,
+        timeout: float = 5.0,
+        latest_only: bool = False,
+    ) -> List[HandLandmarks]:
+        """
+        Hand landmarks from the simulated camera — 21 points with finger angles.
+
+        Requires ``set_model("hand")`` and the ``mediapipe`` package; the
+        landmark topology matches the OAK-D's on-device hand model, so
+        ``hand.finger_angles`` behaves the same on both backends.
+
+        Returns an empty list under ``"recognition"``, which knows about
+        objects but not about hands.
+        """
+        self._infer_current_frame()
+        return self._receiver.get_hand_landmarks(timeout=0.0, latest_only=latest_only)
+
+    def get_poses(
+        self,
+        timeout: float = 5.0,
+        latest_only: bool = False,
+    ) -> List[PoseKeypoints]:
+        """
+        Body poses from the simulated camera — 17 COCO keypoints.
+
+        Requires ``set_model("pose")`` and the ``ultralytics`` package. The
+        keypoint order is the same COCO convention the robot publishes, so
+        ``pose.left_shoulder`` and friends work unchanged.
+        """
+        self._infer_current_frame()
+        return self._receiver.get_poses(timeout=0.0, latest_only=latest_only)
 
     # --- metrics ---------------------------------------------------------
 
-    def _record_timing(self, started: float) -> None:
-        self._latencies.append((time.perf_counter() - started) * 1000.0)
-        self._frame_times.append(time.perf_counter())
-        del self._latencies[:-30]
-        del self._frame_times[:-30]
-
     @property
     def fps(self) -> float:
-        """Rate at which *you* are polling detections (not a camera FPS)."""
-        if len(self._frame_times) < 2:
-            return 0.0
-        span = self._frame_times[-1] - self._frame_times[0]
-        return (len(self._frame_times) - 1) / span if span > 1e-3 else 0.0
+        """Inference rate, measured the same way as on the real robot."""
+        return self._receiver.fps
 
     @property
     def avg_latency_ms(self) -> float:
-        """Average time spent producing detections, in milliseconds."""
-        return sum(self._latencies) / len(self._latencies) if self._latencies else 0.0
+        """
+        Average inference latency in milliseconds.
+
+        Honest host-hardware timing — usually *slower* than the OAK-D's
+        dedicated accelerator. That gap is worth showing rather than hiding:
+        it is the whole argument for edge AI.
+        """
+        return self._receiver.avg_latency_ms
 
     def clear(self) -> None:
-        """No-op: simulation keeps no result buffer."""
+        """Drop buffered results."""
+        self._receiver.clear()
+        self._last_inferred_frame = -1
 
     def stop(self) -> None:
-        """Disable recognition and drop any loaded network."""
+        """Disable recognition and release any loaded model."""
         camera = self._backend.camera
         if self._recognition_on and camera.device is not None:
             try:
@@ -428,4 +477,6 @@ class WebotsAISubsystem:
             except Exception:
                 pass
         self._recognition_on = False
-        self._net = None
+        if self._runner is not None:
+            self._runner.close()
+            self._runner = None
