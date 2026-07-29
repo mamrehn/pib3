@@ -142,6 +142,12 @@ class RobotBackend(ABC):
     # Default tolerance for verification (degrees)
     DEFAULT_VERIFY_TOLERANCE_DEG = 3.0  # 3 degrees
 
+    # Speed (deg/s) used by go_home() when the caller passes none. None means
+    # "backend default". Homing is the one motion that starts from a *fully
+    # unknown* pose, so backends whose joints can hang loose at power-on
+    # override this with a conservative value (see RealRobotBackend).
+    DEFAULT_HOME_SPEED: Optional[float] = None
+
     # Stability / race-avoidance knobs for position verification and sensor reads
     STABILITY_CONSECUTIVE_READS = 2
     STABILITY_THRESHOLD_RAD = 1e-4
@@ -959,7 +965,12 @@ class RobotBackend(ABC):
                 pass
         return result
 
-    def go_home(self, async_: bool = False, timeout: float = 5.0) -> bool:
+    def go_home(
+        self,
+        async_: bool = False,
+        timeout: float = 20.0,
+        speed: Optional[float] = None,
+    ) -> bool:
         """
         Move all joints to the neutral starting position (0 radians).
 
@@ -976,19 +987,47 @@ class RobotBackend(ABC):
             the real robot into the same defined pose the simulator starts in
             (in direct mode this also enables/holds the servos).
 
+        Warning:
+            Homing is the only motion that starts from a **fully unknown**
+            pose: on the real robot the arms hang loose, so every joint may
+            travel its whole range at once. ``RealRobotBackend`` therefore
+            homes *very* slowly by default (``DEFAULT_HOME_SPEED`` = 10 deg/s,
+            vs ~150 deg/s for normal motion), so the worst case — 90 deg to
+            zero — takes about 9 seconds. Keep people clear of the arm radius
+            before calling this, and only raise the speed deliberately.
+
         Args:
             async_: If True, return immediately without waiting.
-            timeout: Max wait time when async_=False (seconds).
+            timeout: Max wait time when async_=False (seconds). The default of
+                20 s covers a full-range home at ``DEFAULT_HOME_SPEED`` with
+                margin; raise it if you lower the speed further.
+            speed: Movement speed in degrees/second. ``None`` (default) uses
+                the backend's ``DEFAULT_HOME_SPEED``, falling back to the
+                backend's normal motion speed when that is ``None``.
+
+                .. note::
+                   On the Tinkerforge direct path this rewrites shared servo
+                   motion config — see :meth:`set_joints` for the stickiness
+                   caveat. Later calls that omit ``speed`` keep homing's value,
+                   which errs on the safe (slow) side.
 
         Returns:
             True if all joints reached home (or command sent if async_).
 
         Example:
             >>> with backend as robot:
-            ...     robot.go_home()  # All joints to 0 radians
+            ...     robot.go_home()             # all joints to 0 rad, safe speed
+            ...     robot.go_home(speed=90.0)   # deliberately faster
         """
         home = {name: 0.0 for name in self.MOTOR_NAMES}
-        return self.set_joints(home, unit="rad", async_=async_, timeout=timeout)
+        effective_speed = speed if speed is not None else self.DEFAULT_HOME_SPEED
+        return self.set_joints(
+            home,
+            unit="rad",
+            async_=async_,
+            timeout=timeout,
+            speed=effective_speed,
+        )
 
     # --- Emergency Stop ---
 

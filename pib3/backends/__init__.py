@@ -24,6 +24,11 @@ from .camera import (
     # Constants
     COCO_LABELS,
 )
+from .webots_camera import (
+    WebotsCameraSubsystem,
+    WebotsAISubsystem,
+    RECOGNITION_MODEL,
+)
 from .audio import (
     # Unified audio system - enums
     AudioOutput,
@@ -77,6 +82,10 @@ __all__ = [
     # Camera/AI utilities
     "parse_ai_result",
     "COCO_LABELS",
+    # Simulated perception (Webots)
+    "WebotsCameraSubsystem",
+    "WebotsAISubsystem",
+    "RECOGNITION_MODEL",
     # Unified audio system - enums
     "AudioOutput",
     "AudioInput",

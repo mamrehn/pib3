@@ -450,14 +450,20 @@ For symmetric joints the value is ~50%, but asymmetric joints (e.g. elbow: −45
 Move all joints to their home position (0 radians — Webots proto zero / real-robot servo midpoint).
 
 ```python
-def go_home(self, async_: bool = False, timeout: float = 5.0) -> bool
+def go_home(self, async_: bool = False, timeout: float = 20.0, speed: Optional[float] = None) -> bool
 ```
 
 Equivalent to `set_joints({...: 0.0}, unit="rad")` for every motor in `MOTOR_NAMES`.
 
+!!! warning "Homing starts from an unknown pose"
+    The real robot powers on with its servos **un-driven** — the arms hang loose — so homing may swing every joint through its full range at once. `RealRobotBackend` therefore homes *very* slowly: `DEFAULT_HOME_SPEED` is 10 deg/s, against ~150 deg/s for normal motion, so the worst case (90° to zero) takes about 9 seconds. Clear the arm radius before calling it.
+
+`speed=None` (default) uses the backend's `DEFAULT_HOME_SPEED`; `WebotsBackend` leaves this at `None` (simulation starts already at zero, so there is nothing to swing).
+
 ```python
 with backend as robot:
-    robot.go_home()
+    robot.go_home()             # all joints to 0 rad, at the safe homing speed
+    robot.go_home(speed=90.0)   # deliberately faster
 ```
 
 ---

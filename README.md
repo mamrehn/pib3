@@ -117,20 +117,33 @@ trajectory.to_json("output.json")
 ### Camera & AI Vision
 
 ```python
-from pib3 import Robot
+from pib3 import Robot, AIModel
 
 with Robot(host="172.26.34.149") as robot:
     # Stream camera frames
     sub = robot.subscribe_camera_image(lambda jpeg: print(f"{len(jpeg)} bytes"))
     sub.unsubscribe()
 
-    # AI object detection
-    def on_detection(data):
-        for det in data.get('result', {}).get('detections', []):
-            print(f"{det['label']}: {det['confidence']:.0%}")
-    
-    sub = robot.subscribe_ai_detections(on_detection)
+    # AI object detection — typed results, labels resolved to COCO names
+    robot.ai.set_model(AIModel.YOLOV8N)
+    for det in robot.ai.get_detections():
+        print(f"{det.label}: {det.confidence:.0%} at {det.bbox}")
 ```
+
+> **Note — `label` on the raw topic is a class *ID*, not a name.** If you
+> subscribe with `subscribe_ai_detections()` directly, `det['label']` is an
+> integer (`0` = person, `41` = cup, …) and the readable name is in the
+> optional `label_name` field. `robot.ai` / `AIDetectionReceiver` wrap this in
+> a `Detection` and resolve the name from `COCO_LABELS` for you, so prefer
+> them unless you need the raw payload:
+>
+> ```python
+> def on_detection(data):
+>     for det in data.get('result', {}).get('detections', []):
+>         print(f"class {det['label']}: {det['confidence']:.0%}")  # numeric ID
+>
+> sub = robot.subscribe_ai_detections(on_detection)
+> ```
 
 ### IMU Sensors
 

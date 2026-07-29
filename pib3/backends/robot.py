@@ -205,6 +205,15 @@ class RealRobotBackend(RobotBackend):
     DEFAULT_MOTION_ACCELERATION = 15000
     DEFAULT_MOTION_DECELERATION = 15000
 
+    # Speed (deg/s) for go_home(). The real robot powers on with un-driven
+    # servos — the arms hang loose — so homing can swing every joint through
+    # its full range at once, from a pose the caller has not seen. This is
+    # deliberately *very* slow: 10 deg/s is 1/15th of DEFAULT_MOTION_VELOCITY,
+    # so the worst case (90 deg to zero on any joint) takes ~9 s — slow enough
+    # to watch, react to, and step away from. Pass an explicit speed= to
+    # override when you know the starting pose.
+    DEFAULT_HOME_SPEED = 10.0
+
     def __init__(
         self,
         host: str = "172.26.34.149",

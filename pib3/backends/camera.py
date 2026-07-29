@@ -574,8 +574,14 @@ class CameraFrame:
     """
     Single camera frame with metadata.
 
+    A frame carries either encoded JPEG bytes (the real robot streams MJPEG)
+    or an already-decoded BGR array (the Webots camera hands over raw pixels).
+    ``to_numpy()`` works either way, so consumer code does not care which
+    backend produced the frame.
+
     Attributes:
-        jpeg_bytes: Raw JPEG image data
+        jpeg_bytes: Raw JPEG image data. Empty for frames built by
+            :meth:`from_numpy` — use :meth:`to_jpeg` if you need encoded bytes.
         frame_id: Sequential frame number
         timestamp_ns: Timestamp in nanoseconds
         timestamp: Timestamp as float seconds
@@ -583,6 +589,34 @@ class CameraFrame:
     jpeg_bytes: bytes
     frame_id: int = 0
     timestamp_ns: int = 0
+    # Pre-decoded BGR image, set when the source already had raw pixels.
+    # Excluded from repr/eq so frames stay cheap to print and compare.
+    array: Optional[np.ndarray] = field(default=None, repr=False, compare=False)
+
+    @classmethod
+    def from_numpy(
+        cls,
+        bgr: np.ndarray,
+        frame_id: int = 0,
+        timestamp_ns: int = 0,
+    ) -> "CameraFrame":
+        """
+        Build a frame from an already-decoded BGR array.
+
+        Used by backends whose camera is not an MJPEG stream (e.g. Webots),
+        so no encode/decode round-trip is needed. ``jpeg_bytes`` stays empty.
+
+        Args:
+            bgr: HxWx3 image in BGR channel order (OpenCV convention).
+            frame_id: Sequential frame number.
+            timestamp_ns: Timestamp in nanoseconds.
+        """
+        return cls(
+            jpeg_bytes=b"",
+            frame_id=frame_id,
+            timestamp_ns=timestamp_ns,
+            array=bgr,
+        )
 
     @property
     def timestamp(self) -> float:
@@ -591,11 +625,16 @@ class CameraFrame:
 
     def to_numpy(self) -> Optional[np.ndarray]:
         """
-        Decode JPEG to numpy array (requires cv2).
+        Get the frame as a BGR numpy array.
+
+        Returns the pre-decoded array if the frame carries one, otherwise
+        decodes ``jpeg_bytes`` (requires cv2).
 
         Returns:
             BGR image as numpy array, or None if decoding fails.
         """
+        if self.array is not None:
+            return self.array
         try:
             import cv2
             nparr = np.frombuffer(self.jpeg_bytes, np.uint8)
@@ -605,6 +644,33 @@ class CameraFrame:
             return None
         except Exception as e:
             logger.warning(f"Failed to decode JPEG: {e}")
+            return None
+
+    def to_jpeg(self, quality: int = 90) -> Optional[bytes]:
+        """
+        Get the frame as JPEG bytes, encoding on demand if necessary.
+
+        Args:
+            quality: JPEG quality 1-100, used only when encoding is needed.
+
+        Returns:
+            JPEG bytes, or None if encoding fails.
+        """
+        if self.jpeg_bytes:
+            return self.jpeg_bytes
+        if self.array is None:
+            return None
+        try:
+            import cv2
+            ok, buf = cv2.imencode(
+                ".jpg", self.array, [int(cv2.IMWRITE_JPEG_QUALITY), quality]
+            )
+            return buf.tobytes() if ok else None
+        except ImportError:
+            logger.warning("OpenCV not installed. Cannot encode JPEG.")
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to encode JPEG: {e}")
             return None
 
 
@@ -800,84 +866,125 @@ class AIDetectionReceiver:
                 return self._results[-1]
             return None
 
-    def get_detections(self, timeout: float = 5.0) -> List[Detection]:
+    def _results_snapshot(self, latest_only: bool) -> List[dict]:
+        """Copy the buffered results to iterate outside the lock.
+
+        With ``latest_only`` this is at most one entry: the newest frame.
+        """
+        with self._lock:
+            if not self._results:
+                return []
+            if latest_only:
+                return [self._results[-1]]
+            return list(self._results)
+
+    def get_detections(
+        self,
+        timeout: float = 5.0,
+        latest_only: bool = False,
+    ) -> List[Detection]:
         """
         Get buffered object detections.
 
         Waits automatically if no results are available yet.
 
+        Warning:
+            By default this returns detections from **every buffered frame**
+            (up to ``max_buffer``), not from the current one. In a polling
+            loop the same physical object therefore appears once per buffered
+            frame — counting them would count it many times over. Use
+            ``latest_only=True`` for "what does the camera see *right now*",
+            which is what control loops want, or call :meth:`clear` after each
+            poll if you want to consume every frame exactly once.
+
         Args:
             timeout: How long to wait for results if buffer is empty.
                      Use timeout=0 for immediate (non-blocking) return.
+            latest_only: Return results from the newest frame only.
 
         Returns:
             List of Detection objects (may be empty if timeout=0 and no data).
         """
         self._wait_for_data(timeout)
         detections = []
-        with self._lock:
-            for result in self._results:
-                if result.get("type") == "detection":
-                    for det_dict in result.get("result", {}).get("detections", []):
-                        detections.append(Detection.from_dict(det_dict))
+        for result in self._results_snapshot(latest_only):
+            if result.get("type") == "detection":
+                for det_dict in result.get("result", {}).get("detections", []):
+                    detections.append(Detection.from_dict(det_dict))
         return detections
 
-    def get_hand_landmarks(self, timeout: float = 5.0) -> List[HandLandmarks]:
+    def get_hand_landmarks(
+        self,
+        timeout: float = 5.0,
+        latest_only: bool = False,
+    ) -> List[HandLandmarks]:
         """
         Get buffered hand tracking results.
 
         Waits automatically if no results are available yet.
 
+        Warning:
+            Returns every buffered frame by default — see
+            :meth:`get_detections` for why that double-counts in a loop.
+
         Args:
             timeout: How long to wait for results if buffer is empty.
                      Use timeout=0 for immediate (non-blocking) return.
+            latest_only: Return results from the newest frame only.
 
         Returns:
             List of HandLandmarks objects with finger angles.
         """
         self._wait_for_data(timeout)
         hands = []
-        with self._lock:
-            for result in self._results:
-                if result.get("type") == "hand":
-                    res = result.get("result", {})
-                    keypoints = res.get("keypoints", [])
-                    if keypoints:
-                        hands.append(HandLandmarks.from_keypoints_list(
-                            keypoints, handedness=res.get("handedness")
-                        ))
+        for result in self._results_snapshot(latest_only):
+            if result.get("type") == "hand":
+                res = result.get("result", {})
+                keypoints = res.get("keypoints", [])
+                if keypoints:
+                    hands.append(HandLandmarks.from_keypoints_list(
+                        keypoints, handedness=res.get("handedness")
+                    ))
         return hands
 
-    def get_poses(self, timeout: float = 5.0) -> List[PoseKeypoints]:
+    def get_poses(
+        self,
+        timeout: float = 5.0,
+        latest_only: bool = False,
+    ) -> List[PoseKeypoints]:
         """
         Get buffered pose estimation results.
 
         Waits automatically if no results are available yet.
 
+        Warning:
+            Returns every buffered frame by default — see
+            :meth:`get_detections` for why that double-counts in a loop.
+
         Args:
             timeout: How long to wait for results if buffer is empty.
                      Use timeout=0 for immediate (non-blocking) return.
+            latest_only: Return results from the newest frame only.
 
         Returns:
             List of PoseKeypoints objects.
         """
         self._wait_for_data(timeout)
         poses = []
-        with self._lock:
-            for result in self._results:
-                if result.get("type") == "pose":
-                    # Handle both formats: keypoints list or detections with keypoints
-                    res = result.get("result", {})
+        for result in self._results_snapshot(latest_only):
+            if result.get("type") == "pose":
+                # Handle both formats: keypoints list or detections with keypoints
+                res = result.get("result", {})
 
-                    if "keypoints" in res:
-                        poses.append(PoseKeypoints.from_keypoints_list(res["keypoints"]))
-                    elif "detections" in res:
-                        for det in res["detections"]:
-                            if "keypoints" in det:
-                                poses.append(PoseKeypoints.from_keypoints_list(
-                                    det["keypoints"],
-                                    bbox=det.get("bbox")
-                                ))
+                if "keypoints" in res:
+                    poses.append(PoseKeypoints.from_keypoints_list(res["keypoints"]))
+                elif "detections" in res:
+                    for det in res["detections"]:
+                        if "keypoints" in det:
+                            poses.append(PoseKeypoints.from_keypoints_list(
+                                det["keypoints"],
+                                bbox=det.get("bbox")
+                            ))
         return poses
 
     def clear(self) -> None:
@@ -972,57 +1079,90 @@ class AISubsystem:
         """Average inference latency in milliseconds."""
         return self._receiver.avg_latency_ms
 
-    def get_detections(self, timeout: float = 5.0) -> List[Detection]:
+    def get_detections(
+        self,
+        timeout: float = 5.0,
+        latest_only: bool = False,
+    ) -> List[Detection]:
         """
         Get object detections from detection models (YOLO, MobileNet-SSD, etc.).
 
         Waits automatically for results if buffer is empty.
 
+        Warning:
+            Defaults to **every buffered frame**, not the current one — in a
+            polling loop each object reappears once per buffered frame. Pass
+            ``latest_only=True`` for "what is in front of the camera right
+            now", which is what control loops and counters want.
+
         Args:
             timeout: How long to wait for results. Use 0 for non-blocking.
+            latest_only: Return results from the newest frame only.
 
         Returns:
             List of Detection objects.
+
+        Example:
+            >>> robot.ai.set_model(AIModel.YOLOV8N)
+            >>> while True:  # control loop: only ever the current frame
+            ...     for det in robot.ai.get_detections(timeout=0, latest_only=True):
+            ...         print(f"{det.label}: {det.confidence:.0%}")
         """
         self._ensure_subscribed()
-        return self._receiver.get_detections(timeout)
+        return self._receiver.get_detections(timeout, latest_only=latest_only)
 
-    def get_hand_landmarks(self, timeout: float = 5.0) -> List[HandLandmarks]:
+    def get_hand_landmarks(
+        self,
+        timeout: float = 5.0,
+        latest_only: bool = False,
+    ) -> List[HandLandmarks]:
         """
         Get hand tracking results with finger angles.
 
         Waits automatically for results if buffer is empty.
 
+        Warning:
+            Defaults to every buffered frame — see :meth:`get_detections`.
+
         Args:
             timeout: How long to wait for results. Use 0 for non-blocking.
+            latest_only: Return results from the newest frame only.
 
         Returns:
             List of HandLandmarks objects with finger angles.
 
         Example:
             >>> robot.ai.set_model(AIModel.HAND)
-            >>> for hand in robot.ai.get_hand_landmarks():
+            >>> for hand in robot.ai.get_hand_landmarks(latest_only=True):
             ...     print(f"{hand.handedness}: index={hand.finger_angles.index:.0f}°")
             ...     servos = hand.finger_angles.to_servo_values()
             ...     robot.set_joints({"index_left_stretch": servos["index"]})
         """
         self._ensure_subscribed()
-        return self._receiver.get_hand_landmarks(timeout)
+        return self._receiver.get_hand_landmarks(timeout, latest_only=latest_only)
 
-    def get_poses(self, timeout: float = 5.0) -> List[PoseKeypoints]:
+    def get_poses(
+        self,
+        timeout: float = 5.0,
+        latest_only: bool = False,
+    ) -> List[PoseKeypoints]:
         """
         Get body pose estimation results.
 
         Waits automatically for results if buffer is empty.
 
+        Warning:
+            Defaults to every buffered frame — see :meth:`get_detections`.
+
         Args:
             timeout: How long to wait for results. Use 0 for non-blocking.
+            latest_only: Return results from the newest frame only.
 
         Returns:
             List of PoseKeypoints objects.
         """
         self._ensure_subscribed()
-        return self._receiver.get_poses(timeout)
+        return self._receiver.get_poses(timeout, latest_only=latest_only)
 
     def clear(self) -> None:
         """Clear buffered results."""

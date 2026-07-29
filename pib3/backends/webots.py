@@ -111,11 +111,55 @@ class WebotsBackend(RobotBackend):
         self._timestep = None
         self._motors: Dict[str, Any] = {}
         self._proximal_motors: Dict[str, Any] = {}
+        # Perception subsystems (lazy, mirroring RealRobotBackend.camera/.ai)
+        self._camera_subsystem = None
+        self._ai_subsystem = None
         # Per-joint offsets: the initial position of each joint at simulation
         # start (base position at timepoint zero).  Webots setPosition() is
         # relative to this base, so we subtract the offset when commanding
         # and add it back when reading.
         self._home_offsets: Dict[str, float] = {}
+
+    # ==================== SUBSYSTEM PROPERTIES ====================
+
+    @property
+    def camera(self):
+        """
+        RGB camera of the simulated robot — same contract as ``robot.camera``.
+
+        The camera is mounted on the head in ``pib.proto``, so its view follows
+        ``turn_head_motor`` and ``tilt_forward_motor``. That is what makes
+        visual servoing in simulation a genuinely closed loop.
+
+        Example:
+            >>> frame = sim.camera.get_frame()
+            >>> img = frame.to_numpy()      # BGR, ready for OpenCV
+        """
+        if self._camera_subsystem is None:
+            from .webots_camera import WebotsCameraSubsystem
+            self._camera_subsystem = WebotsCameraSubsystem(self)
+        return self._camera_subsystem
+
+    @property
+    def ai(self):
+        """
+        AI perception for the simulated robot — same contract as ``robot.ai``.
+
+        Defaults to Webots ground-truth ``Recognition`` (perfect, instant, no
+        model). Call ``sim.ai.set_model("yolov8n")`` to run a real network on
+        the simulated frames instead.
+
+        Hand and pose models are **not** simulated: they live on the OAK-D.
+        ``get_hand_landmarks()`` / ``get_poses()` return empty lists.
+
+        Example:
+            >>> for det in sim.ai.get_detections():
+            ...     print(det.label, det.bbox.center)
+        """
+        if self._ai_subsystem is None:
+            from .webots_camera import WebotsAISubsystem
+            self._ai_subsystem = WebotsAISubsystem(self)
+        return self._ai_subsystem
 
     def _to_backend_format(self, radians: np.ndarray) -> np.ndarray:
         """Convert absolute radians to Webots-relative positions.
@@ -266,6 +310,36 @@ class WebotsBackend(RobotBackend):
     def is_connected(self) -> bool:
         """Check if robot is initialized."""
         return self._robot is not None
+
+    def step(self, duration_ms: Optional[int] = None) -> bool:
+        """
+        Advance the simulation by one time step.
+
+        Motion calls (``set_joint``, ``run_trajectory``, …) step the simulator
+        themselves, so most code never needs this. A **perception loop does**:
+        the camera only renders a new image when simulated time moves forward.
+        Without a ``step()`` the same frame is returned forever and the loop
+        spins on stale data.
+
+        Args:
+            duration_ms: Milliseconds to advance. Defaults to the world's
+                basic time step.
+
+        Returns:
+            True to keep going, False when Webots has asked the controller to
+            terminate (window closed, simulation reset) — use it as the loop
+            condition.
+
+        Example:
+            >>> with pib3.Webots() as sim:
+            ...     while sim.step():
+            ...         for det in sim.ai.get_detections():
+            ...             sim.set_joint(Joint.TURN_HEAD, ..., async_=True)
+        """
+        if not self.is_connected:
+            return False
+        ms = int(duration_ms if duration_ms is not None else self._timestep)
+        return self._robot.step(ms) != -1
 
     # Default timeout for waiting for motor stabilization (seconds)
     DEFAULT_GET_JOINTS_TIMEOUT = 5.0

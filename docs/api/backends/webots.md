@@ -251,6 +251,89 @@ def get_joints(
 
 ---
 
+## Simulated Perception
+
+The pib proto carries a `Camera` mounted on `urdf_camera_link`, a child of the head. Its view therefore follows `turn_head_motor` and `tilt_forward_motor` — which is what makes visual servoing in simulation a genuinely **closed** loop, rather than a controller driving against a picture that never changes.
+
+`WebotsBackend` exposes the same `camera` and `ai` contract as `RealRobotBackend`, so perception code ports between the two unchanged.
+
+### step()
+
+```python
+def step(self, duration_ms: Optional[int] = None) -> bool
+```
+
+Advance the simulation by one time step. Returns `False` when Webots asks the controller to terminate, so it reads naturally as a loop condition.
+
+!!! warning "Perception loops must step"
+    Motion calls step the simulator themselves, but a loop that only *reads* does not. The camera renders a new image only when simulated time moves forward — without `step()` you get the same frame forever and the loop spins on stale data.
+
+### camera
+
+```python
+frame = sim.camera.get_frame()      # CameraFrame, or None before first render
+img   = frame.to_numpy()            # HxWx3 BGR, ready for OpenCV
+```
+
+Webots delivers BGRA, so the backend drops alpha and hands back BGR with no encode/decode round-trip — `CameraFrame.from_numpy()` carries the array directly and `jpeg_bytes` stays empty. Call `frame.to_jpeg()` if you need encoded bytes.
+
+There is no buffer: Webots renders synchronously, so `get_frame()` always describes the current step. `timeout` is accepted for API compatibility and ignored, and `configure()` is a no-op — resolution and field of view belong to the `Camera` node in the proto.
+
+### ai
+
+Two perception sources, selected with `set_model()`:
+
+| Source | What it is | When to use |
+|---|---|---|
+| `"recognition"` (default) | Webots ground truth via the `Recognition` node — exact boxes, `confidence` always `1.0`, no model | Teaching downstream logic (debouncing, state machines, control) without perception noise in the way |
+| `"yolov8n"`, any `AIModel` | A real ultralytics model run on the simulated frames, on the host CPU | Honest latency; comparing against the real camera |
+
+```python
+sim.ai.set_model("recognition")
+for det in sim.ai.get_detections():
+    print(det.label, det.confidence, det.bbox.center)
+```
+
+For ground-truth recognition, objects in the **world** must opt in:
+
+- set `recognitionColors` on a Solid, otherwise it is never reported;
+- the Solid's `model` field becomes `det.label`.
+
+!!! note "COCO detectors see little in a synthetic scene"
+    A COCO-trained YOLO will detect almost nothing in an untextured Webots world. That is the world, not a bug — texture the objects, or use `"recognition"`. Classical CV (HSV masks, contours) works *better* in simulation than in reality, because a saturated primary-colour object is a perfect blob.
+
+`get_hand_landmarks()` and `get_poses()` always return empty lists: those models live on the OAK-D. Use the real camera station for gesture work.
+
+### Fixing the camera orientation
+
+Webots cameras look along their own **+x** axis (+y left, +z up). The proto aims that axis out of the robot's face, but the composed frame of `urdf_camera_link` makes this easy to get wrong. If your first frame shows the inside of the head, the ceiling, or the floor, change **one line** — the `rotation` of the `Camera` node in `pib3/resources/pib.proto`:
+
+```
+Camera {
+  name "camera"
+  translation 0.000000 0.108232 0.095400
+  rotation 0.577350 0.577350 0.577350 2.094395   # <- this line
+  ...
+}
+```
+
+Quickest way to check: run a controller that saves one frame, and confirm the view turns *with* the head.
+
+```python
+with pib3.Webots() as sim:
+    for _ in range(10):
+        sim.step()
+    frame = sim.camera.get_frame()
+    cv2.imwrite("view.png", frame.to_numpy())
+    sim.set_joint(Joint.TURN_HEAD, 80.0)
+    frame = sim.camera.get_frame()
+    cv2.imwrite("view_turned.png", frame.to_numpy())
+```
+
+If the two images are identical, the camera is not on the head. If the scene looks wrong, adjust the rotation above.
+
+---
+
 ## Trajectory Execution
 
 ### run_trajectory()

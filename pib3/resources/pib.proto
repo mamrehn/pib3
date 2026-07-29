@@ -121,6 +121,35 @@ PROTO pib [
                         translation -0.047400 0.001268 -0.042000
                         rotation 0.000000 1.000000 -0.000000 1.570796
                         children [
+                          # --- Simulated OAK-D Lite RGB camera -------------
+                          # Sits on urdf_camera_link, which is a child of
+                          # urdf_head, so the view follows head_horizontal and
+                          # head_vertical. That inheritance is what makes
+                          # visual servoing in simulation a *closed* loop.
+                          #
+                          # ORIENTATION: Webots cameras look along their own
+                          # +x axis (+y left, +z up). The rotation below aims
+                          # that axis out of the robot's face. If your first
+                          # frame shows the inside of the head or the ceiling,
+                          # this single line is what to adjust — see
+                          # docs/api/backends/webots.md.
+                          Camera {
+                            name "camera"
+                            translation 0.000000 0.108232 0.095400
+                            rotation 0.577350 0.577350 0.577350 2.094395
+                            fieldOfView 1.089000   # ~62 deg, close to OAK-D Lite RGB
+                            width 640
+                            height 400
+                            near 0.05
+                            # Ground-truth object recognition. Only Solids that
+                            # define recognitionColors are reported; the Solid's
+                            # `model` field becomes the detection label.
+                            recognition Recognition {
+                              maxRange 5.0
+                              maxObjects 16
+                              occlusion TRUE
+                            }
+                          }
                           Transform {
                             translation -0.000250 0.108232 0.095400
                             rotation 1.000000 0.000000 -0.000000 1.570796
