@@ -170,6 +170,40 @@ class WebotsBackend(RobotBackend):
         # After reset they are all 0 so this is effectively a no-op.
         return radians
 
+    # Excursions smaller than this are floating-point residue, not intent:
+    # clamp them silently. 1e-6 rad is 6e-5 degrees.
+    POSITION_EPSILON_RAD = 1e-6
+
+    @classmethod
+    def _set_motor_position(cls, motor, value: float, name: str = "") -> None:
+        """``motor.setPosition``, clamped to the motor's declared limits.
+
+        Webots prints a console warning for any target outside
+        ``[minPosition, maxPosition]``, however slightly. The offset
+        arithmetic here (``target - home_offset``) routinely lands a few
+        1e-10 past a limit — numerically zero, but enough to emit one warning
+        per finger on every ``go_home()``, which buries real messages.
+
+        Residue below ``POSITION_EPSILON_RAD`` is clamped silently; anything
+        larger is clamped *and* logged, so a genuine out-of-range command
+        still surfaces instead of being quietly swallowed.
+
+        A motor with ``minPosition == maxPosition`` is unlimited in Webots
+        and is left alone.
+        """
+        lo, hi = motor.getMinPosition(), motor.getMaxPosition()
+        if lo != hi:
+            clamped = min(max(value, lo), hi)
+            overshoot = abs(clamped - value)
+            if overshoot > cls.POSITION_EPSILON_RAD:
+                logger.warning(
+                    "Target %.4f rad for %s is outside [%.4f, %.4f]; "
+                    "clamped to %.4f.",
+                    value, name or "motor", lo, hi, clamped,
+                )
+            value = clamped
+        motor.setPosition(value)
+
     def _from_backend_format(self, values: np.ndarray) -> np.ndarray:
         """Convert Webots-relative positions to absolute radians."""
         return values
@@ -267,9 +301,9 @@ class WebotsBackend(RobotBackend):
         # Webots target = absolute_target - home_offset = 0.0 - offset = -offset
         for name, motor in self._motors.items():
             offset = self._home_offsets.get(name, 0.0)
-            motor.setPosition(-offset)
-        for motor in self._proximal_motors.values():
-            motor.setPosition(0.0)
+            self._set_motor_position(motor, -offset, name)
+        for name, motor in self._proximal_motors.items():
+            self._set_motor_position(motor, 0.0, name)
 
         # Step simulation until all motors converge (or timeout)
         tolerance = 0.01  # radians
@@ -510,10 +544,10 @@ class WebotsBackend(RobotBackend):
                 webots_pos = position - offset
                 logger.debug(f"Setting {joint_name} to {position:.4f} rad absolute "
                              f"(webots={webots_pos:.4f}, offset={offset:.4f})")
-                self._motors[joint_name].setPosition(webots_pos)
+                self._set_motor_position(self._motors[joint_name], webots_pos, joint_name)
 
                 if joint_name in self._proximal_motors:
-                    self._proximal_motors[joint_name].setPosition(webots_pos)
+                    self._set_motor_position(self._proximal_motors[joint_name], webots_pos, joint_name)
 
         # Step simulation once to initiate movement
         self._robot.step(self._timestep)
@@ -651,10 +685,10 @@ class WebotsBackend(RobotBackend):
                 position = point[idx]
                 offset = self._home_offsets.get(name, 0.0)
                 webots_pos = position - offset
-                self._motors[name].setPosition(webots_pos)
+                self._set_motor_position(self._motors[name], webots_pos, name)
 
                 if name in self._proximal_motors:
-                    self._proximal_motors[name].setPosition(webots_pos)
+                    self._set_motor_position(self._proximal_motors[name], webots_pos, name)
 
             self._robot.step(step_ms)
 

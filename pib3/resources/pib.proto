@@ -128,15 +128,23 @@ PROTO pib [
                           # visual servoing in simulation a *closed* loop.
                           #
                           # ORIENTATION: Webots cameras look along their own
-                          # +x axis (+y left, +z up). The rotation below aims
-                          # that axis out of the robot's face. If your first
-                          # frame shows the inside of the head or the ceiling,
-                          # this single line is what to adjust — see
-                          # docs/api/backends/webots.md.
+                          # +x axis (+y left, +z up). urdf_camera_link sits in
+                          # a composed frame, so this value is not obvious by
+                          # inspection — it was solved for, then verified with
+                          # examples/webots_camera_check.py:
+                          #   parent = R(head_base) * R(head) * R(camera_link)
+                          #   rotation = parent^T * [forward | left | up]
+                          # With all joints at zero this aims +x along world -y
+                          # (the robot's front, where the drawing paper sits)
+                          # and keeps +z up. The axis is very nearly
+                          # (1, 1, -1)/sqrt(3) at 120 deg; the small asymmetry
+                          # cancels the 0.0015 rad tilt of urdf_head_base.
+                          # If the view is wrong, this is the only line to
+                          # change — see docs/api/backends/webots.md.
                           Camera {
                             name "camera"
                             translation 0.000000 0.108232 0.095400
-                            rotation 0.577350 0.577350 0.577350 2.094395
+                            rotation 0.578467 0.576791 -0.576791 2.092720
                             fieldOfView 1.089000   # ~62 deg, close to OAK-D Lite RGB
                             width 640
                             height 400
