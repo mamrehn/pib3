@@ -108,6 +108,81 @@ with Robot(host="192.168.178.71") as robot:
 
 ---
 
+## The Same Code in Simulation
+
+The simulated pib has a camera **in its head**, so `sim.camera` and `sim.ai`
+offer the same contract as above. Because the head carries the camera, turning
+the head changes what the robot sees — visual servoing in simulation is a real
+closed loop, not a controller pushing against a static picture.
+
+```python
+import pib3
+from pib3 import Joint
+
+with pib3.Webots() as sim:               # inside a Webots controller
+    sim.ai.set_model("recognition")
+
+    while sim.step():                    # step() renders the next frame
+        img = sim.camera.get_frame().to_numpy()      # BGR, same as the robot
+        for det in sim.ai.get_detections():
+            x, _ = det.bbox.center
+            sim.set_joint(Joint.TURN_HEAD, 50 + 60 * (x - 0.5), async_=True)
+```
+
+Four differences from the real robot:
+
+| | Real robot | Simulation |
+|---|---|---|
+| Frame source | MJPEG over rosbridge, buffered | rendered per step, one frame cached |
+| Loop driver | frames arrive on their own | **you must call `sim.step()`** |
+| Inference | on the OAK-D's accelerator | host CPU/GPU, or ground truth |
+| Hand / pose | on-device models | needs `pib3[sim]`; see below |
+
+!!! warning "A perception loop must call `sim.step()`"
+    Motion calls step the simulator internally, but a loop that only reads does
+    not. Without a step the camera keeps handing back the same frame and the
+    loop spins on stale data. `sim.step()` returns `False` on shutdown, so it
+    reads naturally as the loop condition.
+
+### Choosing a perception source
+
+`sim.ai.set_model()` picks between simulator ground truth and a real network:
+
+- **`"recognition"`** (default) — Webots reports objects directly: exact boxes,
+  `confidence` always `1.0`, no model and no inference cost. Ideal for teaching
+  the *downstream* logic (debouncing, state machines, control) without
+  perception noise in the way.
+- **`"yolov8n"`, `"pose"`, `"hand"`, …** — runs ultralytics or mediapipe on the
+  simulated frames and emits the same payload the robot publishes, so results
+  come back as the same typed `Detection` / `PoseKeypoints` / `HandLandmarks`.
+  Install with `pip install "pib3[sim]"`.
+
+!!! note "Objects must opt into recognition"
+    A Solid is reported only if it sets `recognitionColors`, and its `model`
+    field becomes `det.label`:
+
+    ```
+    Solid {
+      translation 0 -0.6 1.0
+      children [ Shape {
+        appearance PBRAppearance { baseColor 1 0 0 roughness 1 metalness 0 }
+        geometry Sphere { radius 0.06 }
+      } ]
+      name "testball"
+      model "ball"
+      recognitionColors [ 1 0 0 ]
+    }
+    ```
+
+    A COCO-trained detector, by contrast, sees very little in an untextured
+    synthetic scene — that is the world, not a bug.
+
+Runnable example: [`examples/webots_camera_view.py`](https://github.com/mamrehn/pib3/blob/main/examples/webots_camera_view.py).
+If the camera misbehaves, [`examples/webots_camera_check.py`](https://github.com/mamrehn/pib3/blob/main/examples/webots_camera_check.py)
+diagnoses the device, its mounting and the recognition setup step by step.
+
+---
+
 ## Low-Level API: Raw Subscriptions
 
 The following sections cover the raw subscription API for advanced use cases 

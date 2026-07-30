@@ -145,6 +145,43 @@ with Robot(host="172.26.34.149") as robot:
 > sub = robot.subscribe_ai_detections(on_detection)
 > ```
 
+#### The same code in simulation
+
+The simulated pib has a camera in its head, so `sim.camera` and `sim.ai` offer
+the same contract — and because the head moves the camera, visual servoing in
+simulation is a genuinely closed loop.
+
+```python
+import pib3
+from pib3 import Joint
+
+with pib3.Webots() as sim:               # inside a Webots controller
+    sim.ai.set_model("recognition")      # simulator ground truth, no model
+
+    while sim.step():                    # step() renders the next frame
+        img = sim.camera.get_frame().to_numpy()      # BGR, like the robot
+        for det in sim.ai.get_detections():
+            x, _ = det.bbox.center                   # 0..1 across the image
+            sim.set_joint(Joint.TURN_HEAD, 50 + 60 * (x - 0.5), async_=True)
+```
+
+Differences worth knowing:
+
+- **`sim.step()` is required in a perception loop.** Motion calls step the
+  simulator themselves, but a loop that only reads does not — without it the
+  camera returns the same frame forever.
+- **`"recognition"`** is Webots ground truth: exact boxes, `confidence` always
+  `1.0`, no model. Pass a model name (`"yolov8n"`, `"pose"`, `"hand"`) to run a
+  real network on the simulated frames instead — `pip install "pib3[sim]"`.
+  Note a COCO-trained detector sees very little in an untextured world.
+- **Objects must opt in.** A Solid is only recognized if it sets
+  `recognitionColors`; its `model` field becomes `det.label`.
+- **No on-device AI.** Inference runs on the host, so latency is honest but
+  different from the OAK-D's accelerator.
+
+Full example: [`examples/webots_camera_view.py`](examples/webots_camera_view.py).
+Diagnosing a setup: [`examples/webots_camera_check.py`](examples/webots_camera_check.py).
+
 ### IMU Sensors
 
 ```python
