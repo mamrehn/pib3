@@ -314,6 +314,20 @@ sim.ai.set_model("yolov8n-seg")                # masks, RLE-encoded like the rob
 
 Inference runs at most once per rendered frame, so polling several getters within one `step()` costs one inference.
 
+!!! warning "`set_model()` reports nothing until the next step"
+    Enabling a Webots sensor never yields data in the same step, and
+    `recognitionEnable()` is no exception. A `get_detections()` placed straight
+    after `set_model()` therefore returns an empty list — and since results are
+    cached per frame, that emptiness holds for the current frame too. Inside a
+    `while sim.step():` loop this resolves itself; in a straight-line script,
+    step first:
+
+    ```python
+    sim.ai.set_model("recognition")
+    sim.step()                       # <- without this the first read is empty
+    detections = sim.ai.get_detections()
+    ```
+
 !!! note "What synthetic imagery does and does not support"
     A COCO-trained detector sees very little in an untextured Webots world — that is the world, not a bug. Likewise, pose and hand models need something human-shaped in the scene to find; they are most useful for **developing and debugging the pipeline** without hardware, not for judging perception quality. Two things that help: texture your objects, or project a real photo/video onto a plane in front of the camera.
 

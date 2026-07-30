@@ -144,6 +144,21 @@ Four differences from the real robot:
     loop spins on stale data. `sim.step()` returns `False` on shutdown, so it
     reads naturally as the loop condition.
 
+    The same rule bites once more at startup: **`set_model()` only takes effect
+    on the following step.** Enabling a Webots sensor never yields data in the
+    same step, so a `get_detections()` placed immediately after `set_model()`
+    returns an empty list — and since results are cached per frame, that
+    emptiness persists for the current frame. Step first, then read:
+
+    ```python
+    sim.ai.set_model("recognition")
+    sim.step()                        # <- without this the first read is empty
+    detections = sim.ai.get_detections()
+    ```
+
+    In the `while sim.step():` loop above this is automatic. It only shows up
+    in straight-line scripts.
+
 ### Choosing a perception source
 
 `sim.ai.set_model()` picks between simulator ground truth and a real network:

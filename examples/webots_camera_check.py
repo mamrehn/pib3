@@ -231,7 +231,16 @@ def main():
                "" if ok_model else
                "Camera has no Recognition child, or recognitionEnable() failed.")
 
-        dets = sim.ai.get_detections()
+        # recognitionEnable() obeys the same rule as every Webots sensor: the
+        # simulator reports nothing until the next step. Reading immediately
+        # after set_model() returns an empty list — and, because results are
+        # cached per frame, that emptiness sticks for the current frame too.
+        dets = []
+        for _ in range(5):
+            settle(sim, 5)
+            dets = sim.ai.get_detections()
+            if dets:
+                break
         record(
             "5b. objects recognized", len(dets) > 0,
             f"{len(dets)} object(s): " + ", ".join(d.label or '<no model>' for d in dets)
