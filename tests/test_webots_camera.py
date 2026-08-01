@@ -544,3 +544,42 @@ def test_stop_detaches_the_display():
     cam.stop()
     assert d.attached is None
     assert cam.display is None
+
+
+def test_get_frame_survives_null_image_pointer():
+    """Webots raises ValueError until the camera has rendered once.
+
+    wb_camera_get_image() returns NULL in the step that enables the device,
+    and the Python binding dereferences it unconditionally. get_frame() must
+    treat that as "not ready", not propagate a crash.
+    """
+    class NotReadyCamera(FakeCameraDevice):
+        def getImage(self):
+            raise ValueError("NULL pointer access")
+
+    cam = WebotsCameraSubsystem(FakeBackend(NotReadyCamera(4, 4)))
+    assert cam.get_frame() is None
+    assert cam.frame_count == 0
+
+
+def test_get_frame_recovers_once_the_image_appears():
+    class LateCamera(FakeCameraDevice):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.ready = False
+
+        def getImage(self):
+            if not self.ready:
+                raise ValueError("NULL pointer access")
+            return self._image
+
+    device = LateCamera(4, 3, bgra_bytes(4, 3, 10, 20, 30))
+    backend = FakeBackend(device)
+    cam = WebotsCameraSubsystem(backend)
+
+    assert cam.get_frame() is None          # not rendered yet
+    device.ready = True
+    backend.advance()                        # a step happens
+    frame = cam.get_frame()
+    assert frame is not None
+    assert tuple(frame.to_numpy()[0, 0]) == (10, 20, 30)

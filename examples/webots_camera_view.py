@@ -50,10 +50,14 @@ DEAD_ZONE = 0.02     # in image units: ignore sub-2 % errors or the head jitters
 def main():
     with pib3.Webots() as sim:
         # --- 1. a single image ---------------------------------------
-        # Nothing renders before the simulation has stepped at least once.
-        sim.step()
+        # The camera is enabled by the first get_frame(), and Webots needs a
+        # step after enabling before an image exists. So the first call
+        # legitimately returns None — wait for a real frame instead of
+        # assuming one is there.
+        frame = None
+        while frame is None and sim.step():
+            frame = sim.camera.get_frame()
 
-        frame = sim.camera.get_frame()
         img = frame.to_numpy()                   # HxWx3, BGR — OpenCV order
         print(f"frame {frame.frame_id}: {img.shape[1]}x{img.shape[0]}")
         cv2.imwrite("view.png", img)             # imshow needs a GUI build

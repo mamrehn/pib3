@@ -167,9 +167,18 @@ class WebotsCameraSubsystem:
         if self._cached_frame is not None and now == self._cached_time:
             return self._cached_frame
 
-        raw = self._device.getImage()
+        try:
+            raw = self._device.getImage()
+        except ValueError:
+            # Webots returns a NULL image pointer until the camera has
+            # rendered at least once, and the Python binding dereferences it
+            # unconditionally — so this raises rather than returning empty.
+            # Enabling happens inside the first _ensure_enabled() call above,
+            # meaning the very first get_frame() lands in exactly this case.
+            # Not an error: step the simulation and ask again.
+            logger.debug("Camera image not ready yet (needs a step after enable).")
+            return None
         if not raw:
-            # Normal on the very first step, before the camera has rendered.
             return None
 
         w, h = self._device.getWidth(), self._device.getHeight()
