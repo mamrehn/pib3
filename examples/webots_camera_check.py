@@ -235,10 +235,14 @@ def main():
         # simulator reports nothing until the next step. Reading immediately
         # after set_model() returns an empty list — and, because results are
         # cached per frame, that emptiness sticks for the current frame too.
+        # latest_only=True everywhere below: without it the receiver hands back
+        # every buffered frame (up to 100), oldest first — so a reader that
+        # takes the first match keeps seeing a detection from before the robot
+        # moved. That is the single easiest mistake to make with this API.
         dets = []
         for _ in range(5):
             settle(sim, 5)
-            dets = sim.ai.get_detections()
+            dets = sim.ai.get_detections(latest_only=True)
             if dets:
                 break
         record(
@@ -272,9 +276,10 @@ def main():
             target = max(dets, key=lambda d: d.bbox.area).label
 
             def x_of(label):
+                """Where `label` sits horizontally in the CURRENT frame, 0..1."""
                 for _ in range(3):
                     settle(sim, 5)
-                    for d in sim.ai.get_detections():
+                    for d in sim.ai.get_detections(latest_only=True):
                         if d.label == label:
                             return d.bbox.center[0]
                 return None
@@ -293,15 +298,32 @@ def main():
                        "Place the test object further away or reduce the sweep.")
             else:
                 shift = x_b - x_a
-                record(
-                    "7. closed loop: head turn moves the target", abs(shift) > 0.02,
-                    f"target '{target}': x went {x_a:.3f} -> {x_b:.3f} (shift {shift:+.3f})\n"
-                    + ("This is the loop that makes servoing teachable.\n"
-                       f"Sign is {'negative' if shift < 0 else 'positive'}: a P-controller must\n"
-                       "subtract, not add, if the head chases the target the wrong way."
-                       if abs(shift) > 0.02 else
-                       "The target does not move in the image when the head turns."),
-                )
+                moved = abs(shift) > 0.02
+                if moved:
+                    # Sensitivity of image position to joint command, measured
+                    # over the 40 % -> 60 % sweep above.
+                    sens = shift / 20.0
+                    op = "+=" if sens < 0 else "-="
+                    deadbeat = 1.0 / abs(sens)
+                    detail = (
+                        f"target '{target}': x went {x_a:.3f} -> {x_b:.3f} "
+                        f"(shift {shift:+.3f})\n"
+                        f"sensitivity dx/djoint = {sens:+.4f} per % of joint range\n"
+                        f"\n"
+                        f"So the controller for this robot is:\n"
+                        f"    target {op} K * (x - 0.5)\n"
+                        f"    K = {deadbeat:.0f}  reaches the centre in one step\n"
+                        f"    K < {2 * deadbeat:.0f}  stays stable; above that it oscillates\n"
+                        f"    K ~ {1.6 * deadbeat:.0f}  rings visibly — the demo worth showing"
+                    )
+                else:
+                    detail = (
+                        "The target does not move in the image when the head turns.\n"
+                        "If check 4 passed, the camera IS on the head, so suspect a\n"
+                        "stale read: use get_detections(latest_only=True), otherwise\n"
+                        "you get every buffered frame and the oldest one never moves."
+                    )
+                record("7. closed loop: head turn moves the target", moved, detail)
 
         # --- 8. optional: real model on simulated frames -------------------
         try:
@@ -312,7 +334,7 @@ def main():
         else:
             if sim.ai.set_model("yolov8n"):
                 settle(sim, 5)
-                yolo_dets = sim.ai.get_detections()
+                yolo_dets = sim.ai.get_detections(latest_only=True)
                 record("8. ultralytics runs on simulated frames", True,
                        f"{len(yolo_dets)} detection(s)"
                        + ("" if yolo_dets else

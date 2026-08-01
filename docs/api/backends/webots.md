@@ -336,6 +336,22 @@ Inference runs at most once per rendered frame, so polling several getters withi
 !!! note "Latency is honest, and that is the point"
     `avg_latency_ms` reports real host-hardware timing, which is usually **slower** than the OAK-D's dedicated accelerator. Showing that gap is the whole argument for edge AI — do not read it as a defect of the simulation.
 
+### Seeing where the camera points
+
+Webots can draw the camera's view volume directly in the 3D scene:
+**View → Optional Rendering → Show Camera Frustums**. The pyramid shows the
+camera's origin, direction and opening angle, and it tracks the head as it
+turns — which makes "the camera is mounted on the head" self-evident, and is
+the quickest way to sanity-check orientation without saving a single PNG.
+
+The frustum only appears once the camera has been **enabled**, i.e. after your
+controller's first `get_frame()`. A `void` controller shows nothing.
+
+The setting is stored per world in `worlds/.<world>.wbproj` under
+`globalOptionalRendering:` (token `CameraFrustums`), written when Webots exits
+— so it can be shipped switched on. `JointAxes` from the same menu is worth
+enabling alongside it when explaining kinematics.
+
 ### Fixing the camera orientation
 
 Webots cameras look along their own **+x** axis (+y left, +z up). The proto aims that axis out of the robot's face, but the composed frame of `urdf_camera_link` makes this easy to get wrong. If your first frame shows the inside of the head, the ceiling, or the floor, change **one line** — the `rotation` of the `Camera` node in `pib3/resources/pib.proto`:

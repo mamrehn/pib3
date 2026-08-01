@@ -37,9 +37,14 @@ from pib3 import Joint
 
 # Head turn, in percent of the joint range. 50 % is straight ahead.
 CENTRE = 50.0
-GAIN = 60.0          # how hard the head chases the target
-DEAD_ZONE = 3.0      # ignore small errors, or the head jitters forever
-SMOOTHING = 0.7      # 0 = no smoothing, 0.9 = very sluggish
+
+# Raising TURN_HEAD moves the image content LEFT, i.e. dx/djoint is negative
+# (measured at -0.027 per % with examples/webots_camera_check.py). So the
+# correction is ADDED: a target right of centre (x > 0.5) needs a larger joint
+# value. K = 37 would centre in a single step; 20 leaves comfortable margin.
+# The loop goes unstable above K = 75.
+GAIN = 20.0
+DEAD_ZONE = 0.02     # in image units: ignore sub-2 % errors or the head jitters
 
 
 def main():
@@ -65,21 +70,24 @@ def main():
         # image: without it you would re-read the same frame forever.
         target = CENTRE
         while sim.step():
-            objects = sim.ai.get_detections()
+            # latest_only=True matters: the default returns EVERY buffered
+            # frame, so a loop reading the first entry would keep acting on a
+            # detection from before the head moved.
+            objects = sim.ai.get_detections(latest_only=True)
             if not objects:
                 continue
 
             biggest = max(objects, key=lambda d: d.bbox.area)
             x, _ = biggest.bbox.center            # 0..1 across the image
+            error = x - 0.5                       # >0 means "target is right of centre"
 
-            # Image position -> joint value. Centre of image -> 50 %.
-            wanted = CENTRE + GAIN * (x - CENTRE / 100.0)
-            wanted = SMOOTHING * target + (1 - SMOOTHING) * wanted
-
-            if abs(wanted - target) > DEAD_ZONE:
-                target = wanted
+            if abs(error) > DEAD_ZONE:
+                # Incremental, so it works from any head position — unlike
+                # "joint = 50 + K*error", which silently assumes the head
+                # started centred.
+                target = min(max(target + GAIN * error, 0.0), 100.0)
                 # async_=True is essential in a control loop: the blocking
-                # form would wait for the joint to arrive and stall the
+                # form waits for the joint to arrive and stalls the
                 # simulation, so no new frame would ever appear.
                 sim.set_joint(Joint.TURN_HEAD, target, async_=True)
 
