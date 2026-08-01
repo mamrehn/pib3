@@ -583,3 +583,87 @@ def test_get_frame_recovers_once_the_image_appears():
     frame = cam.get_frame()
     assert frame is not None
     assert tuple(frame.to_numpy()[0, 0]) == (10, 20, 30)
+
+
+# ==================== novice safeguards ====================
+
+from pib3.backends.hints import already_hinted, reset_hints
+
+
+@pytest.fixture(autouse=True)
+def _fresh_hints():
+    reset_hints()
+    yield
+    reset_hints()
+
+
+def test_hint_fires_once_only(caplog):
+    from pib3.backends.hints import hint
+    with caplog.at_level("WARNING"):
+        hint("demo", "first")
+        hint("demo", "second")
+    assert caplog.text.count("pib3 hint") == 1
+
+
+def test_reading_without_stepping_is_flagged(caplog):
+    """The 'my loop does nothing' bug: same frame forever."""
+    device = FakeCameraDevice(4, 4, bgra_bytes(4, 4, 1, 2, 3))
+    cam = WebotsCameraSubsystem(FakeBackend(device))
+
+    with caplog.at_level("WARNING"):
+        for _ in range(WebotsCameraSubsystem.STUCK_READ_LIMIT + 5):
+            cam.get_frame()          # never advancing sim time
+
+    assert already_hinted("no-step-loop")
+    assert "sim.step()" in caplog.text
+
+
+def test_stepping_normally_never_triggers_the_hint():
+    device = FakeCameraDevice(4, 4, bgra_bytes(4, 4, 1, 2, 3))
+    backend = FakeBackend(device)
+    cam = WebotsCameraSubsystem(backend)
+
+    for _ in range(WebotsCameraSubsystem.STUCK_READ_LIMIT * 3):
+        cam.get_frame()
+        backend.advance()
+
+    assert not already_hinted("no-step-loop"), "false positive on a healthy loop"
+
+
+def test_a_few_reads_per_step_never_triggers_the_hint():
+    """Polling camera + ai + a getter in one step must stay silent."""
+    device = FakeCameraDevice(4, 4, bgra_bytes(4, 4, 1, 2, 3))
+    backend = FakeBackend(device)
+    cam = WebotsCameraSubsystem(backend)
+
+    for _ in range(50):
+        for _ in range(4):           # four reads per step
+            cam.get_frame()
+        backend.advance()
+
+    assert not already_hinted("no-step-loop")
+
+
+def test_multi_frame_read_is_flagged(caplog):
+    """Forgetting latest_only returns several frames' worth of results."""
+    obj = FakeRecognitionObject(center=(100, 100), size=(20, 20), model="ball")
+    ai, _, backend = _ai_with([obj])
+
+    with caplog.at_level("WARNING"):
+        for _ in range(4):
+            ai.get_detections()      # no latest_only
+            backend.advance()
+
+    assert already_hinted("stale-buffer")
+    assert "latest_only=True" in caplog.text
+
+
+def test_latest_only_reads_stay_silent():
+    obj = FakeRecognitionObject(center=(100, 100), size=(20, 20), model="ball")
+    ai, _, backend = _ai_with([obj])
+
+    for _ in range(10):
+        ai.get_detections(latest_only=True)
+        backend.advance()
+
+    assert not already_hinted("stale-buffer")

@@ -72,7 +72,19 @@ def main():
         # Mirrors the camera onto the Display panel declared in pib.proto.
         # Call it once: Webots then keeps the panel filled by itself, so
         # anyone watching the simulation sees what the robot sees.
-        sim.camera.show_on_display()
+        if sim.camera.show_on_display():
+            print(
+                "Live view attached to the 'camera_display' Display.\n"
+                "Not seeing a panel in the 3D window? It is a UI toggle, not a\n"
+                "code problem — the device is there and filled:\n"
+                "    View -> Overlays -> 'pib' Overlays -> Display Devices\n"
+                "                     -> camera_display\n"
+                "and make sure 'Hide All Display Overlays' is OFF.\n"
+                "Drag the panel to move it, drag a corner to resize."
+            )
+        else:
+            print("Could not attach the live view — running sim.diagnose():")
+            sim.diagnose()
 
         # --- 4. close the loop ----------------------------------------
         # step() returns False when Webots shuts the controller down, so it

@@ -467,6 +467,7 @@ PROTO pib [
                                                   RotationalMotor {
                                                     name "thumb_left_opposition"
                                                     maxVelocity 20.0
+                                                    minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                     maxPosition 1.5707963267948966
                                                     maxTorque 10.0
                                                   }
@@ -503,6 +504,7 @@ PROTO pib [
                                                         RotationalMotor {
                                                           name "thumb_left_proximal"
                                                           maxVelocity 20.0
+                                                          minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                           maxPosition 1.5707963267948966
                                                           maxTorque 10.0
                                                         }
@@ -539,6 +541,7 @@ PROTO pib [
                                                               RotationalMotor {
                                                                 name "thumb_left_distal"
                                                                 maxVelocity 20.0
+                                                                minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                                 maxPosition 1.5707963267948966
                                                                 maxTorque 10.0
                                                               }
@@ -634,6 +637,7 @@ PROTO pib [
                                                   RotationalMotor {
                                                     name "index_left_proximal"
                                                     maxVelocity 20.0
+                                                    minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                     maxPosition 1.5707963267948966
                                                     maxTorque 10.0
                                                   }
@@ -664,6 +668,7 @@ PROTO pib [
                                                         RotationalMotor {
                                                           name "index_left_distal"
                                                           maxVelocity 20.0
+                                                          minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                           maxPosition 1.5707963267948966
                                                           maxTorque 10.0
                                                         }
@@ -733,6 +738,7 @@ PROTO pib [
                                                   RotationalMotor {
                                                     name "middle_left_proximal"
                                                     maxVelocity 20.0
+                                                    minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                     maxPosition 1.5707963267948966
                                                     maxTorque 10.0
                                                   }
@@ -763,6 +769,7 @@ PROTO pib [
                                                         RotationalMotor {
                                                           name "middle_left_distal"
                                                           maxVelocity 20.0
+                                                          minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                           maxPosition 1.5707963267948966
                                                           maxTorque 10.0
                                                         }
@@ -832,6 +839,7 @@ PROTO pib [
                                                   RotationalMotor {
                                                     name "ring_left_proximal"
                                                     maxVelocity 20.0
+                                                    minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                     maxPosition 1.5707963267948966
                                                     maxTorque 10.0
                                                   }
@@ -862,6 +870,7 @@ PROTO pib [
                                                         RotationalMotor {
                                                           name "ring_left_distal"
                                                           maxVelocity 20.0
+                                                          minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                           maxPosition 1.5707963267948966
                                                           maxTorque 10.0
                                                         }
@@ -931,6 +940,7 @@ PROTO pib [
                                                   RotationalMotor {
                                                     name "pinky_left_proximal"
                                                     maxVelocity 20.0
+                                                    minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                     maxPosition 1.5707963267948966
                                                     maxTorque 10.0
                                                   }
@@ -961,6 +971,7 @@ PROTO pib [
                                                         RotationalMotor {
                                                           name "pinky_left_distal"
                                                           maxVelocity 20.0
+                                                          minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                           maxPosition 1.5707963267948966
                                                           maxTorque 10.0
                                                         }
@@ -1338,6 +1349,7 @@ PROTO pib [
                                                   RotationalMotor {
                                                     name "thumb_right_opposition"
                                                     maxVelocity 20.0
+                                                    minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                     maxPosition 1.5707963267948966
                                                     maxTorque 10.0
                                                   }
@@ -1374,6 +1386,7 @@ PROTO pib [
                                                         RotationalMotor {
                                                           name "thumb_right_proximal"
                                                           maxVelocity 20.0
+                                                          minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                           maxPosition 1.5707963267948966
                                                           maxTorque 10.0
                                                         }
@@ -1404,6 +1417,7 @@ PROTO pib [
                                                               RotationalMotor {
                                                                 name "thumb_right_distal"
                                                                 maxVelocity 20.0
+                                                                minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                                 maxPosition 1.5707963267948966
                                                                 maxTorque 10.0
                                                               }
@@ -1493,6 +1507,7 @@ PROTO pib [
                                                   RotationalMotor {
                                                     name "index_right_proximal"
                                                     maxVelocity 20.0
+                                                    minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                     maxPosition 1.5707963267948966
                                                     maxTorque 10.0
                                                   }
@@ -1523,6 +1538,7 @@ PROTO pib [
                                                         RotationalMotor {
                                                           name "index_right_distal"
                                                           maxVelocity 20.0
+                                                          minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                           maxPosition 1.5707963267948966
                                                           maxTorque 10.0
                                                         }
@@ -1592,6 +1608,7 @@ PROTO pib [
                                                   RotationalMotor {
                                                     name "middle_right_proximal"
                                                     maxVelocity 20.0
+                                                    minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                     maxPosition 1.5707963267948966
                                                     maxTorque 10.0
                                                   }
@@ -1622,6 +1639,7 @@ PROTO pib [
                                                         RotationalMotor {
                                                           name "middle_right_distal"
                                                           maxVelocity 20.0
+                                                          minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                           maxPosition 1.5707963267948966
                                                           maxTorque 10.0
                                                         }
@@ -1691,6 +1709,7 @@ PROTO pib [
                                                   RotationalMotor {
                                                     name "ring_right_proximal"
                                                     maxVelocity 20.0
+                                                    minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                     maxPosition 1.5707963267948966
                                                     maxTorque 10.0
                                                   }
@@ -1721,6 +1740,7 @@ PROTO pib [
                                                         RotationalMotor {
                                                           name "ring_right_distal"
                                                           maxVelocity 20.0
+                                                          minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                           maxPosition 1.5707963267948966
                                                           maxTorque 10.0
                                                         }
@@ -1790,6 +1810,7 @@ PROTO pib [
                                                   RotationalMotor {
                                                     name "pinky_right_proximal"
                                                     maxVelocity 20.0
+                                                    minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                     maxPosition 1.5707963267948966
                                                     maxTorque 10.0
                                                   }
@@ -1820,6 +1841,7 @@ PROTO pib [
                                                         RotationalMotor {
                                                           name "pinky_right_distal"
                                                           maxVelocity 20.0
+                                                          minPosition -0.0001  # absorbs URDF export noise (~2e-8 rad); without it Webots warns at every world load
                                                           maxPosition 1.5707963267948966
                                                           maxTorque 10.0
                                                         }

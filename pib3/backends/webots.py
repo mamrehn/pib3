@@ -9,6 +9,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 from .base import RobotBackend
+from .hints import hint
 
 
 # Mapping from trajectory joint names to Webots motor device names
@@ -114,6 +115,8 @@ class WebotsBackend(RobotBackend):
         # Perception subsystems (lazy, mirroring RealRobotBackend.camera/.ai)
         self._camera_subsystem = None
         self._ai_subsystem = None
+        # How many blocking motor commands were issued (see diagnose()).
+        self._blocking_calls = 0
         # Per-joint offsets: the initial position of each joint at simulation
         # start (base position at timepoint zero).  Webots setPosition() is
         # relative to this base, so we subtract the offset when commanding
@@ -160,6 +163,36 @@ class WebotsBackend(RobotBackend):
             from .webots_camera import WebotsAISubsystem
             self._ai_subsystem = WebotsAISubsystem(self)
         return self._ai_subsystem
+
+    def set_joints(self, positions, unit="percent", async_=False,
+                   timeout=2.0, tolerance=None, speed=None) -> bool:
+        """Same as :meth:`RobotBackend.set_joints`, plus a control-loop check.
+
+        ``async_=False`` steps the simulator until the joint arrives. That is
+        right for a scripted choreography and wrong inside a perception loop:
+        each command burns many steps, so the loop crawls and the camera looks
+        frozen. The symptom reads as "the simulation hangs", which sends people
+        hunting in entirely the wrong place — so count them and say so once.
+        """
+        if not async_:
+            self._blocking_calls += 1
+            if self._blocking_calls == self.BLOCKING_CALL_LIMIT:
+                hint(
+                    "blocking-in-loop",
+                    f"{self.BLOCKING_CALL_LIMIT} motor commands so far have "
+                    "waited for the joint to arrive (async_=False, the "
+                    "default).\n"
+                    "  Inside a loop that stalls the simulation: every command "
+                    "burns many steps, so the camera seems frozen.\n"
+                    "  Fix, in loops:\n"
+                    "      sim.set_joint(Joint.TURN_HEAD, value, async_=True)\n"
+                    "  Keep the blocking form for scripted sequences, where "
+                    "waiting is exactly what you want.",
+                )
+        return super().set_joints(
+            positions, unit=unit, async_=async_, timeout=timeout,
+            tolerance=tolerance, speed=speed,
+        )
 
     def _to_backend_format(self, radians: np.ndarray) -> np.ndarray:
         """Convert absolute radians to Webots-relative positions.
@@ -344,6 +377,75 @@ class WebotsBackend(RobotBackend):
     def is_connected(self) -> bool:
         """Check if robot is initialized."""
         return self._robot is not None
+
+    #: Blocking motor commands before we point out that a control loop wants
+    #: async_=True. A scripted choreography legitimately makes dozens of
+    #: blocking moves, so this is set well above that.
+    BLOCKING_CALL_LIMIT = 60
+
+    def diagnose(self) -> str:
+        """Print a snapshot of everything that usually goes wrong, and return it.
+
+        Built for a classroom: when something "just doesn't work", drop
+        ``sim.diagnose()`` into the controller and read eight lines instead of
+        guessing. It never raises and never changes the simulation.
+
+        Example:
+            >>> with pib3.Webots() as sim:
+            ...     sim.diagnose()
+        """
+        lines = ["", "=" * 70, "pib3 diagnose — simulated robot", "=" * 70]
+
+        def row(label, value, fix=""):
+            lines.append(f"  {label:<26} {value}")
+            if fix:
+                lines.append(f"  {'':<26} -> {fix}")
+
+        row("connected", self.is_connected)
+        row("time step", f"{self._timestep} ms" if self._timestep else "unknown")
+        row("simulation time",
+            f"{self._robot.getTime():.2f} s" if self.is_connected else "n/a",
+            "0.00 s means you never called sim.step() — nothing can change"
+            if self.is_connected and self._robot.getTime() <= 0 else "")
+
+        cam = self._camera_subsystem
+        if cam is None:
+            row("camera", "never used",
+                "sim.camera.get_frame() enables it on first use")
+        else:
+            row("camera device", "found" if cam.available else "MISSING",
+                "" if cam.available else
+                "no Camera node in the proto, or the world uses an old copy")
+            if cam.available:
+                row("resolution", f"{cam.width} x {cam.height}")
+                row("frames served", cam.frame_count,
+                    "0 means the camera never rendered — step the simulation"
+                    if cam.frame_count == 0 else "")
+                row("live view panel", "attached" if cam.display else "not attached",
+                    "" if cam.display else
+                    "sim.camera.show_on_display() shows it in the 3D view")
+
+        ai = self._ai_subsystem
+        if ai is None:
+            row("ai", "never used", "sim.ai.set_model('recognition') to start")
+        else:
+            row("ai model", ai.model)
+            try:
+                n = len(ai.get_detections(latest_only=True))
+            except Exception as exc:                       # never break diagnose
+                n = f"error: {exc}"
+            row("detections right now", n,
+                "0 objects: is anything in view, and does that Solid set "
+                "recognitionColors?" if n == 0 else "")
+
+        row("blocking motor calls", self._blocking_calls,
+            "high counts in a loop stall the simulation — use async_=True"
+            if self._blocking_calls >= self.BLOCKING_CALL_LIMIT else "")
+        lines += ["=" * 70, ""]
+
+        text = "\n".join(lines)
+        print(text)
+        return text
 
     def step(self, duration_ms: Optional[int] = None) -> bool:
         """

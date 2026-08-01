@@ -32,6 +32,7 @@ from typing import Any, List, Optional, Union
 
 import numpy as np
 
+from .hints import hint
 from .camera import (
     COCO_LABELS,
     AIDetectionReceiver,
@@ -84,6 +85,11 @@ class WebotsCameraSubsystem:
     #: Webots device name of the camera declared in pib.proto.
     DEVICE_NAME = "camera"
 
+    #: Consecutive reads within one simulation step before we point out
+    #: that the loop is missing sim.step(). High enough that legitimately
+    #: polling a few getters per step never trips it.
+    STUCK_READ_LIMIT = 25
+
     def __init__(self, backend: "Any") -> None:
         self._backend = backend
         self._device = None
@@ -91,6 +97,7 @@ class WebotsCameraSubsystem:
         self._cached_frame: Optional[CameraFrame] = None
         self._cached_time: float = -1.0
         self._display = None          # Webots Display, set by show_on_display()
+        self._reads_without_step = 0
 
     # --- device lifecycle ---------------------------------------------
 
@@ -165,7 +172,23 @@ class WebotsCameraSubsystem:
 
         now = self._sim_time()
         if self._cached_frame is not None and now == self._cached_time:
+            # Reading repeatedly without stepping means the image cannot have
+            # changed — the classic "my loop does nothing" bug.
+            self._reads_without_step += 1
+            if self._reads_without_step == self.STUCK_READ_LIMIT:
+                hint(
+                    "no-step-loop",
+                    f"You have read the camera {self.STUCK_READ_LIMIT} times "
+                    "without advancing the simulation, so it is the SAME image "
+                    "every time and nothing can ever change.\n"
+                    "  Your loop needs a step:\n"
+                    "      while sim.step():\n"
+                    "          frame = sim.camera.get_frame()\n"
+                    "  sim.step() advances time, renders the next image, and "
+                    "returns False when Webots closes.",
+                )
             return self._cached_frame
+        self._reads_without_step = 0
 
         try:
             raw = self._device.getImage()
@@ -486,6 +509,31 @@ class WebotsAISubsystem:
             })
         return {"detections": detections}
 
+    def _check_stale_buffer(self, latest_only: bool, what: str) -> None:
+        """Point out a multi-frame read that the caller almost certainly
+        did not intend.
+
+        Reading without ``latest_only`` returns every buffered frame, so the
+        same physical object appears once per frame. Counting them counts it
+        many times over, and a loop that takes the first match keeps acting on
+        the OLDEST frame — which never moves. Both look like "my code does
+        nothing" rather than like a bug in the read.
+        """
+        if latest_only:
+            return
+        buffered = len(self._receiver._results)
+        if buffered > 1:
+            hint(
+                "stale-buffer",
+                f"{what}() just returned results from {buffered} different "
+                "frames, not just the current one.\n"
+                "  In a loop this means: the same object is counted once per "
+                "frame, and the FIRST result is the oldest — it never moves.\n"
+                f"  Fix:  sim.ai.{what}(latest_only=True)\n"
+                "  Leave it off only when you deliberately want every frame "
+                "since the last call.",
+            )
+
     def get_detections(
         self,
         timeout: float = 5.0,
@@ -502,6 +550,7 @@ class WebotsAISubsystem:
             ``confidence`` is always 1.0.
         """
         self._infer_current_frame()
+        self._check_stale_buffer(latest_only, "get_detections")
         return self._receiver.get_detections(timeout=0.0, latest_only=latest_only)
 
     def get_hand_landmarks(
@@ -520,6 +569,7 @@ class WebotsAISubsystem:
         objects but not about hands.
         """
         self._infer_current_frame()
+        self._check_stale_buffer(latest_only, "get_hand_landmarks")
         return self._receiver.get_hand_landmarks(timeout=0.0, latest_only=latest_only)
 
     def get_poses(
@@ -535,6 +585,7 @@ class WebotsAISubsystem:
         ``pose.left_shoulder`` and friends work unchanged.
         """
         self._infer_current_frame()
+        self._check_stale_buffer(latest_only, "get_poses")
         return self._receiver.get_poses(timeout=0.0, latest_only=latest_only)
 
     # --- metrics ---------------------------------------------------------
