@@ -19,7 +19,7 @@ import time
 import numpy as np
 import pytest
 
-from pib3.backends.camera import CameraFrame, COCO_LABELS
+from pib3.backends.camera import BoundingBox, CameraFrame, COCO_LABELS, Detection
 from pib3.backends.webots_camera import (
     RECOGNITION_MODEL,
     WebotsAISubsystem,
@@ -454,3 +454,93 @@ def test_metrics_are_populated_across_steps():
 
     assert ai.avg_latency_ms >= 0.0
     assert ai.fps > 0.0
+
+
+# ==================== live view on a Display ====================
+
+
+class FakeDisplay:
+    def __init__(self, width=320, height=200):
+        self._w, self._h = width, height
+        self.attached = None
+        self.color = None
+        self.rects = []
+        self.texts = []
+
+    def getWidth(self): return self._w
+    def getHeight(self): return self._h
+    def attachCamera(self, cam): self.attached = cam
+    def detachCamera(self): self.attached = None
+    def setColor(self, c): self.color = c
+    def drawRectangle(self, x, y, w, h): self.rects.append((x, y, w, h))
+    def drawText(self, t, x, y): self.texts.append((t, x, y))
+
+
+def _backend_with_display(display, cam_w=640, cam_h=400):
+    device = FakeCameraDevice(cam_w, cam_h, bgra_bytes(cam_w, cam_h, 0, 0, 0))
+    backend = FakeBackend(device)
+    real_get = backend._robot.getDevice
+
+    def get(name):
+        return display if name == "camera_display" else real_get(name)
+
+    backend._robot.getDevice = get
+    return backend
+
+
+def test_show_on_display_attaches_the_camera():
+    d = FakeDisplay()
+    cam = WebotsCameraSubsystem(_backend_with_display(d))
+
+    assert cam.show_on_display() is True
+    assert d.attached is cam.device
+    assert cam.display is d
+
+
+def test_show_on_display_reports_missing_device():
+    backend = FakeBackend()          # getDevice("camera_display") -> None
+    cam = WebotsCameraSubsystem(backend)
+    assert cam.show_on_display() is False
+    assert cam.display is None
+
+
+def test_draw_detections_scales_boxes_to_display_pixels():
+    d = FakeDisplay(width=320, height=200)
+    cam = WebotsCameraSubsystem(_backend_with_display(d))
+    cam.show_on_display()
+
+    det = Detection(label_id=-1, confidence=0.5,
+                    bbox=BoundingBox(0.25, 0.5, 0.75, 1.0), label="ball")
+    cam.draw_detections([det])
+
+    # 0.25..0.75 of 320 -> x 80, width 160;  0.5..1.0 of 200 -> y 100, height 100
+    assert d.rects == [(80, 100, 160, 100)]
+    assert d.texts and d.texts[0][0] == "ball 50%"
+
+
+def test_draw_detections_keeps_label_inside_the_panel():
+    d = FakeDisplay()
+    cam = WebotsCameraSubsystem(_backend_with_display(d))
+    cam.show_on_display()
+
+    top = Detection(label_id=-1, confidence=1.0,
+                    bbox=BoundingBox(0.0, 0.0, 0.1, 0.05), label="ball")
+    cam.draw_detections([top])
+    assert d.texts[0][2] >= 0, "label must not be drawn above the panel"
+
+
+def test_draw_detections_is_a_noop_without_a_display():
+    cam = WebotsCameraSubsystem(FakeBackend())
+    det = Detection(label_id=-1, confidence=1.0,
+                    bbox=BoundingBox(0, 0, 1, 1), label="ball")
+    cam.draw_detections([det])          # must not raise
+
+
+def test_stop_detaches_the_display():
+    d = FakeDisplay()
+    cam = WebotsCameraSubsystem(_backend_with_display(d))
+    cam.show_on_display()
+
+    cam.stop()
+    assert d.attached is None
+    assert cam.display is None

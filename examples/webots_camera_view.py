@@ -64,7 +64,13 @@ def main():
         # network on the same frames (pip install "pib3[sim]").
         sim.ai.set_model("recognition")
 
-        # --- 3. close the loop ----------------------------------------
+        # --- 3. show it in the 3D window ------------------------------
+        # Mirrors the camera onto the Display panel declared in pib.proto.
+        # Call it once: Webots then keeps the panel filled by itself, so
+        # anyone watching the simulation sees what the robot sees.
+        sim.camera.show_on_display()
+
+        # --- 4. close the loop ----------------------------------------
         # step() returns False when Webots shuts the controller down, so it
         # doubles as the loop condition. It is also what produces the next
         # image: without it you would re-read the same frame forever.
@@ -76,6 +82,11 @@ def main():
             objects = sim.ai.get_detections(latest_only=True)
             if not objects:
                 continue
+
+            # Paint the boxes onto the live panel. Once per step: attaching
+            # the camera repaints it with a fresh image every step, which
+            # erases last step's drawing.
+            sim.camera.draw_detections(objects)
 
             biggest = max(objects, key=lambda d: d.bbox.area)
             x, _ = biggest.bbox.center            # 0..1 across the image

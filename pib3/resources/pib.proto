@@ -2017,6 +2017,18 @@ PROTO pib [
           ]
         }
       }
+      # --- Live view of what the robot sees ------------------------------
+      # A Display is a virtual canvas, not a physical part: it has no place
+      # in the scene and only shows up as an overlay panel in the 3D view.
+      # sim.camera.show_on_display() attaches the camera to it, after which
+      # Webots keeps it filled with the current camera image automatically;
+      # sim.camera.draw_detections() paints boxes and labels on top.
+      # Half the camera resolution, so it stays a small window.
+      Display {
+        name "camera_display"
+        width 320
+        height 200
+      }
     ]
     name IS name
   }

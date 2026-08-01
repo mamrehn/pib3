@@ -90,6 +90,7 @@ class WebotsCameraSubsystem:
         self._frame_id = 0
         self._cached_frame: Optional[CameraFrame] = None
         self._cached_time: float = -1.0
+        self._display = None          # Webots Display, set by show_on_display()
 
     # --- device lifecycle ---------------------------------------------
 
@@ -208,8 +209,90 @@ class WebotsCameraSubsystem:
             "fieldOfView on the Camera node in pib.proto instead."
         )
 
+    # --- live view in the 3D window ------------------------------------
+
+    #: Webots device name of the Display declared in pib.proto.
+    DISPLAY_NAME = "camera_display"
+
+    def show_on_display(self, name: Optional[str] = None) -> bool:
+        """
+        Mirror the camera onto a Webots ``Display``, shown in the 3D window.
+
+        Call once, before your loop. Webots then keeps the panel filled with
+        the live camera image on its own — no per-step work and no cost in
+        your control loop. Use :meth:`draw_detections` to paint on top of it.
+
+        This is the quickest way to make "what the robot sees" visible to
+        somebody watching the simulation, rather than only to the code.
+
+        Args:
+            name: Display device name. Defaults to ``DISPLAY_NAME``.
+
+        Returns:
+            True if the display was found and attached.
+        """
+        if not self._ensure_enabled():
+            return False
+        robot = getattr(self._backend, "_robot", None)
+        if robot is None:
+            return False
+
+        display = robot.getDevice(name or self.DISPLAY_NAME)
+        if display is None:
+            logger.warning(
+                "No Webots device named %r, so the live view is unavailable. "
+                "Add a Display node to the robot (see pib.proto); an existing "
+                "world keeps its own copy of the proto and may need re-importing.",
+                name or self.DISPLAY_NAME,
+            )
+            return False
+
+        display.attachCamera(self._device)
+        self._display = display
+        return True
+
+    @property
+    def display(self):
+        """The attached Webots ``Display``, or None if never attached."""
+        return self._display
+
+    def draw_detections(self, detections, color: int = 0xFFFF00) -> None:
+        """
+        Draw detection boxes and labels onto the attached display.
+
+        No-op when :meth:`show_on_display` was never called, so it is safe to
+        leave in code that also runs headless.
+
+        Call it once per step: attaching the camera repaints the panel with a
+        fresh image every step, which erases whatever was drawn before.
+
+        Args:
+            detections: Iterable of :class:`Detection` (normalized boxes).
+            color: Line/text colour as 0xRRGGBB.
+        """
+        display = self._display
+        if display is None:
+            return
+
+        w, h = display.getWidth(), display.getHeight()
+        display.setColor(color)
+        for det in detections:
+            box = det.bbox
+            x1, y1, x2, y2 = box.to_pixels(w, h)
+            display.drawRectangle(x1, y1, max(1, x2 - x1), max(1, y2 - y1))
+            label = f"{det.label} {det.confidence:.0%}" if det.label else ""
+            if label:
+                # Keep the text inside the panel when the box hugs the top.
+                display.drawText(label, x1, max(0, y1 - 12))
+
     def stop(self) -> None:
         """Disable the camera device (saves simulation time)."""
+        if self._display is not None:
+            try:
+                self._display.detachCamera()
+            except Exception:
+                pass
+            self._display = None
         if self._device is not None:
             self._device.disable()
             self._device = None

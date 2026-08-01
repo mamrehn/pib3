@@ -189,6 +189,19 @@ def main():
                bool(jpg) and jpg[:2] == b"\xff\xd8",
                f"{len(jpg)} bytes" if jpg else "encode failed (cv2 missing?)")
 
+        # --- 3e. live view panel ---------------------------------------
+        shown = cam.show_on_display()
+        record(
+            "3e. live view attached to Display", shown,
+            "The camera image is now a panel in the 3D view — but only while\n"
+            "this controller runs. It freezes when the check exits, which is\n"
+            "normal; use examples/webots_camera_view.py for a permanent view."
+            if shown else
+            "No Display device named 'camera_display'. Add the Display node\n"
+            "from pib.proto. Remember that a world keeps its OWN copy of the\n"
+            "proto: copy it into <project>/protos/ and reload the world.",
+        )
+
         # --- 4. camera moves WITH the head ------------------------------
         sim.go_home()
         settle(sim, 10)
@@ -253,6 +266,9 @@ def main():
             "lack `recognitionColors` (without it they are never reported).\n"
             "See the world snippet in this file's docstring.",
         )
+
+        # Paint the boxes onto the live panel so the run is watchable too.
+        cam.draw_detections(dets)
 
         # --- 6. bbox sanity ----------------------------------------------
         if dets:
