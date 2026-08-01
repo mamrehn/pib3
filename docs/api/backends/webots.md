@@ -352,6 +352,26 @@ The setting is stored per world in `worlds/.<world>.wbproj` under
 — so it can be shipped switched on. `JointAxes` from the same menu is worth
 enabling alongside it when explaining kinematics.
 
+### Seeing the live camera panel
+
+`sim.camera.show_on_display()` fills the `camera_display` Display, but Webots
+hides display overlays by default, so a correctly attached panel is invisible
+until you switch the group on:
+
+| | |
+|---|---|
+| Shortcut | **`Shift+F12`** — toggles *Hide All Display Overlays* |
+| Menu | **`Overlays`** (a top-level menu, *not* under `View`) → `'pib' Overlays` → `Display Devices` |
+
+Camera overlays and display overlays are **independent groups** with separate
+toggles (`Shift+F10` and `Shift+F12`). Turning one on does nothing for the
+other — which is the usual reason "the camera works but I see no panel".
+
+Webots records the panel in `worlds/.<world>.wbproj` as
+`renderingDevicePerspectives: <robot>:camera_display;…`. If that line exists,
+the device was found and attached, and any remaining problem is purely the
+visibility toggle above.
+
 ### Fixing the camera orientation
 
 Webots cameras look along their own **+x** axis (+y left, +z up). The proto aims that axis out of the robot's face, but the composed frame of `urdf_camera_link` makes this easy to get wrong. If your first frame shows the inside of the head, the ceiling, or the floor, change **one line** — the `rotation` of the `Camera` node in `pib3/resources/pib.proto`:

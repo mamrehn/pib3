@@ -75,11 +75,13 @@ def main():
         if sim.camera.show_on_display():
             print(
                 "Live view attached to the 'camera_display' Display.\n"
-                "Not seeing a panel in the 3D window? It is a UI toggle, not a\n"
-                "code problem — the device is there and filled:\n"
-                "    View -> Overlays -> 'pib' Overlays -> Display Devices\n"
-                "                     -> camera_display\n"
-                "and make sure 'Hide All Display Overlays' is OFF.\n"
+                "No panel in the 3D window? That is a UI toggle, not a code\n"
+                "problem — the device exists and is being filled.\n"
+                "  Quickest fix:  press Shift+F12  (Hide All Display Overlays)\n"
+                "  It is ON by default, and it is a SEPARATE switch from the\n"
+                "  camera overlays — hiding one does not affect the other.\n"
+                "  Menu route: Overlays (top-level menu, not under View)\n"
+                "              -> 'pib' Overlays -> Display Devices\n"
                 "Drag the panel to move it, drag a corner to resize."
             )
         else:
