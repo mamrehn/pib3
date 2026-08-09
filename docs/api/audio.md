@@ -597,7 +597,7 @@ The audio system uses the following ROS topics for communication with the robot:
 Audio functionality is included in the core pib3 package:
 
 ```bash
-pip install pib3
+pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 ### Platform-Specific Requirements
@@ -608,7 +608,7 @@ PortAudio is required for audio playback and recording:
 
 ```bash
 sudo apt-get install libportaudio2 portaudio19-dev
-pip install pib3
+pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 #### macOS
@@ -616,7 +616,7 @@ pip install pib3
 No additional system dependencies required:
 
 ```bash
-pip install pib3
+pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 #### Windows
@@ -624,7 +624,7 @@ pip install pib3
 No additional system dependencies required:
 
 ```bash
-pip install pib3
+pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 ---
@@ -754,10 +754,10 @@ with Robot(host="172.26.34.149") as robot:
 ```bash
 # Linux
 sudo apt-get install libportaudio2 portaudio19-dev
-pip install --force-reinstall pib3
+pip install --force-reinstall "pib3 @ git+https://github.com/mamrehn/pib3.git"
 
 # macOS/Windows
-pip install --force-reinstall pib3
+pip install --force-reinstall "pib3 @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 **If you see**: "OSError: PortAudio library not found" during `import pib3` or when running audio code

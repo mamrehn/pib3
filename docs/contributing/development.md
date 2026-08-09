@@ -4,7 +4,7 @@ Complete guide for setting up a development environment.
 
 ## Prerequisites
 
-- Python 3.8 or higher
+- Python 3.10–3.13, 64-bit (not 3.14 — `roboticstoolbox-python` has no wheels for it yet)
 - Git
 - A code editor (VS Code, PyCharm, etc.)
 
@@ -38,11 +38,11 @@ venv\Scripts\activate
 ## Install Dependencies
 
 ```bash
-# Install in editable mode with all dev dependencies
+# Install in editable mode with the dev dependencies
 pip install -e ".[dev]"
 
-# Or install specific extras
-pip install -e ".[image,viz,robot,dev]"
+# Add the simulated-AI models (ultralytics, mediapipe) if you work on sim perception
+pip install -e ".[sim,dev]"
 ```
 
 ## Verify Installation

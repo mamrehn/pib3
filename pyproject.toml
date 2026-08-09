@@ -8,7 +8,11 @@ version = "0.1.4"
 description = "Inverse kinematics and trajectory generation for the PIB humanoid robot"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.8"
+# Lower bound: roboticstoolbox-python 1.3.x requires >=3.10.
+# Upper bound: roboticstoolbox-python publishes wheels only up to cp313; on 3.14
+# pip would fall back to compiling its C extension from source (needs MSVC on
+# Windows). Raise this as soon as cp314 wheels are published upstream.
+requires-python = ">=3.10,<3.14"
 authors = [
     {name = "PIB Rocks Team"},
 ]
@@ -27,11 +31,10 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Scientific/Engineering :: Robotics",
 ]
@@ -40,8 +43,12 @@ dependencies = [
     "numpy>=1.20.0",  # numpy 2.x supported; pib3._compat shims attrs older rtb/spatialmath need
     "Pillow>=9.0.0",
     "PyYAML>=6.0.0",
-    "roboticstoolbox-python>=1.0.0",
-    "spatialmath-python>=1.0.0",
+    # >=1.3.0 is the first release with wheels for CPython 3.12/3.13. Without this
+    # floor pip silently backtracks to 1.1.1 (no wheels at all) and tries to compile.
+    "roboticstoolbox-python>=1.3.0",
+    # 1.1.15 broke angvec2r (scalar angle parsed as a 1-D vector, Rodrigues' formula
+    # raises TypeError); fixed in 1.1.16. Also the floor rtb 1.3.x requires.
+    "spatialmath-python>=1.1.16",
     "opencv-python-headless>=4.5.0",
     "roslibpy>=1.4.0",  # Includes websocket support via autobahn/twisted
     "tinkerforge>=2.1.0",  # Low-latency direct motor control via servo bricklets

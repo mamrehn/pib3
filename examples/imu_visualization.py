@@ -9,7 +9,7 @@ This script demonstrates real-time IMU data visualization:
 4. Real-time plotting with matplotlib
 
 Requirements:
-    pip install "pib3[robot] @ git+https://github.com/mamrehn/pib3.git"
+    pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"
     pip install matplotlib numpy
 
 Usage:
@@ -396,7 +396,7 @@ Note: This example requires the physical robot with OAK-D Lite camera.
 
     if not HAS_PIB3:
         print("Error: pib3 not installed.")
-        print("Install with: pip install 'pib3[robot] @ git+https://github.com/mamrehn/pib3.git'")
+        print("Install with: pip install 'pib3 @ git+https://github.com/mamrehn/pib3.git'")
         return
 
     print(f"Connecting to robot at {args.host}:{args.port}...")

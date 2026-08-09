@@ -14,7 +14,7 @@ By the end of this tutorial, you will:
 
 ## Prerequisites
 
-- pib3 installed with robot support: `pip install "pib3[robot] @ git+https://github.com/mamrehn/pib3.git"`
+- pib3 installed: `pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"`
 - A PIB robot with OAK-D Lite camera connected
 - Rosbridge running on the robot (port 9090)
 
@@ -170,7 +170,7 @@ Four differences from the real robot:
 - **`"yolov8n"`, `"pose"`, `"hand"`, …** — runs ultralytics or mediapipe on the
   simulated frames and emits the same payload the robot publishes, so results
   come back as the same typed `Detection` / `PoseKeypoints` / `HandLandmarks`.
-  Install with `pip install "pib3[sim]"`.
+  Install with `pip install "pib3[sim] @ git+https://github.com/mamrehn/pib3.git"`.
 
 !!! note "Objects must opt into recognition"
     A Solid is reported only if it sets `recognitionColors`, and its `model`

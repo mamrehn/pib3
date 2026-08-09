@@ -27,29 +27,93 @@ Repository statistics:
 
 ## Installation
 
+**Windows** (PowerShell) — read [Windows prerequisites](#windows-prerequisites) first:
+
+```powershell
+py -3.13 -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip setuptools wheel
+pip install -U "pib3 @ git+https://github.com/mamrehn/pib3.git"
+```
+
+**Linux / macOS:**
+
 ```bash
-python -m venv venv
-venv\Scripts\activate  # OR on Linux: source ./venv/bin/activate
+python3 -m venv venv
+source ./venv/bin/activate
 pip install -U "pib3 @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 ### Windows prerequisites
 
-If you are installing on Windows and encounter build or compilation errors (commonly when installing packages with native extensions such as `roboticstoolbox`), install the Microsoft Visual C++ Redistributable package first:
+Two things must be in place before `pip install` succeeds. Getting either wrong is what
+produces the usual wall of red text.
 
- - [vc_redist.x64.exe](https://aka.ms/vc14/vc_redist.x64.exe) for x64 architecture (default)
- - [vc_redist.arm64.exe](https://aka.ms/vc14/vc_redist.arm64.exe) for ARM64 architecture (some newer Windows laptops)
+#### 1. Python 3.10–3.13, 64-bit — not the newest release
 
-if both do not work for you, try installing the [visual-cpp-build-tools](https://visualstudio.microsoft.com/de/visual-cpp-build-tools/) instead.
+This is the most common cause of a failed install. `roboticstoolbox-python` publishes
+pre-built wheels only for **CPython 3.10, 3.11, 3.12 and 3.13 on `win_amd64`**. On any
+other interpreter — including the **Python 3.14** that
+[python.org](https://www.python.org/downloads/) currently offers as its default download
+button — there is no matching wheel, so pip would fall back to compiling a C extension
+from source and fail with `error: Microsoft Visual C++ 14.0 or greater is required`.
+Installing a redistributable does not fix that: the redistributable is a *runtime*, not a
+compiler.
 
+pib3 therefore declares `requires-python = ">=3.10,<3.14"`, so pip stops early with a
+readable message rather than a wall of compiler output:
 
-Also ensure `pip`, `setuptools`, and `wheel` are up-to-date before installing:
-
-```bash
-python -m pip install --upgrade pip setuptools wheel
+```text
+ERROR: Package 'pib3' requires a different Python: 3.14.7 not in '<3.14,>=3.10'
 ```
 
-Installing the build tools and upgrading these packaging utilities often resolves common Windows installation issues.
+If you see that, you are on the wrong interpreter — not missing a build tool.
+
+Install the latest **3.13.x** *Windows installer (64-bit)* from the
+[Windows downloads page](https://www.python.org/downloads/windows/)
+(e.g. [Python 3.13.15](https://www.python.org/downloads/release/python-31315/)) and tick
+**"Add python.exe to PATH"**. Then check what you actually have:
+
+```powershell
+py --list   # lists every installed interpreter
+py -3.13 -c "import sys, platform; print(sys.version, platform.machine())"
+# expected: 3.13.x ...  AMD64
+```
+
+`AMD64` matters — a 32-bit (`x86`) Python has no wheels either. Always create the
+environment with that interpreter (`py -3.13 -m venv venv`), never with a bare `python`
+that may point at 3.14.
+
+#### 2. Git for Windows
+
+The install command fetches from a Git URL, so `git` must be on `PATH` or pip aborts with
+`Cannot find command 'git' - do you have 'git' installed and in your PATH?`.
+
+Install [Git for Windows](https://git-scm.com/download/win), then verify in a **newly
+opened** terminal (`PATH` changes do not reach already-running shells):
+
+```powershell
+git --version
+```
+
+#### Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| `error: Microsoft Visual C++ 14.0 or greater is required` | No wheel matches your interpreter, so pip is building from source. Fix the Python version (step 1) — that resolves it in almost every case. Only if you truly must build from source, install the [Visual C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and select the **"Desktop development with C++"** workload; the redistributable alone will not do. |
+| `Cannot find command 'git'` | Step 2, then reopen the terminal. |
+| `Package 'pib3' requires a different Python` | Your interpreter is outside 3.10–3.13. Step 1 — do not try to force it with `--ignore-requires-python`. |
+| `No matching distribution found ...`, or pip resolves a years-old `roboticstoolbox-python` and then fails to build it | A 32-bit install, or a stale checkout whose pins let pip backtrack. pip does not warn about this — it quietly picks a prehistoric release and compiles that instead. Step 1. |
+| `ImportError: DLL load failed while importing cv2` / `onnxruntime` at *runtime* (install succeeded) | Missing C++ runtime. Install the Visual C++ Redistributable: [x64](https://aka.ms/vs/17/release/vc_redist.x64.exe). |
+| `Activate.ps1 cannot be loaded because running scripts is disabled` | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, confirm, reopen PowerShell. Or use `venv\Scripts\activate.bat` from `cmd.exe`. |
+| `Could not install packages ... path too long` | Enable [long paths](https://learn.microsoft.com/windows/win32/fileio/maximum-file-path-limitation) or move the project close to the drive root, e.g. `C:\pib`. |
+
+#### Windows on ARM (Snapdragon X, Surface Pro 11)
+
+Not supported natively: neither `roboticstoolbox-python` nor `opencv-python-headless`
+publishes `win_arm64` wheels, so both would have to be compiled from source — and building
+OpenCV that way is impractical. Install the **x64** build of Python and let Windows run it
+under emulation, or use an x64 machine or WSL2.
 
 ## Quick Start
 
@@ -172,7 +236,7 @@ Differences worth knowing:
   camera returns the same frame forever.
 - **`"recognition"`** is Webots ground truth: exact boxes, `confidence` always
   `1.0`, no model. Pass a model name (`"yolov8n"`, `"pose"`, `"hand"`) to run a
-  real network on the simulated frames instead — `pip install "pib3[sim]"`.
+  real network on the simulated frames instead — `pip install "pib3[sim] @ git+https://github.com/mamrehn/pib3.git"`.
   Note a COCO-trained detector sees very little in an untextured world.
 - **Objects must opt in.** A Solid is only recognized if it sets
   `recognitionColors`; its `model` field becomes `det.label`.

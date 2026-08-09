@@ -2,8 +2,12 @@
 numpy>=1.20.0  # numpy 2.x supported; pib3._compat shims attrs older rtb/spatialmath need
 Pillow>=8.0.0
 PyYAML>=5.0.0
-roboticstoolbox-python>=1.0.0
-spatialmath-python>=1.0.0,<1.1.15  # Pin to avoid axis parsing issues
+roboticstoolbox-python>=1.3.0  # First release with CPython 3.12/3.13 wheels
+# The former <1.1.15 pin worked around a broken angvec2r in 1.1.15 (scalar angle
+# parsed as a 1-D vector -> TypeError in Rodrigues' formula). Fixed upstream in
+# 1.1.16, which rtb 1.3.x also requires -- keeping the pin would force pip back
+# to rtb 1.1.1, which ships no wheels at all.
+spatialmath-python>=1.1.16
 
 # Image processing
 opencv-python-headless>=4.5.0

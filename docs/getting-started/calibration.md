@@ -27,10 +27,10 @@ Before calibrating:
 1. **Robot connected and powered on**
 2. **Rosbridge running** on the robot (default port: 9090)
 3. **Cerebra** or another control interface to manually move joints
-4. **pib3 installed** with robot support:
+4. **pib3 installed**:
 
 ```bash
-pip install "pib3[robot] @ git+https://github.com/mamrehn/pib3.git"
+pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 ---

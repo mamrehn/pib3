@@ -10,7 +10,7 @@ This script demonstrates trajectory generation and playback:
 5. Saving and loading trajectories
 
 Requirements:
-    pip install "pib3[robot] @ git+https://github.com/mamrehn/pib3.git"
+    pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"
 
 Usage:
     python trajectory_playback.py --host 172.26.34.149
@@ -251,7 +251,7 @@ Examples:
 
     if not HAS_PIB3:
         print("Error: pib3 not installed.")
-        print("Install with: pip install 'pib3[robot] @ git+https://github.com/mamrehn/pib3.git'")
+        print("Install with: pip install 'pib3 @ git+https://github.com/mamrehn/pib3.git'")
         return
 
     trajectory = None

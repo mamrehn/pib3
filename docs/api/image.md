@@ -75,7 +75,7 @@ sketch = pib3.image_to_sketch(pil_img)
 1. **Load**: Accept file path, numpy array, or PIL Image
 2. **Grayscale**: Convert to single channel
 3. **Threshold**: Binary black/white conversion
-4. **Contours**: Extract edges using scikit-image or OpenCV
+4. **Contours**: Extract edges using OpenCV (`cv2.findContours`)
 5. **Simplify**: Douglas-Peucker algorithm reduces points
 6. **Filter**: Remove small/short contours
 7. **Normalize**: Scale coordinates to [0, 1]
@@ -137,13 +137,9 @@ print(f"Source size: {sketch.source_size}")
 
 ## Dependencies
 
-Image processing requires one of:
-
-- **scikit-image** (preferred): `pip install scikit-image`
-- **OpenCV**: `pip install opencv-python`
-
-Install with image extras:
+Image processing needs **Pillow** and **OpenCV** (`opencv-python-headless`). Both are core
+dependencies, so a plain install already covers it — there is no separate extra:
 
 ```bash
-pip install "pib3[image] @ git+https://github.com/mamrehn/pib3.git"
+pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"
 ```

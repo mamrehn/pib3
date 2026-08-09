@@ -20,7 +20,7 @@ Audio Format (standard throughout):
 - Bit depth: 16-bit signed integers (int16)
 
 Platform-specific requirements:
-- Linux: sudo apt-get install libportaudio2 portaudio19-dev (before pip install pib3)
+- Linux: sudo apt-get install libportaudio2 portaudio19-dev (before installing pib3)
 - macOS: No additional requirements
 - Windows: No additional requirements
 

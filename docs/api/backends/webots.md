@@ -291,7 +291,7 @@ The topologies match by construction, which is what makes this a substitution ra
 | `HandLandmarks` | 21 MediaPipe hand landmarks | `mediapipe` Hands |
 | `Detection` | normalized xyxy + class id | ultralytics detect / seg |
 
-Install the optional backends with `pip install "pib3[sim]"`.
+Install the optional backends with `pip install "pib3[sim] @ git+https://github.com/mamrehn/pib3.git"`.
 
 ```python
 sim.ai.set_model("pose")                       # -> yolo11n-pose.pt

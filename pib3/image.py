@@ -314,7 +314,7 @@ def image_to_sketch(
         (0,0) = top-left, (1,1) = bottom-right.
 
     Raises:
-        ImportError: If required dependencies (Pillow, scikit-image/opencv) are missing.
+        ImportError: If required dependencies (Pillow, opencv) are missing.
         FileNotFoundError: If image path doesn't exist.
         ValueError: If image format is unsupported.
 

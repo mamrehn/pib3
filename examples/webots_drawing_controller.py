@@ -9,7 +9,7 @@ Usage:
     3. Run the simulation
 
 Requirements:
-    pip install pib3
+    pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"
 """
 
 import pib3

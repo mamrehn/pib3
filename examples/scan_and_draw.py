@@ -8,7 +8,7 @@ This script demonstrates a full "Sense-Plan-Act" loop:
 3.  **Act**: Draw the object using the "clenched fist" (pencil grip) mode.
 
 Requirements:
-    pip install "pib3[robot] @ git+https://github.com/mamrehn/pib3.git"
+    pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"
     pip install Pillow numpy
 
 Note:

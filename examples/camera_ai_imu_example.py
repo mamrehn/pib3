@@ -9,7 +9,7 @@ This script demonstrates:
 4. Vision-based head tracking
 
 Requirements:
-    pip install "pib3[robot] @ git+https://github.com/mamrehn/pib3.git"
+    pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"
     pip install opencv-python numpy
 
 Usage:

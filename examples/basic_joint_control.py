@@ -10,7 +10,7 @@ This script demonstrates fundamental joint control operations:
 5. Saving and restoring poses
 
 Requirements:
-    pip install "pib3[robot] @ git+https://github.com/mamrehn/pib3.git"
+    pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"
 
 Usage:
     python basic_joint_control.py --host 172.26.34.149
@@ -214,7 +214,7 @@ Examples:
 
     if not HAS_PIB3:
         print("Error: pib3 not installed.")
-        print("Install with: pip install 'pib3[robot] @ git+https://github.com/mamrehn/pib3.git'")
+        print("Install with: pip install 'pib3 @ git+https://github.com/mamrehn/pib3.git'")
         return
 
     print(f"Connecting to robot at {args.host}:{args.port}...")
