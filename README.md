@@ -1,5 +1,5 @@
 <h1 align="center">
-<a href="https://ghloc.vercel.app/mamrehn/pib3?branch=main"><img src="examples/pib3_logo.png" width="440"></a>
+<a href="https://ghloc.vercel.app/mamrehn/pib3?branch=main"><img src="https://raw.githubusercontent.com/mamrehn/pib3/main/examples/pib3_logo.png" width="440"></a>
 </h1><br>
 
 Repository statistics:
@@ -243,8 +243,8 @@ Differences worth knowing:
 - **No on-device AI.** Inference runs on the host, so latency is honest but
   different from the OAK-D's accelerator.
 
-Full example: [`examples/webots_camera_view.py`](examples/webots_camera_view.py).
-Diagnosing a setup: [`examples/webots_camera_check.py`](examples/webots_camera_check.py).
+Full example: [`examples/webots_camera_view.py`](https://github.com/mamrehn/pib3/blob/main/examples/webots_camera_view.py).
+Diagnosing a setup: [`examples/webots_camera_check.py`](https://github.com/mamrehn/pib3/blob/main/examples/webots_camera_check.py).
 
 ### IMU Sensors
 

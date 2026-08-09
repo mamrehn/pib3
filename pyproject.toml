@@ -7,14 +7,15 @@ name = "pib3"
 version = "0.1.4"
 description = "Inverse kinematics and trajectory generation for the PIB humanoid robot"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 # Lower bound: roboticstoolbox-python 1.3.x requires >=3.10.
 # Upper bound: roboticstoolbox-python publishes wheels only up to cp313; on 3.14
 # pip would fall back to compiling its C extension from source (needs MSVC on
 # Windows). Raise this as soon as cp314 wheels are published upstream.
 requires-python = ">=3.10,<3.14"
 authors = [
-    {name = "PIB Rocks Team"},
+    {name = "Mario Amrehn"},
 ]
 keywords = [
     "robotics",
@@ -28,7 +29,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -86,14 +86,23 @@ Repository = "https://github.com/mamrehn/pib3.git"
 Issues = "https://github.com/mamrehn/pib3/issues"
 
 [tool.setuptools]
-packages = ["pib3", "pib3.backends", "pib3.tools"]
+# pib3.resources* hold no Python code, but must be listed so setuptools treats
+# them as part of the distribution rather than warning that data directories are
+# absent from `packages` (future versions may stop shipping them otherwise).
+packages = [
+    "pib3",
+    "pib3.backends",
+    "pib3.tools",
+    "pib3.resources",
+    "pib3.resources.stl",
+]
 
 [tool.setuptools.package-data]
 pib3 = ["resources/*.urdf", "resources/*.proto", "resources/*.yaml", "resources/stl/*.stl"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py38"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = ["ALL"]
@@ -116,7 +125,7 @@ ignore = [
 ]
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.10"
 strict = true
 ignore_missing_imports = true
 
