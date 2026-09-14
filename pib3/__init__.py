@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 # Core types
-from .types import Joint, Sketch, Stroke, HandPose, LEFT_HAND_JOINTS, RIGHT_HAND_JOINTS, AIModel, ImuType
+from .types import Joint, Sketch, Stroke, HandPose, LEFT_HAND_JOINTS, RIGHT_HAND_JOINTS, AIModel, ImuType, DEPRECATED_MODEL_ALIASES
 
 # Configuration
 from .config import PaperConfig, IKConfig, ImageConfig, TrajectoryConfig, LowLatencyConfig, RobotConfig
@@ -87,6 +87,7 @@ __all__ = [
     "Sketch",
     "Trajectory",
     "AIModel",
+    "DEPRECATED_MODEL_ALIASES",
     "ImuType",
     # Config
     "PaperConfig",

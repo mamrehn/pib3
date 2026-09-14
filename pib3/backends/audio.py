@@ -12,7 +12,7 @@ Key Components:
 - LocalAudioPlayer: Cross-platform local audio playback using sounddevice
 - LocalAudioRecorder: Cross-platform local audio recording using sounddevice
 - RobotAudioPlayer: Send audio to robot via /audio_playback ROS topic
-- RobotAudioRecorder: Receive audio from robot via /audio_input ROS topic
+- RobotAudioRecorder: Receive audio from robot via /audio_stream ROS topic
 
 Audio Format (standard throughout):
 - Sample rate: 16000 Hz (16kHz)
@@ -121,6 +121,21 @@ DEFAULT_CHANNELS = 1
 DEFAULT_SAMPLE_WIDTH = 2  # 16-bit = 2 bytes
 DEFAULT_CHUNK_SIZE = 1024
 
+# The robot's audio_player node interprets everything arriving on
+# /audio_playback with its SPEECH_ENCODING, which is hardcoded to
+# 44100 Hz mono int16 (voice_assistant/audio_player.py). The Int16MultiArray
+# message carries no sample rate, so the backend cannot detect a mismatch --
+# audio published at any other rate simply plays at the wrong speed and pitch.
+# RobotAudioPlayer resamples to this rate before publishing.
+ROBOT_PLAYBACK_SAMPLE_RATE = 44100
+
+# Nominal rate of the robot's /audio_stream microphone topic
+# (ros_audio_io/audio_streamer.py, MIC_RATE env, default 16000). The streamer
+# falls back to the device's default rate if 16000 is unsupported, so the
+# authoritative value comes from the get_mic_configuration service --
+# see RobotAudioRecorder.get_mic_configuration().
+ROBOT_MIC_SAMPLE_RATE = 16000
+
 # Piper TTS settings
 PIPER_MODEL_DIR = Path.home() / ".cache" / "pib3" / "piper_models"
 DEFAULT_PIPER_VOICE = "de_DE-thorsten-high"  # German Thorsten voice
@@ -153,7 +168,7 @@ class AudioInput(Enum):
 
     Attributes:
         LOCAL: Record from local machine (laptop) microphone.
-        ROBOT: Record from robot's microphone (via /audio_input topic).
+        ROBOT: Record from robot's microphone (via /audio_stream topic).
 
     Note:
         In Webots simulation, ROBOT resolves to LOCAL recording.
@@ -612,6 +627,9 @@ class RobotAudioPlayer:
     TOPIC_NAME = "/audio_playback"
     TOPIC_TYPE = "std_msgs/msg/Int16MultiArray"
 
+    #: Rate the backend plays this topic at, regardless of what we send.
+    PLAYBACK_RATE = ROBOT_PLAYBACK_SAMPLE_RATE
+
     def __init__(self, client: "roslibpy.Ros"):
         """
         Initialize robot audio player.
@@ -638,9 +656,15 @@ class RobotAudioPlayer:
         """
         Send audio to robot for playback.
 
+        The robot plays this topic at a fixed
+        :data:`ROBOT_PLAYBACK_SAMPLE_RATE` (44100 Hz) and the message carries
+        no rate field, so ``data`` is resampled from ``sample_rate`` to that
+        rate before publishing. Passing the true rate of your samples is what
+        makes playback come out at the right speed.
+
         Args:
             data: Audio data as bytes, numpy array (int16), or list of int16.
-            sample_rate: Sample rate in Hz (default: 16000).
+            sample_rate: Sample rate of ``data`` in Hz (default: 16000).
             block: If True, wait estimated playback duration.
 
         Returns:
@@ -650,15 +674,21 @@ class RobotAudioPlayer:
             logger.warning("Cannot play on robot: not connected")
             return False
 
-        # Convert to list of int16
+        # Normalise to an int16 array
         if isinstance(data, bytes):
-            int_data = np.frombuffer(data, dtype=np.int16).tolist()
+            samples = np.frombuffer(data, dtype=np.int16)
         elif isinstance(data, np.ndarray):
-            int_data = data.astype(np.int16).tolist()
+            samples = data.astype(np.int16)
         elif isinstance(data, list):
-            int_data = [int(x) for x in data]
+            samples = np.asarray(data, dtype=np.int16)
         else:
             raise ValueError(f"Unsupported audio data type: {type(data)}")
+
+        # The backend has no way to be told the rate, so match its expectation.
+        if sample_rate != self.PLAYBACK_RATE:
+            samples = resample_audio(samples, sample_rate, self.PLAYBACK_RATE)
+
+        int_data = samples.tolist()
 
         # Construct Int16MultiArray message
         msg = roslibpy.Message({
@@ -670,8 +700,9 @@ class RobotAudioPlayer:
             self._topic.publish(msg)
 
             if block:
-                # Estimate playback duration and wait
-                duration = len(int_data) / sample_rate
+                # Estimate playback duration and wait. int_data is already at
+                # PLAYBACK_RATE, which is the rate it will actually play at.
+                duration = len(int_data) / self.PLAYBACK_RATE
                 time.sleep(duration)
 
             return True
@@ -697,13 +728,20 @@ class RobotAudioPlayer:
 
 class RobotAudioRecorder:
     """
-    Record audio from robot's microphone via /audio_input ROS topic.
+    Record audio from the robot's microphone via the /audio_stream ROS topic.
 
-    Subscribes to the robot's audio stream and buffers incoming audio.
+    /audio_stream is published by the backend's ros_audio_io audio_streamer
+    node: one selected channel of the USB mic array (e.g. ReSpeaker v3.x),
+    as mono int16 PCM. The stream's true sample rate is reported by the
+    get_mic_configuration service -- the streamer requests MIC_RATE (16000 by
+    default) but falls back to the device's default rate if that is refused,
+    so do not assume 16000. Use :attr:`sample_rate`.
     """
 
-    TOPIC_NAME = "/audio_input"
+    TOPIC_NAME = "/audio_stream"
     TOPIC_TYPE = "std_msgs/msg/Int16MultiArray"
+    MIC_CONFIG_SERVICE = "/get_mic_configuration"
+    MIC_CONFIG_SERVICE_TYPE = "datatypes/srv/GetMicConfiguration"
 
     def __init__(self, client: "roslibpy.Ros"):
         """
@@ -725,6 +763,48 @@ class RobotAudioRecorder:
         self._lock = threading.Lock()
         self._recording = False
         self._subscription_active = False
+        self._mic_config: Optional[dict] = None
+
+    def get_mic_configuration(self, timeout: float = 5.0) -> Optional[dict]:
+        """
+        Query the robot's actual microphone configuration.
+
+        Returns:
+            Dict with ``mic_channels``, ``chunk_size``, ``audio_format`` (a
+            PyAudio format constant) and ``sample_rate``, or None if the
+            service did not answer (e.g. ros_audio_io is not running).
+        """
+        if not self._client.is_connected:
+            return None
+
+        service = roslibpy.Service(
+            self._client,
+            self.MIC_CONFIG_SERVICE,
+            self.MIC_CONFIG_SERVICE_TYPE,
+        )
+        try:
+            result = service.call(roslibpy.ServiceRequest({}), timeout=timeout)
+        except Exception as e:
+            logger.warning(f"get_mic_configuration failed: {e}")
+            return None
+
+        self._mic_config = dict(result)
+        return self._mic_config
+
+    @property
+    def sample_rate(self) -> int:
+        """
+        Actual sample rate of /audio_stream in Hz.
+
+        Queried once from get_mic_configuration and cached; falls back to
+        :data:`ROBOT_MIC_SAMPLE_RATE` (16000) if the service is unavailable.
+        """
+        if self._mic_config is None:
+            self.get_mic_configuration()
+        if not self._mic_config:
+            return ROBOT_MIC_SAMPLE_RATE
+        rate = int(self._mic_config.get("sample_rate", 0))
+        return rate if rate > 0 else ROBOT_MIC_SAMPLE_RATE
 
     def _on_message(self, message: dict) -> None:
         """Handle incoming audio message from robot."""
@@ -739,17 +819,20 @@ class RobotAudioRecorder:
     def record(
         self,
         duration: float,
-        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        sample_rate: Optional[int] = None,
     ) -> np.ndarray:
         """
         Record audio from robot for a specified duration.
 
         Args:
             duration: Recording duration in seconds.
-            sample_rate: Sample rate in Hz (default: 16000).
+            sample_rate: Rate to return the audio at. None (the default) means
+                the microphone's own rate -- see :attr:`sample_rate` -- and no
+                resampling. Pass a value to resample the result.
 
         Returns:
-            Audio data as numpy array of int16 samples.
+            Audio data as numpy array of int16 samples, at ``sample_rate`` if
+            one was given, otherwise at :attr:`sample_rate`.
         """
         if not self._client.is_connected:
             raise RuntimeError("Cannot record from robot: not connected")
@@ -772,6 +855,10 @@ class RobotAudioRecorder:
         with self._lock:
             audio = np.array(self._buffer, dtype=np.int16)
             self._buffer.clear()
+
+        mic_rate = self.sample_rate
+        if sample_rate is not None and sample_rate != mic_rate and len(audio):
+            audio = resample_audio(audio, mic_rate, sample_rate)
 
         return audio
 

@@ -206,7 +206,7 @@ def demo_person_tracking(robot, duration: float = 30.0):
 
     # Use MobileNet-SSD for fast detection (class 15 = person in COCO)
     print("Switching to mobilenet-ssd model...")
-    if robot.set_ai_model("mobilenet-ssd", timeout=5.0):
+    if robot.set_ai_model("yolov6n", timeout=10.0):
         print("Model ready!")
     else:
         print("Model switch timed out, using current model")

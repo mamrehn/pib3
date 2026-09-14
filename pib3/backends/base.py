@@ -699,7 +699,7 @@ class RobotBackend(ABC):
         """
         Record audio from robot microphone.
 
-        Override in RealRobotBackend to receive via /audio_input topic.
+        Override in RealRobotBackend to receive via /audio_stream topic.
         Base implementation returns None (not supported).
         """
         logger.warning("Robot audio recording not supported in this backend")

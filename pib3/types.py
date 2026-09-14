@@ -15,40 +15,67 @@ class ImuType(str, Enum):
 
 
 class AIModel(str, Enum):
-    """Available AI models on the OAK-D Lite camera.
+    """AI models the pib camera node can load on the OAK-D Lite.
 
-    Use these enum values instead of strings for better IDE support:
+    These mirror the ``AVAILABLE_MODELS`` registry in the backend's
+    ``ros_packages/camera/oak_d_lite/stereo.py``. That registry is a hard
+    allowlist: the ``switch_ai_model`` service rejects any other name, and the
+    ``camera/ai/config`` topic logs an error and ignores it. Adding a model
+    therefore requires a backend change, not just a new entry here.
+
+    The weights themselves are pulled from the Luxonis Model Hub on demand
+    (``dai.NNModelDescription(slug)``) and cached on the robot, so a name in
+    this enum may still take a few seconds to load the first time.
+
+    Use the enum rather than a bare string for IDE completion:
         >>> robot.set_ai_model(AIModel.HAND)
-        >>> robot.set_ai_model(AIModel.YOLOV8N)
+        >>> robot.set_ai_model(AIModel.YOLOV6N)
 
-    String values still work for backward compatibility:
+    Strings still work:
         >>> robot.set_ai_model("hand")  # Also valid
     """
 
-    # Detection models
-    MOBILENET_SSD = "mobilenet-ssd"
-    YOLOV6N = "yolov6n"
-    YOLOV8N = "yolov8n"
-    YOLO11S = "yolo11s"
-    YOLO11N = "yolo11n"
+    # Object detection
+    YOLOV6N = "yolov6n"          # luxonis/yolov6-nano:r2-coco-512x288, 80 COCO classes
+    YOLOV10N = "yolov10n"        # luxonis/yolov10-nano:coco-512x288, 80 COCO classes
+    PERSON = "person"            # luxonis/scrfd-person-detection:25g-640x640
+    FACE = "face"                # luxonis/yunet:640x480
+
+    # Pose estimation (17 keypoints)
+    POSE_YOLO = "pose_yolo"      # luxonis/yolov8-nano-pose-estimation:coco-512x288
+    POSE_HRNET = "pose_hrnet"    # luxonis/lite-hrnet:18-coco-288x384
 
     # Hand tracking
-    HAND = "hand"
+    HAND = "hand"                # luxonis/mediapipe-hand-landmarker:224x224
 
-    # Pose estimation
-    POSE_YOLO = "pose_yolo"
-    POSE = "pose"
+    # Instance segmentation
+    SEGMENTATION = "segmentation"  # luxonis/yolov8-instance-segmentation-nano:coco-512x288
 
-    # Segmentation
-    DEEPLABV3 = "deeplabv3"
-    YOLOV8N_SEG = "yolov8n-seg"
-    FASTSAM = "fastsam"
-
-    # Gaze estimation
-    GAZE = "gaze"
+    # Gaze estimation (slow on RVC2: ~4 inf/s)
+    GAZE = "gaze"                # luxonis/l2cs-net:448x448
 
     # Line detection
-    LINES = "lines"
+    LINES = "lines"              # luxonis/m-lsd:512x512
+
+
+#: Model names this SDK used to expose that the backend never accepted, mapped
+#: to the closest model it does accept. ``set_ai_model`` remaps these and emits
+#: a DeprecationWarning instead of failing with an opaque timeout.
+#:
+#: Some of these (``mobilenet-ssd``, ``deeplabv3`` -> ``deeplab-v3-plus``,
+#: ``fastsam`` -> ``fastsam-s``) do exist on the Luxonis Model Hub; they are
+#: simply absent from the backend registry. Recovering them means adding a slug
+#: to ``AVAILABLE_MODELS`` on the robot.
+DEPRECATED_MODEL_ALIASES = MappingProxyType({
+    "mobilenet-ssd": "yolov6n",
+    "yolov8n": "yolov6n",
+    "yolo11n": "yolov6n",
+    "yolo11s": "yolov10n",
+    "pose": "pose_yolo",
+    "deeplabv3": "segmentation",
+    "yolov8n-seg": "segmentation",
+    "fastsam": "segmentation",
+})
 
 
 class Joint(str, Enum):

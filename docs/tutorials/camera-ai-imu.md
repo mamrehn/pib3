@@ -52,7 +52,7 @@ from pib3 import Robot, AIModel
 
 with Robot(host="192.168.178.71") as robot:
     # Set AI model (waits for confirmation)
-    robot.ai.set_model(AIModel.YOLOV8N)
+    robot.ai.set_model(AIModel.YOLOV6N)
     
     # Get detections (waits automatically for results)
     for det in robot.ai.get_detections():
@@ -355,7 +355,7 @@ All detection messages include common metadata:
 
 ```python
 {
-    "model": "mobilenet-ssd",
+    "model": "yolov6n",
     "type": "detection",  # or "classification", "segmentation", "pose"
     "frame_id": 42,
     "timestamp_ns": 1234567890123456789,
@@ -423,7 +423,7 @@ with Robot(host="192.168.178.71") as robot:
     print(f"Available: {list(models.keys())}")
 
     # Switch to YOLO (waits for confirmation)
-    if robot.set_ai_model("yolov8n"):
+    if robot.set_ai_model("yolov6n"):
         print("Model switched to yolov8n")
     else:
         print("Model switch timed out")
@@ -462,7 +462,7 @@ For more control, use `set_ai_config()`:
 ```python
 with Robot(host="192.168.178.71") as robot:
     robot.set_ai_config(
-        model="yolov8n",
+        model="yolov6n",
         confidence=0.5,  # Detection threshold (0.0-1.0)
     )
 ```
@@ -484,7 +484,7 @@ with Robot(host="192.168.178.71") as robot:
     sub = robot.subscribe_current_ai_model(on_model_change)
 
     # Switch models - callback will fire when switch completes
-    robot.set_ai_model("yolov8n")
+    robot.set_ai_model("yolov6n")
     robot.set_ai_model("human-pose-estimation")
 
     sub.unsubscribe()
@@ -502,7 +502,7 @@ Returns bounding boxes around detected segments:
 
 ```python
 robot.set_ai_config(
-    model="deeplabv3",
+    model="segmentation",
     segmentation_mode="bbox"
 )
 ```
@@ -530,7 +530,7 @@ Returns full segmentation mask as RLE (Run-Length Encoded):
 from pib3.backends import rle_decode
 
 robot.set_ai_config(
-    model="deeplabv3",
+    model="segmentation",
     segmentation_mode="mask",
     segmentation_target_class=15  # Person class
 )
@@ -698,7 +698,7 @@ def test_ai_models(robot):
                 print(f"    - Class {det['label']} (conf: {det['confidence']:.2f})")
 
     # Switch model (synchronous - waits for confirmation)
-    if robot.set_ai_model("yolov8n", timeout=3.0):
+    if robot.set_ai_model("yolov6n", timeout=10.0):
         print("Model switched to yolov8n")
     else:
         print("Model switch timeout")
@@ -773,7 +773,7 @@ class VisionController:
     def run(self, duration=30):
         """Run vision-based control loop."""
         # Switch to YOLO model for person detection
-        if not self.robot.set_ai_model("yolov8n"):
+        if not self.robot.set_ai_model("yolov6n"):
             print("Failed to switch model")
             return
 

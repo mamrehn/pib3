@@ -80,17 +80,18 @@ def demo_detection_models(robot, duration: float = 5.0):
 
     print("\n=== Detection Model Comparison ===")
 
-    detection_models = ["mobilenet-ssd", "yolov8n", "yolov6n"]
+    detection_models = ["yolov6n", "yolov10n", "person", "face"]
 
     for model_name in detection_models:
         print(f"\n--- Testing {model_name} ---")
 
         # Switch model (synchronous)
         print(f"Switching to {model_name}...")
-        if robot.set_ai_model(model_name, timeout=10.0):
+        ok, message = robot.switch_ai_model(model_name, timeout=15.0)
+        if ok:
             print(f"Model ready!")
         else:
-            print(f"Model switch timed out, skipping...")
+            print(f"Skipping: {message}")
             continue
 
         # Collect detection stats
@@ -195,7 +196,7 @@ def demo_segmentation(robot, duration: float = 5.0):
     print("\n=== Segmentation Demo ===")
 
     # Switch to segmentation model
-    model_name = "deeplabv3"
+    model_name = "segmentation"
     print(f"Switching to {model_name}...")
 
     if robot.set_ai_model(model_name, timeout=5.0):
@@ -266,7 +267,7 @@ def demo_quick_switch(robot):
     print("\n=== Quick Switch Demo ===")
     print("Switching between models rapidly...")
 
-    models = ["yolov8n", "mobilenet-ssd", "human-pose-estimation", "yolov8n"]
+    models = ["yolov6n", "yolov10n", "pose_yolo", "yolov6n"]
 
     for model_name in models:
         start = time.time()
