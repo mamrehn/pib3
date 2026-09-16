@@ -61,31 +61,21 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# Platform-specific installation help for sounddevice
+# Platform-specific installation help for sounddevice (optional extra "audio")
+_AUDIO_EXTRA = '    pip install "pib3[audio] @ git+https://github.com/mamrehn/pib3.git"'
 if sys.platform.startswith('linux'):
     _SOUNDDEVICE_HELP = (
         "sounddevice is required for audio playback and recording.\n"
         "On Linux, first install PortAudio:\n"
         "    sudo apt-get install libportaudio2 portaudio19-dev\n"
-        "Then install sounddevice:\n"
-        "    pip install sounddevice"
-    )
-elif sys.platform == 'darwin':  # macOS
-    _SOUNDDEVICE_HELP = (
-        "sounddevice is required for audio playback and recording.\n"
-        "Install with:\n"
-        "    pip install sounddevice"
-    )
-elif sys.platform == 'win32':  # Windows
-    _SOUNDDEVICE_HELP = (
-        "sounddevice is required for audio playback and recording.\n"
-        "Install with:\n"
-        "    pip install sounddevice"
+        "Then install the audio extra:\n"
+        f"{_AUDIO_EXTRA}"
     )
 else:
     _SOUNDDEVICE_HELP = (
         "sounddevice is required for audio playback and recording.\n"
-        "Install with: pip install sounddevice"
+        "Install the audio extra:\n"
+        f"{_AUDIO_EXTRA}"
     )
 
 # Audio playback/recording imports
@@ -100,10 +90,18 @@ else:
 try:
     import sounddevice as sd
     HAS_SOUNDDEVICE = True
-except (ImportError, OSError) as e:
+except ImportError as e:
+    # The optional "audio" extra is simply not installed: stay quiet on import,
+    # the functions that need it raise with _SOUNDDEVICE_HELP.
     sd = None
     HAS_SOUNDDEVICE = False
-    # Log the underlying exception and provide the platform-specific hint
+    logger.debug(f"sounddevice not installed: {e}")
+except Exception as e:  # noqa: BLE001
+    # Installed, but PortAudio is missing (OSError) or cannot initialise, e.g.
+    # no sound server over SSH or in a VM (sounddevice.PortAudioError, which is
+    # not an OSError). Importing pib3 must not crash because of audio.
+    sd = None
+    HAS_SOUNDDEVICE = False
     logger.warning(f"sounddevice not available: {e}\n{_SOUNDDEVICE_HELP}")
 
 try:
@@ -873,8 +871,8 @@ class PiperTTS:
             from piper import PiperVoice
         except ImportError:
             raise ImportError(
-                "piper-tts is required for text-to-speech. "
-                "Install with: pip install piper-tts"
+                "piper-tts is required for text-to-speech. Install the audio extra:\n"
+                f"{_AUDIO_EXTRA}"
             )
 
         # Ensure model directory exists

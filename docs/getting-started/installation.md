@@ -68,23 +68,32 @@ python -c "import pib3; print(f'pib3 {pib3.__version__}')"
 ## Installation Options
 
 Everything needed for **image processing, trajectory generation, the Webots backend and
-the real robot** is installed by default — there is no extra to add for those. Only two
+the real robot** is installed by default — there is no extra to add for those. Three
 optional groups exist:
 
 | Option | Dependencies | Use Case |
 |--------|--------------|----------|
+| `audio` | sounddevice, piper-tts | Local audio playback, recording and Piper text-to-speech (Linux: install PortAudio first) |
 | `sim` | ultralytics, mediapipe | Run the OAK-D-equivalent AI models on simulated Webots frames |
 | `dev` | pytest, pytest-cov, black, ruff, mypy | Development/testing |
 
 ```bash
+# Local audio and text-to-speech
+pip install "pib3[audio] @ git+https://github.com/mamrehn/pib3.git"
+
 # Simulated AI perception in Webots
 pip install "pib3[sim] @ git+https://github.com/mamrehn/pib3.git"
 ```
 
 !!! warning "Older docs mention `[robot]`, `[image]`, `[viz]` or `[all]`"
-    Those groups no longer exist. `roslibpy` (robot) and `opencv-python-headless` (image)
+    Those groups no longer exist. `roslibpy` (robot) and `opencv-python` (image)
     are core dependencies now. pip only warns about an unknown extra rather than failing,
     so such a command appears to work while silently doing nothing extra.
+
+!!! note "Headless server"
+    pib3 depends on `opencv-python`, the build with `cv2.imshow()`. On a machine without
+    a display stack, swap it: `pip uninstall -y opencv-python && pip install opencv-python-headless`.
+    Never keep both installed: they overwrite the same `cv2` module.
 
 ---
 

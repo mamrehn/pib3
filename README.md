@@ -44,6 +44,10 @@ source ./venv/bin/activate
 pip install -U "pib3 @ git+https://github.com/mamrehn/pib3.git"
 ```
 
+Local audio playback, recording and text-to-speech are an optional extra:
+`pip install -U "pib3[audio] @ git+https://github.com/mamrehn/pib3.git"`
+(Linux: `sudo apt-get install libportaudio2 portaudio19-dev` first).
+
 ### Windows prerequisites
 
 Two things must be in place before `pip install` succeeds. Getting either wrong is what

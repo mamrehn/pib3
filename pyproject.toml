@@ -49,18 +49,25 @@ dependencies = [
     # 1.1.15 broke angvec2r (scalar angle parsed as a 1-D vector, Rodrigues' formula
     # raises TypeError); fixed in 1.1.16. Also the floor rtb 1.3.x requires.
     "spatialmath-python>=1.1.16",
-    "opencv-python-headless>=4.5.0",
+    # The GUI build, not opencv-python-headless: both install the same `cv2`
+    # module and silently overwrite each other, and ultralytics pulls in
+    # opencv-python. With headless here, whichever pip installs last wins and
+    # cv2.imshow() may stop working. Headless servers can swap it manually.
+    "opencv-python>=4.5.0",
     "roslibpy>=1.4.0",  # Includes websocket support via autobahn/twisted
     "tinkerforge>=2.1.0",  # Low-latency direct motor control via servo bricklets
-    # Audio playback, recording, and TTS
-    # Note: On Linux, install PortAudio first: sudo apt-get install libportaudio2 portaudio19-dev
-    # Note: On Windows/macOS: No additional system requirements
-    "sounddevice>=0.5.5",  # 0.5.5 fixes callback exception on Python 3.13
-    "piper-tts>=1.2.0",
-    "pynput>=1.8.0",  # Keyboard listener for emergency stop key
+    "pynput>=1.8.0",  # Keyboard listener for emergency stop key -- keep required
 ]
 
 [project.optional-dependencies]
+# Local audio playback, recording and Piper text-to-speech (~110 MB with
+# onnxruntime). The robot's own TTS service works without it.
+# Linux: install PortAudio first: sudo apt-get install libportaudio2 portaudio19-dev
+audio = [
+    "sounddevice>=0.5.5",  # 0.5.5 fixes callback exception on Python 3.13
+    "piper-tts>=1.2.0",
+]
+
 # Simulated AI perception: run OAK-D-equivalent models on Webots RGB frames
 # so sim.ai returns the same typed results as robot.ai.
 #   ultralytics -> detection, pose (COCO-17), instance segmentation
