@@ -1,11 +1,13 @@
 """Real robot backend via rosbridge for pib3 package."""
 
+import base64
 import json
 import logging
 import math
 import threading
 import time
-from typing import Callable, Dict, List, Optional, Tuple, Union
+import warnings
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -21,7 +23,7 @@ except ImportError:
 from .base import RobotBackend
 from .audio import AudioOutput, AudioInput, RobotAudioPlayer, RobotAudioRecorder, DEFAULT_SAMPLE_RATE
 from ..config import RobotConfig, LowLatencyConfig
-from ..types import ImuType, AIModel
+from ..types import ImuType, AIModel, DEPRECATED_MODEL_ALIASES
 
 # Type alias for Tinkerforge motor mapping: motor_name -> (bricklet_uid, channel)
 TinkerforgeMotorMapping = Dict[str, Tuple[str, int]]
@@ -1878,9 +1880,6 @@ class RealRobotBackend(RobotBackend):
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
-        import base64
-
-
         topic = roslibpy.Topic(
             self._client,
             '/camera/image/compressed',
@@ -1938,35 +1937,219 @@ class RealRobotBackend(RobotBackend):
         """
         Configure camera settings.
 
-        Note: Changes may cause brief stream interruption (~100-200ms)
-        as the pipeline rebuilds.
+        Note: Changing resolution restarts the camera pipeline, so the stream
+        is briefly interrupted (~100-200ms). Quality and frame rate do not.
+
+        ``quality`` and ``resolution`` go to ``camera/video/config``; ``fps``
+        is applied through ``camera/timer_period``, which is what the camera
+        node actually reads for its publish rate -- the video config handler
+        ignores an ``fps`` key.
 
         Args:
-            fps: Frames per second (e.g., 30).
+            fps: Frames per second (e.g., 30). Converted to a timer period.
             quality: JPEG quality 1-100 (e.g., 80).
             resolution: (width, height) tuple (e.g., (1280, 720)).
         """
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
-
         config = {}
-        if fps is not None:
-            config['fps'] = fps
         if quality is not None:
             config['quality'] = quality
         if resolution is not None:
             config['resolution'] = list(resolution)
 
-        if not config:
-            return
+        if config:
+            topic = roslibpy.Topic(
+                self._client,
+                '/camera/video/config',
+                'std_msgs/msg/String'
+            )
+            topic.publish({'data': json.dumps(config)})
+
+        if fps is not None:
+            if fps <= 0:
+                raise ValueError(f"fps must be positive, got {fps}")
+            self.set_camera_timer_period(1.0 / float(fps))
+
+    # ==================== DEPTH & FRAME SERVICES ====================
+
+    def get_camera_image(self, timeout: float = 5.0) -> Optional[bytes]:
+        """
+        Fetch a single JPEG frame via the ``get_camera_image`` service.
+
+        A one-shot alternative to :meth:`subscribe_camera_image` when you want
+        one frame and do not want to hold a subscription open.
+
+        Returns:
+            JPEG bytes, or None if the camera is unavailable.
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        service = roslibpy.Service(
+            self._client,
+            '/get_camera_image',
+            'datatypes/srv/GetCameraImage'
+        )
+        try:
+            result = service.call(roslibpy.ServiceRequest({}), timeout=timeout)
+        except Exception as e:
+            logger.warning(f"get_camera_image service call failed: {e}")
+            return None
+
+        encoded = result.get('image_base64', '')
+        if not encoded:
+            return None
+        return base64.b64decode(encoded)
+
+    def get_depth_frame(self, timeout: float = 5.0) -> Optional["np.ndarray"]:
+        """
+        Fetch the current metric depth frame via the ``get_depth_frame`` service.
+
+        This is the only source of *metric* depth. The ``stereo_depth`` topic
+        carries a colourised JPEG for display, not millimetres -- see
+        :meth:`subscribe_depth_visualization`.
+
+        Returns:
+            A ``(height, width)`` uint16 array of millimetres, where 0 marks an
+            invalid or unknown pixel, or None if no depth is cached (the depth
+            branch only runs while something subscribes to ``stereo_depth``,
+            or after a prior depth request).
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        service = roslibpy.Service(
+            self._client,
+            '/get_depth_frame',
+            'datatypes/srv/GetDepthFrame'
+        )
+        try:
+            result = service.call(roslibpy.ServiceRequest({}), timeout=timeout)
+        except Exception as e:
+            logger.warning(f"get_depth_frame service call failed: {e}")
+            return None
+
+        width = int(result.get('width', 0))
+        height = int(result.get('height', 0))
+        encoded = result.get('depth_base64', '')
+        if not width or not height or not encoded:
+            return None
+
+        raw = base64.b64decode(encoded)
+        depth = np.frombuffer(raw, dtype='<u2')
+        if depth.size != width * height:
+            logger.warning(
+                f"Depth frame size mismatch: got {depth.size} samples, "
+                f"expected {width * height} ({width}x{height})"
+            )
+            return None
+        return depth.reshape((height, width))
+
+    def get_distance_at_px(
+        self,
+        x: int,
+        y: int,
+        timeout: float = 5.0,
+    ) -> Optional[float]:
+        """
+        Distance in millimetres at one pixel of the cached depth frame.
+
+        Args:
+            x: Column in the depth frame.
+            y: Row in the depth frame.
+
+        Returns:
+            Distance in mm, or None when the backend reports 0.0 -- which
+            means invalid, out of bounds, or no cached depth frame. The
+            backend does not distinguish these cases.
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        service = roslibpy.Service(
+            self._client,
+            '/get_distance_at_px',
+            'datatypes/srv/GetDistanceAtPx'
+        )
+        try:
+            result = service.call(
+                roslibpy.ServiceRequest({'x': int(x), 'y': int(y)}),
+                timeout=timeout,
+            )
+        except Exception as e:
+            logger.warning(f"get_distance_at_px service call failed: {e}")
+            return None
+
+        distance = float(result.get('distance_mm', 0.0))
+        return distance if distance > 0.0 else None
+
+    def subscribe_depth_visualization(
+        self,
+        callback: Callable[[bytes], None],
+    ) -> "roslibpy.Topic":
+        """
+        Subscribe to the colourised depth preview on ``stereo_depth``.
+
+        The payload is a JET-colormapped JPEG for display. It is *not* metric
+        depth -- use :meth:`get_depth_frame` or :meth:`get_distance_at_px` for
+        millimetres. Subscribing here is also what switches the camera's depth
+        branch on, so it populates the cache those services read.
+
+        Args:
+            callback: Called with JPEG bytes for each depth frame.
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
 
         topic = roslibpy.Topic(
             self._client,
-            '/camera/config',
+            '/stereo_depth',
             'std_msgs/msg/String'
         )
-        topic.publish({'data': json.dumps(config)})
+
+        def parse_and_forward(msg):
+            encoded = msg.get('data', '')
+            if encoded:
+                callback(base64.b64decode(encoded))
+
+        topic.subscribe(parse_and_forward)
+        return topic
+
+    def subscribe_face_center(
+        self,
+        callback: Callable[[Tuple[float, float]], None],
+    ) -> "roslibpy.Topic":
+        """
+        Subscribe to Haar-cascade face tracking on ``face_center``.
+
+        The callback receives ``(x, y)`` pixel offsets of the largest face
+        from the image centre, with **y pointing up** (positive means the face
+        is above centre). Useful for driving head servos directly.
+
+        ``(0.0, 0.0)`` is published when no face is found -- the backend uses
+        the same value for "no face" and "face exactly centred", so treat it
+        as "no target" rather than a precise reading.
+
+        Face detection only runs while this topic has a subscriber.
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/face_center',
+            'std_msgs/msg/Float32MultiArray'
+        )
+
+        def parse_and_forward(msg):
+            data = msg.get('data', [])
+            if len(data) >= 2:
+                callback((float(data[0]), float(data[1])))
+
+        topic.subscribe(parse_and_forward)
+        return topic
 
     # ==================== AI DETECTION METHODS ====================
 
@@ -2050,16 +2233,18 @@ class RealRobotBackend(RobotBackend):
             timeout: Max time to wait for response in seconds.
 
         Returns:
-            Dict mapping model names to their info:
+            Dict mapping model names to their info, as published by the
+            backend's model registry:
             {
-                "mobilenet-ssd": {
+                "yolov6n": {
                     "type": "detection",
-                    "input_size": [300, 300],
-                    "fps": 30,
-                    "description": "Fast object detection"
+                    "description": "YOLOv6 Nano - fast & accurate object detection",
+                    "classes": 80,
+                    "slug": "luxonis/yolov6-nano:r2-coco-512x288"
                 },
                 ...
             }
+            Returns an empty dict if no message arrives within ``timeout``.
         """
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
@@ -2083,82 +2268,108 @@ class RealRobotBackend(RobotBackend):
         topic.unsubscribe()
         return result
 
+    def resolve_ai_model_name(self, model: Union[AIModel, str]) -> str:
+        """
+        Normalise a model argument to a name the backend registry accepts.
+
+        Names this SDK used to expose but the backend never accepted are
+        remapped via :data:`pib3.types.DEPRECATED_MODEL_ALIASES` with a
+        DeprecationWarning, so old scripts keep working instead of failing
+        with an opaque timeout.
+        """
+        name = model.value if isinstance(model, AIModel) else str(model)
+        replacement = DEPRECATED_MODEL_ALIASES.get(name)
+        if replacement is not None:
+            warnings.warn(
+                f"AI model {name!r} is not in the pib backend's model registry; "
+                f"using {replacement!r} instead. Update your code to one of: "
+                f"{', '.join(m.value for m in AIModel)}.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            return replacement
+        return name
+
+    def switch_ai_model(
+        self,
+        model: Union[AIModel, str],
+        timeout: float = 10.0,
+    ) -> Tuple[bool, str]:
+        """
+        Switch the camera's AI model via the ``switch_ai_model`` service.
+
+        Unlike the ``camera/ai/config`` topic, the service reports *why* a
+        switch failed rather than leaving the caller to time out.
+
+        Args:
+            model: AIModel enum value or string name.
+            timeout: Seconds to wait for the service call. Loading a model the
+                robot has not cached pulls it from the Luxonis Model Hub, so
+                allow generous time on first use.
+
+        Returns:
+            ``(success, message)``. On an unknown name the backend returns
+            False with a message listing the models it does accept.
+
+        Example:
+            >>> ok, msg = robot.switch_ai_model(AIModel.HAND)
+            >>> if not ok:
+            ...     print(msg)
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        model_name = self.resolve_ai_model_name(model)
+
+        service = roslibpy.Service(
+            self._client,
+            '/switch_ai_model',
+            'datatypes/srv/SwitchModel'
+        )
+        request = roslibpy.ServiceRequest({'model_name': model_name})
+
+        try:
+            result = service.call(request, timeout=timeout)
+        except Exception as e:
+            return False, f"switch_ai_model service call failed: {e}"
+
+        return bool(result.get('success', False)), str(result.get('message', ''))
+
     def set_ai_model(
         self,
         model: Union[AIModel, str],
-        timeout: float = 5.0,
+        timeout: float = 10.0,
     ) -> bool:
         """
         Switch AI model on the OAK-D Lite camera (synchronous).
 
-        This method waits for confirmation that the model has been
-        successfully loaded before returning.
+        Calls the ``switch_ai_model`` service and waits for the backend's
+        answer. Note that inference only runs while something is subscribed to
+        ``camera/ai/detections`` -- see :meth:`subscribe_ai_detections`.
 
-        Note: Model switching causes brief interruption (~200-500ms)
-        as the pipeline rebuilds with the new neural network.
+        Model switching rebuilds the pipeline, so colour and depth are briefly
+        interrupted. A model the robot has not cached is fetched from the
+        Luxonis Model Hub on first use, which can take several seconds.
 
         Args:
-            model: AI model to load. Can be an AIModel enum value or string.
-                Use AIModel enum for IDE autocompletion:
+            model: AI model to load, as an AIModel enum value or string:
                     >>> robot.set_ai_model(AIModel.HAND)
-                    >>> robot.set_ai_model(AIModel.YOLOV8N)
-                Or use string names:
                     >>> robot.set_ai_model("hand")
-                    >>> robot.set_ai_model("yolov8n")
-            timeout: Maximum time to wait for model switch confirmation
-                (default: 5.0 seconds).
+            timeout: Maximum seconds to wait (default: 10.0).
 
         Returns:
-            True if model switch confirmed, False if timeout occurred.
+            True if the backend confirmed the switch, False otherwise. Use
+            :meth:`switch_ai_model` to get the failure message as well.
 
         Example:
             >>> from pib3 import Robot, AIModel
             >>> with Robot(host="...") as robot:
             ...     robot.set_ai_model(AIModel.HAND)
-            ...     robot.set_ai_model(AIModel.YOLOV8N)
-            ...     robot.set_ai_model("mobilenet-ssd")  # String also works
+            ...     robot.set_ai_model(AIModel.YOLOV6N)
         """
-        if not self.is_connected:
-            raise ConnectionError("Not connected to robot")
-
-        # Convert AIModel enum to string value
-        model_name = model.value if isinstance(model, AIModel) else str(model)
-
-        import threading
-
-
-        model_ready = threading.Event()
-
-        # Subscribe to current model updates first
-        model_topic = roslibpy.Topic(
-            self._client,
-            '/camera/ai/current_model',
-            'std_msgs/msg/String'
-        )
-
-        def on_model_update(msg):
-            data = json.loads(msg.get('data', '{}'))
-            current_model = data.get('name', data.get('model', ''))
-            # Check if the target model is now active
-            if model_name in current_model or current_model in model_name:
-                model_ready.set()
-
-        model_topic.subscribe(on_model_update)
-
-        # Publish the model change request
-        config_topic = roslibpy.Topic(
-            self._client,
-            '/ai/config',
-            'std_msgs/msg/String'
-        )
-        config_topic.publish({'data': json.dumps({'model': model_name})})
-
-        # Wait for confirmation
-        success = model_ready.wait(timeout=timeout)
-
-        # Clean up subscription
-        model_topic.unsubscribe()
-
+        success, message = self.switch_ai_model(model, timeout=timeout)
+        if not success and message:
+            logger.warning(f"AI model switch failed: {message}")
         return success
 
     def set_ai_config(
@@ -2200,7 +2411,7 @@ class RealRobotBackend(RobotBackend):
 
         topic = roslibpy.Topic(
             self._client,
-            '/ai/config',
+            '/camera/ai/config',
             'std_msgs/msg/String'
         )
         topic.publish({'data': json.dumps(config)})
@@ -2213,13 +2424,16 @@ class RealRobotBackend(RobotBackend):
         Subscribe to current AI model info updates.
 
         Args:
-            callback: Called with model info dict when model changes:
+            callback: Called with model info roughly once a second:
                 {
-                    "name": "mobilenet-ssd",
+                    "name": "yolov6n",
                     "type": "detection",
-                    "input_size": [300, 300],
-                    "fps": 30,
-                    "description": "..."
+                    "description": "...",
+                    "classes": 80,
+                    "slug": "luxonis/yolov6-nano:r2-coco-512x288",
+                    "active": True,    # False while nothing subscribes to detections
+                    "loading": False,  # True while the model is being built
+                    "error": None      # last load error, if any
                 }
 
         Returns:
@@ -2241,6 +2455,136 @@ class RealRobotBackend(RobotBackend):
 
         topic.subscribe(parse_and_forward)
         return topic
+
+    def subscribe_ai_status(
+        self,
+        callback: Callable[[dict], None],
+    ) -> "roslibpy.Topic":
+        """
+        Subscribe to AI pipeline status on ``camera/ai/status``.
+
+        The callback receives ``{"state", "model", "message", "timestamp"}``
+        where ``state`` is one of ``idle``, ``loading``, ``ready``, ``error``.
+        This is how you observe a model load progressing or failing, including
+        failures that happen asynchronously after :meth:`set_ai_model` returns.
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/camera/ai/status',
+            'std_msgs/msg/String'
+        )
+
+        def parse_and_forward(msg):
+            callback(json.loads(msg.get('data', '{}')))
+
+        topic.subscribe(parse_and_forward)
+        return topic
+
+    def subscribe_camera_errors(
+        self,
+        callback: Callable[[str], None],
+    ) -> "roslibpy.Topic":
+        """
+        Subscribe to camera error messages on ``camera/error``.
+
+        The camera node publishes here when the pipeline cannot be built or a
+        frame cannot be produced -- including before any image has ever been
+        delivered, which is otherwise indistinguishable from a slow start.
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/camera/error',
+            'std_msgs/msg/String'
+        )
+        topic.subscribe(lambda msg: callback(msg.get('data', '')))
+        return topic
+
+    def subscribe_imu_raw(
+        self,
+        callback: Callable[[dict], None],
+    ) -> "roslibpy.Topic":
+        """
+        Subscribe to the unified ``camera/imu`` topic (``sensor_msgs/Imu``).
+
+        Delivers orientation, angular velocity and linear acceleration in one
+        timestamped message, rather than the split accelerometer/gyroscope
+        streams :meth:`subscribe_imu` correlates by hand. Prefer this when you
+        want both in lockstep.
+
+        Note the OAK-D Lite's BMI270 provides no magnetometer, so the
+        ``orientation`` field is not a fused absolute heading.
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/camera/imu',
+            'sensor_msgs/msg/Imu'
+        )
+        topic.subscribe(callback)
+        return topic
+
+    # ==================== CAMERA CONTROL TOPICS ====================
+
+    def set_camera_quality(self, quality: int) -> None:
+        """
+        Set JPEG quality factor (1-100) via ``camera/quality_factor``.
+
+        A single-purpose alternative to :meth:`set_camera_config` that takes
+        effect without touching resolution.
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/camera/quality_factor',
+            'std_msgs/msg/Int32'
+        )
+        topic.publish({'data': max(1, min(100, int(quality)))})
+
+    def set_camera_preview_size(self, width: int, height: int) -> None:
+        """
+        Set preview resolution via ``camera/preview_size``.
+
+        Unlike the quality factor, this restarts the camera pipeline.
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/camera/preview_size',
+            'std_msgs/msg/Int32MultiArray'
+        )
+        topic.publish({
+            'layout': {'dim': [], 'data_offset': 0},
+            'data': [int(width), int(height)],
+        })
+
+    def set_camera_timer_period(self, period: float) -> None:
+        """
+        Set the camera's publish interval in seconds via ``camera/timer_period``.
+
+        The backend default is 0.1 s (10 fps). Smaller values publish faster at
+        the cost of CPU on the robot.
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/camera/timer_period',
+            'std_msgs/msg/Float64'
+        )
+        topic.publish({'data': float(period)})
 
     # ==================== AUDIO METHODS ====================
 
@@ -2401,6 +2745,54 @@ class RealRobotBackend(RobotBackend):
             logger.warning(f"Play audio file service call failed: {e}")
             return False
 
+    def get_mic_configuration(self, timeout: float = 5.0) -> Optional[dict]:
+        """
+        Query the robot's microphone configuration.
+
+        The ``/audio_stream`` topic carries no sample rate, and the streamer
+        falls back to the device's default rate when its requested rate is
+        refused -- so this service is the only reliable way to know what rate
+        the incoming PCM actually is.
+
+        Returns:
+            ``{"mic_channels", "chunk_size", "audio_format", "sample_rate"}``,
+            or None if ros_audio_io is not running on the robot.
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        recorder = self._get_robot_audio_recorder()
+        if recorder is None:
+            return None
+        return recorder.get_mic_configuration(timeout=timeout)
+
+    def subscribe_doa_angle(
+        self,
+        callback: Callable[[int], None],
+    ) -> "roslibpy.Topic":
+        """
+        Subscribe to microphone direction-of-arrival on ``doa_angle``.
+
+        The callback receives the estimated sound direction in degrees, as
+        reported by the ReSpeaker Mic Array's own tuning interface. Useful for
+        turning the head toward whoever is speaking.
+
+        Requires a ReSpeaker Mic Array v2.0; the backend's doa_publisher logs
+        an error and publishes nothing if the USB device is absent. It
+        publishes on a timer (``DOA_PUBLISH_INTERVAL``, default every 2 s),
+        so updates are coarse.
+        """
+        if not self.is_connected:
+            raise ConnectionError("Not connected to robot")
+
+        topic = roslibpy.Topic(
+            self._client,
+            '/doa_angle',
+            'std_msgs/msg/Int32'
+        )
+        topic.subscribe(lambda msg: callback(int(msg.get('data', 0))))
+        return topic
+
     # ==================== IMU METHODS ====================
 
     def subscribe_imu(
@@ -2552,7 +2944,7 @@ class RealRobotBackend(RobotBackend):
 
         topic = roslibpy.Topic(
             self._client,
-            '/imu/config',
+            '/camera/imu/config',
             'std_msgs/msg/String'
         )
         topic.publish({'data': json.dumps({'frequency': frequency})})
@@ -2621,7 +3013,7 @@ class RealRobotBackend(RobotBackend):
         sample_rate: int = DEFAULT_SAMPLE_RATE,
     ) -> Optional[np.ndarray]:
         """
-        Record audio from robot's microphone via /audio_input topic.
+        Record audio from robot's microphone via /audio_stream topic.
 
         Args:
             duration: Recording duration in seconds.

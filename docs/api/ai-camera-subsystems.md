@@ -34,7 +34,7 @@ from pib3 import Robot, AIModel
 
 with Robot(host="172.26.34.149") as robot:
     # Set model (waits for confirmation)
-    robot.ai.set_model(AIModel.YOLOV8N)
+    robot.ai.set_model(AIModel.YOLOV6N)
     
     # Get detections (waits automatically for results)
     for det in robot.ai.get_detections():
@@ -69,11 +69,11 @@ from pib3 import AIModel
 
 # Using enum (recommended - IDE autocomplete)
 robot.ai.set_model(AIModel.HAND)
-robot.ai.set_model(AIModel.YOLOV8N)
-robot.ai.set_model(AIModel.POSE)
+robot.ai.set_model(AIModel.YOLOV6N)
+robot.ai.set_model(AIModel.POSE_YOLO)
 
 # String also works
-robot.ai.set_model("mobilenet-ssd")
+robot.ai.set_model("yolov10n")
 ```
 
 ---
@@ -89,7 +89,7 @@ def get_detections(timeout: float = 5.0) -> List[Detection]
 Waits automatically for results if buffer is empty.
 
 ```python
-robot.ai.set_model(AIModel.YOLOV8N)
+robot.ai.set_model(AIModel.YOLOV6N)
 for det in robot.ai.get_detections():
     print(f"Found {det.label} ({det.confidence:.0%})")
     print(f"  BBox: {det.bbox.center}")
@@ -129,7 +129,7 @@ def get_poses(timeout: float = 5.0) -> List[PoseKeypoints]
 ```
 
 ```python
-robot.ai.set_model(AIModel.POSE)
+robot.ai.set_model(AIModel.POSE_YOLO)
 for pose in robot.ai.get_poses():
     if pose.nose:
         print(f"Nose at: ({pose.nose.x:.2f}, {pose.nose.y:.2f})")
@@ -257,41 +257,65 @@ from pib3 import AIModel
 
 ### Detection Models
 
-| Enum Value | String | Description |
-|------------|--------|-------------|
-| `AIModel.MOBILENET_SSD` | `"mobilenet-ssd"` | Fast general detection |
-| `AIModel.YOLOV6N` | `"yolov6n"` | YOLOv6 nano |
-| `AIModel.YOLOV8N` | `"yolov8n"` | YOLOv8 nano |
-| `AIModel.YOLO11N` | `"yolo11n"` | YOLO11 nano |
-| `AIModel.YOLO11S` | `"yolo11s"` | YOLO11 small |
+| Enum Value | String | Luxonis slug | Description |
+|------------|--------|--------------|-------------|
+| `AIModel.YOLOV6N` | `"yolov6n"` | `luxonis/yolov6-nano:r2-coco-512x288` | Default. General detection, 80 COCO classes |
+| `AIModel.YOLOV10N` | `"yolov10n"` | `luxonis/yolov10-nano:coco-512x288` | Newer YOLO architecture, 80 COCO classes |
+| `AIModel.PERSON` | `"person"` | `luxonis/scrfd-person-detection:25g-640x640` | People only |
+| `AIModel.FACE` | `"face"` | `luxonis/yunet:640x480` | Faces only |
 
 ### Hand Tracking
 
-| Enum Value | String | Description |
-|------------|--------|-------------|
-| `AIModel.HAND` | `"hand"` | Hand landmark detection with finger angles |
+| Enum Value | String | Luxonis slug | Description |
+|------------|--------|--------------|-------------|
+| `AIModel.HAND` | `"hand"` | `luxonis/mediapipe-hand-landmarker:224x224` | Hand landmarks with finger angles |
 
 ### Pose Estimation
 
-| Enum Value | String | Description |
-|------------|--------|-------------|
-| `AIModel.POSE` | `"pose"` | Body pose estimation |
-| `AIModel.POSE_YOLO` | `"pose_yolo"` | YOLO-based pose |
+| Enum Value | String | Luxonis slug | Description |
+|------------|--------|--------------|-------------|
+| `AIModel.POSE_YOLO` | `"pose_yolo"` | `luxonis/yolov8-nano-pose-estimation:coco-512x288` | 17-keypoint body pose |
+| `AIModel.POSE_HRNET` | `"pose_hrnet"` | `luxonis/lite-hrnet:18-coco-288x384` | 17-keypoint pose, higher resolution |
 
 ### Segmentation
 
-| Enum Value | String | Description |
-|------------|--------|-------------|
-| `AIModel.DEEPLABV3` | `"deeplabv3"` | Semantic segmentation |
-| `AIModel.YOLOV8N_SEG` | `"yolov8n-seg"` | Instance segmentation |
-| `AIModel.FASTSAM` | `"fastsam"` | Fast segment anything |
+| Enum Value | String | Luxonis slug | Description |
+|------------|--------|--------------|-------------|
+| `AIModel.SEGMENTATION` | `"segmentation"` | `luxonis/yolov8-instance-segmentation-nano:coco-512x288` | Instance segmentation, 80 COCO classes |
 
 ### Other Models
 
-| Enum Value | String | Description |
-|------------|--------|-------------|
-| `AIModel.GAZE` | `"gaze"` | Gaze estimation |
-| `AIModel.LINES` | `"lines"` | Line detection |
+| Enum Value | String | Luxonis slug | Description |
+|------------|--------|--------------|-------------|
+| `AIModel.GAZE` | `"gaze"` | `luxonis/l2cs-net:448x448` | Gaze estimation. Slow on the OAK-D Lite (~4 inf/s) |
+| `AIModel.LINES` | `"lines"` | `luxonis/m-lsd:512x512` | Line segment detection |
+
+### Retired names
+
+These were exposed by earlier versions of this SDK but the pib backend never
+accepted them. `set_ai_model()` remaps them with a `DeprecationWarning`:
+
+| Old name | Now uses | Note |
+|----------|----------|------|
+| `"mobilenet-ssd"` | `"yolov6n"` | Exists on the Model Hub, absent from the backend registry |
+| `"yolov8n"`, `"yolo11n"` | `"yolov6n"` | No such backend entry |
+| `"yolo11s"` | `"yolov10n"` | No such backend entry |
+| `"pose"` | `"pose_yolo"` | Renamed |
+| `"yolov8n-seg"`, `"deeplabv3"`, `"fastsam"` | `"segmentation"` | `deeplab-v3-plus` and `fastsam-s` exist on the Model Hub but not in the backend registry |
+
+!!! note "The model set is fixed by the robot, not by this SDK"
+    The camera node validates every request against its own `AVAILABLE_MODELS`
+    registry and rejects anything else. Weights are pulled from the Luxonis
+    Model Hub on demand and cached on the robot, so a *listed* model may still
+    take a few seconds to load the first time -- but an *unlisted* one cannot
+    be loaded at all without a backend change. Call
+    `robot.get_available_ai_models()` to see what a given robot offers.
+
+!!! warning "Simulation uses different names"
+    The Webots backend (`sim.ai.set_model(...)`) runs ultralytics weights on
+    your laptop, not on the OAK-D. It keeps its own vocabulary --
+    `"yolov8n"`, `"yolo11n"`, `"pose"`, `"deeplabv3"`, `"fastsam"` are all
+    valid *there*. Only the real-robot names are constrained by this table.
 
 ---
 

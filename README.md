@@ -193,7 +193,7 @@ with Robot(host="172.26.34.149") as robot:
     sub.unsubscribe()
 
     # AI object detection — typed results, labels resolved to COCO names
-    robot.ai.set_model(AIModel.YOLOV8N)
+    robot.ai.set_model(AIModel.YOLOV6N)
     for det in robot.ai.get_detections():
         print(f"{det.label}: {det.confidence:.0%} at {det.bbox}")
 ```

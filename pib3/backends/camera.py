@@ -1038,25 +1038,26 @@ class AISubsystem:
                 self._receiver.on_detection
             )
 
-    def set_model(self, model: "Union[AIModel, str]", timeout: float = 5.0) -> bool:
+    def set_model(self, model: "Union[AIModel, str]", timeout: float = 10.0) -> bool:
         """
         Switch AI model on the OAK-D Lite camera.
 
         Args:
             model: AI model to load (AIModel enum or string name).
-            timeout: Max time to wait for model switch confirmation.
+            timeout: Max time to wait for the backend's answer. A model the
+                robot has not cached is fetched from the Luxonis Model Hub on
+                first use, so allow generous time.
 
         Returns:
-            True if model switch confirmed, False if timeout.
+            True if the backend confirmed the switch, False otherwise.
 
         Example:
             >>> robot.ai.set_model(AIModel.HAND)
-            >>> robot.ai.set_model(AIModel.YOLOV8N)
+            >>> robot.ai.set_model(AIModel.YOLOV6N)
         """
-        # Import here to avoid circular import
-        from ..types import AIModel
-
-        model_name = model.value if isinstance(model, AIModel) else str(model)
+        # Resolve deprecated aliases so the cached name matches what the robot
+        # actually loaded, not what the caller asked for.
+        model_name = self._robot.resolve_ai_model_name(model)
         success = self._robot.set_ai_model(model_name, timeout)
         if success:
             self._current_model = model_name
@@ -1103,7 +1104,7 @@ class AISubsystem:
             List of Detection objects.
 
         Example:
-            >>> robot.ai.set_model(AIModel.YOLOV8N)
+            >>> robot.ai.set_model(AIModel.YOLOV6N)
             >>> while True:  # control loop: only ever the current frame
             ...     for det in robot.ai.get_detections(timeout=0, latest_only=True):
             ...         print(f"{det.label}: {det.confidence:.0%}")
@@ -1200,6 +1201,7 @@ class CameraSubsystem:
         self._robot = robot
         self._receiver = CameraFrameReceiver()
         self._subscription = None
+        self._depth_subscription = None
 
     def _ensure_subscribed(self) -> None:
         """Ensure we're subscribed to camera frames."""
@@ -1253,8 +1255,60 @@ class CameraSubsystem:
         """
         self._robot.set_camera_config(fps, quality, resolution)
 
+    def get_depth_frame(self, timeout: float = 5.0) -> Optional["np.ndarray"]:
+        """
+        Current metric depth frame as a uint16 array of millimetres.
+
+        0 marks an invalid or unknown pixel. Returns None when the robot has
+        no depth frame cached -- the depth branch only runs while something
+        subscribes to the depth stream, so call
+        :meth:`start_depth_stream` first if you get None.
+        """
+        return self._robot.get_depth_frame(timeout=timeout)
+
+    def get_distance_at_px(
+        self,
+        x: int,
+        y: int,
+        timeout: float = 5.0,
+    ) -> Optional[float]:
+        """
+        Distance in millimetres at one pixel, or None if unavailable.
+
+        Combines naturally with detections:
+            >>> for det in robot.ai.get_detections():
+            ...     cx, cy = det.bbox.center
+            ...     mm = robot.camera.get_distance_at_px(int(cx * w), int(cy * h))
+        """
+        return self._robot.get_distance_at_px(x, y, timeout=timeout)
+
+    def start_depth_stream(self) -> None:
+        """
+        Switch the camera's depth branch on and keep it on.
+
+        Depth is computed on demand, so the depth services return nothing
+        until something subscribes. This holds a subscription open and
+        discards the colourised frames; use
+        :meth:`RealRobotBackend.subscribe_depth_visualization` directly if you
+        want to display them.
+        """
+        if self._depth_subscription is None:
+            self._depth_subscription = self._robot.subscribe_depth_visualization(
+                lambda _jpeg: None
+            )
+
+    def stop_depth_stream(self) -> None:
+        """Release the depth subscription started by :meth:`start_depth_stream`."""
+        if self._depth_subscription is not None:
+            try:
+                self._depth_subscription.unsubscribe()
+            except Exception:
+                pass
+            self._depth_subscription = None
+
     def stop(self) -> None:
         """Stop camera streaming."""
+        self.stop_depth_stream()
         if self._subscription is not None:
             try:
                 self._subscription.unsubscribe()

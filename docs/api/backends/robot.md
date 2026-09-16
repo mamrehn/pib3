@@ -394,7 +394,7 @@ def subscribe_ai_detections(callback: Callable[[dict], None]) -> roslibpy.Topic
 
 Callback receives:
 ```python
-{"model": "mobilenet-ssd", "type": "detection", "frame_id": 42,
+{"model": "yolov6n", "type": "detection", "frame_id": 42,
  "result": {"detections": [{"label": 15, "confidence": 0.92, "bbox": {...}}]}}
 ```
 
@@ -417,7 +417,7 @@ def set_ai_model(model_name: str, timeout: float = 5.0) -> bool
 ```
 
 ```python
-if robot.set_ai_model("yolov8n"):
+if robot.set_ai_model("yolov6n"):
     print("Model ready!")
 ```
 

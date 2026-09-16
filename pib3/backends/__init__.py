@@ -61,6 +61,8 @@ from .audio import (
     save_audio_file,
     resample_audio,
     DEFAULT_SAMPLE_RATE,
+    ROBOT_PLAYBACK_SAMPLE_RATE,
+    ROBOT_MIC_SAMPLE_RATE,
 )
 
 __all__ = [
@@ -122,4 +124,6 @@ __all__ = [
     "save_audio_file",
     "resample_audio",
     "DEFAULT_SAMPLE_RATE",
+    "ROBOT_PLAYBACK_SAMPLE_RATE",
+    "ROBOT_MIC_SAMPLE_RATE",
 ]

@@ -174,13 +174,14 @@ def main():
             print("Connected.")
             
             # 2. Configure AI Model
-            # Using 'yolov8n' for general object detection (80 COCO classes)
-            model_name = "yolov8n"
+            # yolov6n is the backend's default: general detection, 80 COCO classes
+            model_name = "yolov6n"
             print(f"Setting AI model to {model_name}...")
-            if robot.set_ai_model(model_name, timeout=5.0):
+            ok, message = robot.switch_ai_model(model_name, timeout=10.0)
+            if ok:
                 print(f"Model switched to {model_name}")
             else:
-                print(f"Warning: Model switch timed out, continuing with default model")
+                print(f"Warning: {message}; continuing with the current model")
             
             # 3. Start Scanning Routine
             scanner = SceneScanner(robot)
