@@ -296,8 +296,8 @@ class WebotsCameraSubsystem:
         leave in code that also runs headless.
 
         Call it once per step, also when nothing was detected. The attached
-        camera only fills the panel's background; boxes live on a separate
-        overlay that Webots never clears, so each call first erases the
+        camera only refreshes the panel's background; boxes live on a drawing
+        layer above it that Webots never clears, so each call first erases the
         previous boxes — otherwise they smear across the panel as objects move.
 
         Args:

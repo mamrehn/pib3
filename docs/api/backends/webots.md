@@ -372,6 +372,18 @@ Webots records the panel in `worlds/.<world>.wbproj` as
 the device was found and attached, and any remaining problem is purely the
 visibility toggle above.
 
+**Two panels on top of each other.** The Camera's own overlay (the raw image
+with Webots' recognition) and the Display overlay both open at the top left
+of the 3D view, so one hides the other and they seem to disagree. Since the
+Display already mirrors the camera and carries your boxes, switch the Camera
+overlay off: `Overlays → 'pib' Overlays → Camera Devices → Show 'camera'
+Overlay`. Webots saves that on exit as `<robot>:camera;0;…` (the second field
+goes from `1` to `0`), so it can be shipped in the `.wbproj`.
+
+Call `draw_detections()` every step, also with an empty list: the attached
+camera only refreshes the background, and it is `draw_detections()` that
+wipes last step's boxes.
+
 ### Fixing the camera orientation
 
 Webots cameras look along their own **+x** axis (+y left, +z up). The proto aims that axis out of the robot's face, but the composed frame of `urdf_camera_link` makes this easy to get wrong. If your first frame shows the inside of the head, the ceiling, or the floor, change **one line** — the `rotation` of the `Camera` node in `pib3/resources/pib.proto`:

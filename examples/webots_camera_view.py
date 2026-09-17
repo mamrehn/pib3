@@ -98,13 +98,14 @@ def main():
             # frame, so a loop reading the first entry would keep acting on a
             # detection from before the head moved.
             objects = sim.ai.get_detections(latest_only=True)
+
+            # Paint the boxes onto the live panel. Once per step and before
+            # the `continue`: the camera only refreshes the background, and
+            # each call wipes last step's boxes, so skipping it on an empty
+            # step leaves the last box on the panel.
+            sim.camera.draw_detections(objects)
             if not objects:
                 continue
-
-            # Paint the boxes onto the live panel. Once per step: attaching
-            # the camera repaints it with a fresh image every step, which
-            # erases last step's drawing.
-            sim.camera.draw_detections(objects)
 
             biggest = max(objects, key=lambda d: d.bbox.area)
             x, _ = biggest.bbox.center            # 0..1 across the image
