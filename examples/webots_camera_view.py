@@ -39,10 +39,10 @@ from pib3 import Joint
 CENTRE = 50.0
 
 # Raising TURN_HEAD moves the image content LEFT, i.e. dx/djoint is negative
-# (measured at -0.027 per % with examples/webots_camera_check.py). So the
+# (measured at -0.032 per % with examples/webots_camera_check.py). So the
 # correction is ADDED: a target right of centre (x > 0.5) needs a larger joint
-# value. K = 37 would centre in a single step; 20 leaves comfortable margin.
-# The loop goes unstable above K = 75.
+# value. K = 31 would centre in a single step; 20 leaves comfortable margin.
+# In the course world the head never settles from K = 90 on.
 GAIN = 20.0
 DEAD_ZONE = 0.02     # in image units: ignore sub-2 % errors or the head jitters
 

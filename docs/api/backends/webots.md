@@ -379,8 +379,8 @@ Webots cameras look along their own **+x** axis (+y left, +z up). The proto aims
 ```
 Camera {
   name "camera"
-  translation 0.000000 0.108232 0.095400
-  rotation 0.577350 0.577350 0.577350 2.094395   # <- this line
+  translation 0.000000 0.000000 -0.003100       # front face of the camera plate
+  rotation 0.578467 0.576791 -0.576791 2.092720   # <- this line
   ...
 }
 ```

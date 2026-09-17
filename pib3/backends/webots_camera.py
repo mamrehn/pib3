@@ -295,8 +295,10 @@ class WebotsCameraSubsystem:
         No-op when :meth:`show_on_display` was never called, so it is safe to
         leave in code that also runs headless.
 
-        Call it once per step: attaching the camera repaints the panel with a
-        fresh image every step, which erases whatever was drawn before.
+        Call it once per step, also when nothing was detected. The attached
+        camera only fills the panel's background; boxes live on a separate
+        overlay that Webots never clears, so each call first erases the
+        previous boxes — otherwise they smear across the panel as objects move.
 
         Args:
             detections: Iterable of :class:`Detection` (normalized boxes).
@@ -307,6 +309,10 @@ class WebotsCameraSubsystem:
             return
 
         w, h = display.getWidth(), display.getHeight()
+        # Transparent pixels let the camera background show through again.
+        display.setAlpha(0.0)
+        display.fillRectangle(0, 0, w, h)
+        display.setAlpha(1.0)
         display.setColor(color)
         for det in detections:
             box = det.bbox

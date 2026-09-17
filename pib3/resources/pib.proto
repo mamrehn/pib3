@@ -127,6 +127,14 @@ PROTO pib [
                           # head_vertical. That inheritance is what makes
                           # visual servoing in simulation a *closed* loop.
                           #
+                          # POSITION: the front face of the camera plate,
+                          # centred — world (-0.013, -0.086, 0.998) with all
+                          # joints at zero, flush with the face at mouth
+                          # height. Do NOT copy the mesh Transform's
+                          # translation below: the STL vertices carry the
+                          # inverse offset, so that value puts the camera
+                          # 10 cm lower and 10 cm back, inside the torso.
+                          #
                           # ORIENTATION: Webots cameras look along their own
                           # +x axis (+y left, +z up). urdf_camera_link sits in
                           # a composed frame, so this value is not obvious by
@@ -143,7 +151,7 @@ PROTO pib [
                           # change — see docs/api/backends/webots.md.
                           Camera {
                             name "camera"
-                            translation 0.000000 0.108232 0.095400
+                            translation 0.000000 0.000000 -0.003100
                             rotation 0.578467 0.576791 -0.576791 2.092720
                             fieldOfView 1.089000   # ~62 deg, close to OAK-D Lite RGB
                             width 640

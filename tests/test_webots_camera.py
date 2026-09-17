@@ -464,15 +464,26 @@ class FakeDisplay:
         self._w, self._h = width, height
         self.attached = None
         self.color = None
+        self.alpha = 1.0
         self.rects = []
         self.texts = []
+        self.ops = []                    # ordered log: ("clear"|"rect", ...)
 
     def getWidth(self): return self._w
     def getHeight(self): return self._h
     def attachCamera(self, cam): self.attached = cam
     def detachCamera(self): self.attached = None
     def setColor(self, c): self.color = c
-    def drawRectangle(self, x, y, w, h): self.rects.append((x, y, w, h))
+    def setAlpha(self, a): self.alpha = a
+
+    def fillRectangle(self, x, y, w, h):
+        if self.alpha == 0.0 and (x, y, w, h) == (0, 0, self._w, self._h):
+            self.ops.append(("clear",))
+
+    def drawRectangle(self, x, y, w, h):
+        self.rects.append((x, y, w, h))
+        self.ops.append(("rect", x, y, w, h, self.alpha))
+
     def drawText(self, t, x, y): self.texts.append((t, x, y))
 
 
@@ -527,6 +538,25 @@ def test_draw_detections_keeps_label_inside_the_panel():
                     bbox=BoundingBox(0.0, 0.0, 0.1, 0.05), label="ball")
     cam.draw_detections([top])
     assert d.texts[0][2] >= 0, "label must not be drawn above the panel"
+
+
+def test_draw_detections_erases_the_previous_boxes():
+    """The overlay persists across steps; stale boxes smear as the ball moves.
+
+    Webots keeps Display drawings on a layer above the attached camera image
+    and never clears it, so every call must wipe that layer first — also when
+    nothing was detected, or the last box stays behind.
+    """
+    d = FakeDisplay(width=320, height=200)
+    cam = WebotsCameraSubsystem(_backend_with_display(d))
+    cam.show_on_display()
+
+    det = Detection(label_id=-1, confidence=1.0,
+                    bbox=BoundingBox(0.25, 0.5, 0.75, 1.0), label="ball")
+    cam.draw_detections([det])
+    cam.draw_detections([])
+
+    assert d.ops == [("clear",), ("rect", 80, 100, 160, 100, 1.0), ("clear",)]
 
 
 def test_draw_detections_is_a_noop_without_a_display():
