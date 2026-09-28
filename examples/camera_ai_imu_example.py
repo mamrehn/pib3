@@ -204,9 +204,9 @@ def demo_person_tracking(robot, duration: float = 30.0):
     print("Tracking persons for", duration, "seconds...")
     print("The robot will turn its head to follow detected persons.")
 
-    # Use MobileNet-SSD for fast detection (class 15 = person in COCO)
-    print("Switching to mobilenet-ssd model...")
-    if robot.set_ai_model("yolov6n", timeout=10.0):
+    # YOLO26n detects the 80 COCO classes (class 0 = person)
+    print("Switching to yolo26n model...")
+    if robot.set_ai_model("yolo26n", timeout=10.0):
         print("Model ready!")
     else:
         print("Model switch timed out, using current model")
@@ -230,11 +230,11 @@ def demo_person_tracking(robot, duration: float = 30.0):
         result = data.get('result', {})
         detections = result.get('detections', [])
 
-        # Find highest confidence person (class 15 in COCO = person)
+        # Find highest confidence person (class 0 in COCO)
         best_person = None
         best_conf = 0
         for det in detections:
-            if det.get('label') == 15 and det.get('confidence', 0) > best_conf:
+            if det.get('label') == 0 and det.get('confidence', 0) > best_conf:
                 best_person = det
                 best_conf = det.get('confidence', 0)
 

@@ -18,7 +18,7 @@ If pib3 is not on the path, drop a runtime.ini next to this file:
 import pib3
 from pib3 import Joint
 
-STATION_MODEL = "recognition"     # or "yolov8n" with pib3[sim] installed
+STATION_MODEL = "recognition"     # or "yolo26n" with pib3[sim] installed
 
 
 def main():

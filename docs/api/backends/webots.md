@@ -294,7 +294,7 @@ The topologies match by construction, which is what makes this a substitution ra
 Install the optional backends with `pip install "pib3[sim] @ git+https://github.com/mamrehn/pib3.git"`.
 
 ```python
-sim.ai.set_model("pose")                       # -> yolo11n-pose.pt
+sim.ai.set_model("pose_yolo")                  # -> yolo26n-pose.pt
 for p in sim.ai.get_poses(latest_only=True):
     print(p.left_shoulder, p.nose)             # same code as on the robot
 
@@ -302,10 +302,10 @@ sim.ai.set_model("hand")                       # -> MediaPipe Hands
 for h in sim.ai.get_hand_landmarks(latest_only=True):
     print(h.handedness, h.finger_angles.index)
 
-sim.ai.set_model("yolov8n-seg")                # masks, RLE-encoded like the robot
+sim.ai.set_model("segmentation")               # -> yolo26n-seg.pt, masks RLE-encoded like the robot
 ```
 
-`AIModel` names are mapped onto available weights by `SIM_MODEL_ALIASES` — where the OAK-D blob has no host equivalent, the closest current model is substituted (`mobilenet-ssd` and `yolov6n` → `yolo11n.pt`). `gaze` and `lines` have no simulated equivalent and raise a clear error.
+`AIModel` names are mapped onto available weights by `SIM_MODEL_ALIASES` — where the OAK-D blob has no host equivalent, the closest current model is substituted. Detection, pose and segmentation all run YOLO26 (`yolo26n` → `yolo26n.pt`, `pose_yolo` and `pose_hrnet` → `yolo26n-pose.pt`, `segmentation` → `yolo26n-seg.pt`), on its end-to-end head without NMS. Retired names such as `yolov6n` or `yolo11n` are remapped with a `DeprecationWarning`, as on the robot; a weights file name (`"yolo26s.pt"`) is loaded as given. `gaze`, `lines`, `person` and `face` have no simulated equivalent and raise a clear error.
 
 `"recognition"` (the default) is the fourth source and needs no model at all: Webots ground truth via the `Recognition` node — exact boxes, `confidence` always `1.0`. Ideal for teaching downstream logic (debouncing, state machines, control) without perception noise in the way. Objects in the **world** must opt in:
 

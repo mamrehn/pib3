@@ -73,7 +73,7 @@ audio = [
 #   ultralytics -> detection, pose (COCO-17), instance segmentation
 #   mediapipe   -> hand landmarks (21-point topology, as on the OAK-D)
 sim = [
-    "ultralytics>=8.0.0",
+    "ultralytics>=8.4.0",  # YOLO26
     "mediapipe>=0.10.0",
 ]
 

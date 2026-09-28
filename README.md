@@ -193,7 +193,7 @@ with Robot(host="172.26.34.149") as robot:
     sub.unsubscribe()
 
     # AI object detection — typed results, labels resolved to COCO names
-    robot.ai.set_model(AIModel.YOLOV6N)
+    robot.ai.set_model(AIModel.YOLO26N)
     for det in robot.ai.get_detections():
         print(f"{det.label}: {det.confidence:.0%} at {det.bbox}")
 ```
@@ -239,7 +239,7 @@ Differences worth knowing:
   simulator themselves, but a loop that only reads does not — without it the
   camera returns the same frame forever.
 - **`"recognition"`** is Webots ground truth: exact boxes, `confidence` always
-  `1.0`, no model. Pass a model name (`"yolov8n"`, `"pose"`, `"hand"`) to run a
+  `1.0`, no model. Pass a model name (`"yolo26n"`, `"pose_yolo"`, `"hand"`) to run a
   real network on the simulated frames instead — `pip install "pib3[sim] @ git+https://github.com/mamrehn/pib3.git"`.
   Note a COCO-trained detector sees very little in an untextured world.
 - **Objects must opt in.** A Solid is only recognized if it sets

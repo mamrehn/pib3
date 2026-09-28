@@ -38,6 +38,8 @@ from typing import Any, Dict
 
 import numpy as np
 
+from ..types import resolve_model_name
+
 logger = logging.getLogger(__name__)
 
 
@@ -79,26 +81,24 @@ def rle_encode(mask: np.ndarray) -> Dict[str, Any]:
 #: Maps the robot's AIModel names onto weights available off the shelf.
 #: Where no host-side equivalent of the OAK-D blob exists, the closest
 #: current model is substituted — that is the point of "or more up to date".
+#: Deprecated names (``yolov6n``, ``yolo11n``, ``pose`` …) are resolved through
+#: :data:`pib3.types.DEPRECATED_MODEL_ALIASES` first, as on the robot.
 SIM_MODEL_ALIASES: Dict[str, str] = {
-    # Detection — the OAK-D runs small blobs; on a host we can afford newer.
-    "mobilenet-ssd": "yolo11n.pt",
-    "yolov6n": "yolo11n.pt",
-    "yolov8n": "yolov8n.pt",
-    "yolo11n": "yolo11n.pt",
-    "yolo11s": "yolo11s.pt",
+    # Detection — the robot runs YOLO26n as well, as a converted RVC2 archive.
+    "yolo26n": "yolo26n.pt",
     # Pose — both sides are 17-keypoint COCO, so this is a true equivalent.
-    "pose": "yolo11n-pose.pt",
-    "pose_yolo": "yolo11n-pose.pt",
-    # Segmentation
-    "yolov8n-seg": "yolov8n-seg.pt",
-    "fastsam": "FastSAM-s.pt",
-    "deeplabv3": "yolo11n-seg.pt",
+    "pose_yolo": "yolo26n-pose.pt",
+    "pose_hrnet": "yolo26n-pose.pt",
+    # Segmentation — YOLO26 stands in for the robot's YOLOv8 segmenter.
+    "segmentation": "yolo26n-seg.pt",
     # Hand — handled by MediaPipe, not ultralytics (see MediaPipeHands).
     "hand": "hand",
 }
 
-#: Model names with no simulated equivalent yet.
-UNSUPPORTED_IN_SIM = {"gaze", "lines"}
+#: Model names with no simulated equivalent yet. ``person`` and ``face`` are
+#: single-class detectors on the robot; an 80-class stand-in would report
+#: other objects under their name.
+UNSUPPORTED_IN_SIM = {"gaze", "lines", "person", "face"}
 
 
 # ==================== RUNNERS ====================
@@ -134,6 +134,20 @@ class _UltralyticsBase(SimInference):
         self._net = YOLO(weights)
         self._conf = conf
         self.weights = weights
+        # nms=False picks YOLO26's end-to-end (NMS-free) head, the one its
+        # benchmarks and ONNX exports use; ultralytics otherwise runs its
+        # one-to-many head plus NMS. Only passed when that head exists, since
+        # older models log a warning for it.
+        try:
+            head = self._net.model.model[-1]
+        except (AttributeError, IndexError, TypeError):
+            head = None
+        self._extra = (
+            {"nms": False} if getattr(head, "one2one_cv2", None) is not None else {}
+        )
+
+    def _predict(self, bgr: np.ndarray):
+        return self._net(bgr, conf=self._conf, verbose=False, **self._extra)
 
     @staticmethod
     def _box_dict(box, width: int, height: int, names: dict) -> dict:
@@ -166,7 +180,7 @@ class UltralyticsDetector(_UltralyticsBase):
     def infer(self, bgr: np.ndarray) -> dict:
         height, width = bgr.shape[:2]
         detections = []
-        for res in self._net(bgr, conf=self._conf, verbose=False):
+        for res in self._predict(bgr):
             names = getattr(res, "names", {}) or {}
             for box in getattr(res, "boxes", None) or []:
                 detections.append(self._box_dict(box, width, height, names))
@@ -181,7 +195,7 @@ class UltralyticsSegmenter(_UltralyticsBase):
     def infer(self, bgr: np.ndarray) -> dict:
         height, width = bgr.shape[:2]
         detections = []
-        for res in self._net(bgr, conf=self._conf, verbose=False):
+        for res in self._predict(bgr):
             names = getattr(res, "names", {}) or {}
             boxes = getattr(res, "boxes", None) or []
             masks = getattr(res, "masks", None)
@@ -204,7 +218,7 @@ class UltralyticsPose(_UltralyticsBase):
     def infer(self, bgr: np.ndarray) -> dict:
         height, width = bgr.shape[:2]
         detections = []
-        for res in self._net(bgr, conf=self._conf, verbose=False):
+        for res in self._predict(bgr):
             names = getattr(res, "names", {}) or {}
             boxes = getattr(res, "boxes", None) or []
             kps = getattr(res, "keypoints", None)
@@ -306,8 +320,10 @@ def build_runner(model_name: str, **kwargs) -> SimInference:
     Create the simulated-inference runner for a robot model name.
 
     Args:
-        model_name: An ``AIModel`` value (``"yolov8n"``, ``"hand"``, ``"pose"``,
-            …) or a direct weights filename (``"yolo11s-pose.pt"``).
+        model_name: An ``AIModel`` value (``"yolo26n"``, ``"hand"``,
+            ``"pose_yolo"``, …) or a direct weights filename
+            (``"yolo26s-pose.pt"``). Deprecated names are remapped with a
+            DeprecationWarning.
         **kwargs: Forwarded to the runner (e.g. ``conf=0.4``).
 
     Returns:
@@ -317,7 +333,7 @@ def build_runner(model_name: str, **kwargs) -> SimInference:
         ValueError: for models with no simulated equivalent (``gaze``, ``lines``).
         ImportError: if the needed optional backend is not installed.
     """
-    name = str(getattr(model_name, "value", model_name))
+    name = resolve_model_name(model_name, stacklevel=2)
 
     if name in UNSUPPORTED_IN_SIM:
         raise ValueError(

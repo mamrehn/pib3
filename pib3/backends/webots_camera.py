@@ -32,6 +32,7 @@ from typing import Any, List, Optional, Union
 
 import numpy as np
 
+from ..types import resolve_model_name
 from .hints import hint
 from .camera import (
     COCO_LABELS,
@@ -391,7 +392,7 @@ class WebotsAISubsystem:
             scene. If YOLO returns nothing in Webots, that is the world, not a
             bug — either texture the objects or use ``"recognition"``.
         """
-        name = str(getattr(model, "value", model))
+        name = resolve_model_name(model, stacklevel=2)
 
         if self._runner is not None:
             self._runner.close()
@@ -586,7 +587,7 @@ class WebotsAISubsystem:
         """
         Body poses from the simulated camera — 17 COCO keypoints.
 
-        Requires ``set_model("pose")`` and the ``ultralytics`` package. The
+        Requires ``set_model("pose_yolo")`` and the ``ultralytics`` package. The
         keypoint order is the same COCO convention the robot publishes, so
         ``pose.left_shoulder`` and friends work unchanged.
         """

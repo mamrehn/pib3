@@ -149,11 +149,9 @@ class WebotsBackend(RobotBackend):
         AI perception for the simulated robot — same contract as ``robot.ai``.
 
         Defaults to Webots ground-truth ``Recognition`` (perfect, instant, no
-        model). Call ``sim.ai.set_model("yolov8n")`` to run a real network on
-        the simulated frames instead.
-
-        Hand and pose models are **not** simulated: they live on the OAK-D.
-        ``get_hand_landmarks()`` / ``get_poses()` return empty lists.
+        model). Call ``sim.ai.set_model("yolo26n")`` to run a real network on
+        the simulated frames instead; ``"hand"`` and ``"pose_yolo"`` work the same
+        way (see :mod:`pib3.backends.sim_ai`).
 
         Example:
             >>> for det in sim.ai.get_detections():

@@ -245,7 +245,7 @@ import numpy as np
 
 with Robot(host="172.26.34.149") as robot:
     # Detect objects
-    robot.ai.set_model(AIModel.YOLOV6N)
+    robot.ai.set_model(AIModel.YOLO26N)
     detections = robot.ai.get_detections()
     
     if detections:

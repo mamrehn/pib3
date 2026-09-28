@@ -2,7 +2,8 @@
 
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
+import warnings
 import numpy as np
 from enum import Enum
 
@@ -25,19 +26,21 @@ class AIModel(str, Enum):
 
     The weights themselves are pulled from the Luxonis Model Hub on demand
     (``dai.NNModelDescription(slug)``) and cached on the robot, so a name in
-    this enum may still take a few seconds to load the first time.
+    this enum may still take a few seconds to load the first time. The
+    exception is ``yolo26n``: the backend ships its own RVC2 build
+    (``ros_packages/camera/models``), which runs about twice as fast on the
+    OAK-D Lite as the Hub's ``luxonis/yolo26-nano``.
 
     Use the enum rather than a bare string for IDE completion:
         >>> robot.set_ai_model(AIModel.HAND)
-        >>> robot.set_ai_model(AIModel.YOLOV6N)
+        >>> robot.set_ai_model(AIModel.YOLO26N)
 
     Strings still work:
         >>> robot.set_ai_model("hand")  # Also valid
     """
 
     # Object detection
-    YOLOV6N = "yolov6n"          # luxonis/yolov6-nano:r2-coco-512x288, 80 COCO classes
-    YOLOV10N = "yolov10n"        # luxonis/yolov10-nano:coco-512x288, 80 COCO classes
+    YOLO26N = "yolo26n"          # YOLO26 Nano 512x288, 80 COCO classes (archive shipped with the backend)
     PERSON = "person"            # luxonis/scrfd-person-detection:25g-640x640
     FACE = "face"                # luxonis/yunet:640x480
 
@@ -58,24 +61,55 @@ class AIModel(str, Enum):
     LINES = "lines"              # luxonis/m-lsd:512x512
 
 
-#: Model names this SDK used to expose that the backend never accepted, mapped
-#: to the closest model it does accept. ``set_ai_model`` remaps these and emits
-#: a DeprecationWarning instead of failing with an opaque timeout.
+#: Model names pib3 no longer uses, mapped to their replacement. ``set_model``
+#: on the robot and in the simulation remaps these and emits a
+#: DeprecationWarning instead of failing with an opaque timeout.
 #:
-#: Some of these (``mobilenet-ssd``, ``deeplabv3`` -> ``deeplab-v3-plus``,
-#: ``fastsam`` -> ``fastsam-s``) do exist on the Luxonis Model Hub; they are
-#: simply absent from the backend registry. Recovering them means adding a slug
-#: to ``AVAILABLE_MODELS`` on the robot.
+#: Older YOLO detectors all give way to YOLO26n, a drop-in replacement (same
+#: 512x288 input, same COCO class ids). The backend still lists ``yolov6n`` and
+#: ``yolov10n``; pib3 just no longer loads them. The other names were never in
+#: the backend registry. Some of them (``deeplabv3`` -> ``deeplab-v3-plus``,
+#: ``fastsam`` -> ``fastsam-s``) do exist on the Luxonis Model Hub; recovering
+#: them means adding a slug to ``AVAILABLE_MODELS`` on the robot.
 DEPRECATED_MODEL_ALIASES = MappingProxyType({
-    "mobilenet-ssd": "yolov6n",
-    "yolov8n": "yolov6n",
-    "yolo11n": "yolov6n",
-    "yolo11s": "yolov10n",
+    "yolov6n": "yolo26n",
+    "yolov10n": "yolo26n",
+    "mobilenet-ssd": "yolo26n",
+    "yolov8n": "yolo26n",
+    "yolo11n": "yolo26n",
+    "yolo11s": "yolo26n",
     "pose": "pose_yolo",
     "deeplabv3": "segmentation",
     "yolov8n-seg": "segmentation",
     "fastsam": "segmentation",
 })
+
+
+def resolve_model_name(model: Union["AIModel", str], stacklevel: int = 2) -> str:
+    """
+    Normalise a model argument to a name pib3 loads.
+
+    Deprecated names are remapped via :data:`DEPRECATED_MODEL_ALIASES` with a
+    DeprecationWarning; anything else passes through unchanged. Shared by the
+    robot and the Webots backend so both accept the same names.
+
+    Args:
+        model: ``AIModel`` value or string name.
+        stacklevel: Passed to :func:`warnings.warn`; count the frames between
+            the caller's code and this function.
+    """
+    name = model.value if isinstance(model, AIModel) else str(model)
+    replacement = DEPRECATED_MODEL_ALIASES.get(name)
+    if replacement is None:
+        return name
+    warnings.warn(
+        f"pib3 no longer uses AI model {name!r}; loading {replacement!r} "
+        f"instead. Update your code to one of: "
+        f"{', '.join(m.value for m in AIModel)}.",
+        DeprecationWarning,
+        stacklevel=stacklevel + 1,
+    )
+    return replacement
 
 
 class Joint(str, Enum):

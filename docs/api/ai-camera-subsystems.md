@@ -34,7 +34,7 @@ from pib3 import Robot, AIModel
 
 with Robot(host="172.26.34.149") as robot:
     # Set model (waits for confirmation)
-    robot.ai.set_model(AIModel.YOLOV6N)
+    robot.ai.set_model(AIModel.YOLO26N)
     
     # Get detections (waits automatically for results)
     for det in robot.ai.get_detections():
@@ -69,11 +69,11 @@ from pib3 import AIModel
 
 # Using enum (recommended - IDE autocomplete)
 robot.ai.set_model(AIModel.HAND)
-robot.ai.set_model(AIModel.YOLOV6N)
+robot.ai.set_model(AIModel.YOLO26N)
 robot.ai.set_model(AIModel.POSE_YOLO)
 
 # String also works
-robot.ai.set_model("yolov10n")
+robot.ai.set_model("yolo26n")
 ```
 
 ---
@@ -89,7 +89,7 @@ def get_detections(timeout: float = 5.0) -> List[Detection]
 Waits automatically for results if buffer is empty.
 
 ```python
-robot.ai.set_model(AIModel.YOLOV6N)
+robot.ai.set_model(AIModel.YOLO26N)
 for det in robot.ai.get_detections():
     print(f"Found {det.label} ({det.confidence:.0%})")
     print(f"  BBox: {det.bbox.center}")
@@ -259,8 +259,7 @@ from pib3 import AIModel
 
 | Enum Value | String | Luxonis slug | Description |
 |------------|--------|--------------|-------------|
-| `AIModel.YOLOV6N` | `"yolov6n"` | `luxonis/yolov6-nano:r2-coco-512x288` | Default. General detection, 80 COCO classes |
-| `AIModel.YOLOV10N` | `"yolov10n"` | `luxonis/yolov10-nano:coco-512x288` | Newer YOLO architecture, 80 COCO classes |
+| `AIModel.YOLO26N` | `"yolo26n"` | none -- archive shipped with the backend | Default. YOLO26 Nano at 512×288, 80 COCO classes |
 | `AIModel.PERSON` | `"person"` | `luxonis/scrfd-person-detection:25g-640x640` | People only |
 | `AIModel.FACE` | `"face"` | `luxonis/yunet:640x480` | Faces only |
 
@@ -290,16 +289,26 @@ from pib3 import AIModel
 | `AIModel.GAZE` | `"gaze"` | `luxonis/l2cs-net:448x448` | Gaze estimation. Slow on the OAK-D Lite (~4 inf/s) |
 | `AIModel.LINES` | `"lines"` | `luxonis/m-lsd:512x512` | Line segment detection |
 
+!!! note "YOLO26n on the OAK-D Lite"
+    The backend ships its own RVC2 build (`ros_packages/camera/models`, recipe
+    in its README). It is a drop-in for YOLOv6-nano: same 512×288 input, same
+    output layout, same COCO class ids, decoded and NMS-filtered on the camera.
+    It uses YOLO26's one-to-many head, so its confidences differ slightly from
+    the end-to-end head the simulation runs; boxes and classes agree. The
+    Hub's `luxonis/yolo26-nano` uses the end-to-end head and managed only
+    11–13 inferences/s in a camera pipeline on an OAK-D Lite, against 27 for
+    this build and 30 (the camera's rate) for YOLOv6-nano. The OAK-D Lite has no time-of-flight sensor,
+    and the network only sees the RGB image -- the stereo pair is not used.
+
 ### Retired names
 
-These were exposed by earlier versions of this SDK but the pib backend never
-accepted them. `set_ai_model()` remaps them with a `DeprecationWarning`:
+These were exposed by earlier versions of this SDK. `set_ai_model()` remaps
+them with a `DeprecationWarning`, on the robot and in the simulation:
 
 | Old name | Now uses | Note |
 |----------|----------|------|
-| `"mobilenet-ssd"` | `"yolov6n"` | Exists on the Model Hub, absent from the backend registry |
-| `"yolov8n"`, `"yolo11n"` | `"yolov6n"` | No such backend entry |
-| `"yolo11s"` | `"yolov10n"` | No such backend entry |
+| `"yolov6n"`, `"yolov10n"` | `"yolo26n"` | Older YOLO generations; the backend still lists them, pib3 no longer loads them |
+| `"mobilenet-ssd"`, `"yolov8n"`, `"yolo11n"`, `"yolo11s"` | `"yolo26n"` | No such backend entry |
 | `"pose"` | `"pose_yolo"` | Renamed |
 | `"yolov8n-seg"`, `"deeplabv3"`, `"fastsam"` | `"segmentation"` | `deeplab-v3-plus` and `fastsam-s` exist on the Model Hub but not in the backend registry |
 
@@ -311,11 +320,12 @@ accepted them. `set_ai_model()` remaps them with a `DeprecationWarning`:
     be loaded at all without a backend change. Call
     `robot.get_available_ai_models()` to see what a given robot offers.
 
-!!! warning "Simulation uses different names"
-    The Webots backend (`sim.ai.set_model(...)`) runs ultralytics weights on
-    your laptop, not on the OAK-D. It keeps its own vocabulary --
-    `"yolov8n"`, `"yolo11n"`, `"pose"`, `"deeplabv3"`, `"fastsam"` are all
-    valid *there*. Only the real-robot names are constrained by this table.
+!!! note "Simulation"
+    The Webots backend (`sim.ai.set_model(...)`) accepts the same names and
+    runs ultralytics weights on your laptop instead of the OAK-D: `"yolo26n"`
+    → `yolo26n.pt`, `"pose_yolo"` / `"pose_hrnet"` → `yolo26n-pose.pt`,
+    `"segmentation"` → `yolo26n-seg.pt`. It also takes a weights file name
+    directly (`"yolo26s.pt"`) and `"recognition"` for Webots ground truth.
 
 ---
 

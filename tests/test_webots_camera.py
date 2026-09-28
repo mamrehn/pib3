@@ -697,3 +697,70 @@ def test_latest_only_reads_stay_silent():
         backend.advance()
 
     assert not already_hinted("stale-buffer")
+
+
+# ==================== sim model names ====================
+
+
+def test_every_robot_model_name_resolves_in_sim():
+    """Each AIModel either maps to host weights or fails with a clear error."""
+    from pib3.backends.sim_ai import SIM_MODEL_ALIASES, UNSUPPORTED_IN_SIM
+    from pib3.types import AIModel
+
+    unresolved = [
+        m.value for m in AIModel
+        if m.value not in SIM_MODEL_ALIASES and m.value not in UNSUPPORTED_IN_SIM
+    ]
+    assert unresolved == []
+
+
+def test_robot_detection_names_run_yolo26_in_sim():
+    from pib3.backends.sim_ai import SIM_MODEL_ALIASES
+
+    assert SIM_MODEL_ALIASES["yolo26n"] == "yolo26n.pt"
+    assert SIM_MODEL_ALIASES["pose_yolo"] == "yolo26n-pose.pt"
+    assert SIM_MODEL_ALIASES["segmentation"] == "yolo26n-seg.pt"
+
+
+def test_deprecated_names_point_at_current_models():
+    from pib3.types import AIModel, DEPRECATED_MODEL_ALIASES
+
+    current = {m.value for m in AIModel}
+    assert set(DEPRECATED_MODEL_ALIASES.values()) <= current
+    assert not set(DEPRECATED_MODEL_ALIASES) & current
+
+
+@pytest.mark.parametrize("old", ["yolov6n", "yolov10n", "yolo11n", "yolov8n"])
+def test_old_yolo_names_resolve_to_yolo26n_with_a_warning(old):
+    from pib3.types import resolve_model_name
+
+    with pytest.warns(DeprecationWarning, match=old):
+        assert resolve_model_name(old) == "yolo26n"
+
+
+def test_current_names_resolve_silently(recwarn):
+    from pib3.types import AIModel, resolve_model_name
+
+    assert resolve_model_name(AIModel.YOLO26N) == "yolo26n"
+    assert resolve_model_name("recognition") == "recognition"
+    assert not recwarn.list
+
+
+def test_sim_set_model_resolves_old_names(monkeypatch):
+    """sim.ai.set_model("yolov6n") loads YOLO26n and reports that name."""
+    import pib3.backends.sim_ai as sim_ai
+
+    loaded = []
+
+    class FakeRunner:
+        model_type = "detection"
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(sim_ai, "build_runner", lambda name: loaded.append(name) or FakeRunner())
+    ai = WebotsAISubsystem(FakeBackend())
+    with pytest.warns(DeprecationWarning):
+        assert ai.set_model("yolov6n") is True
+    assert loaded == ["yolo26n"]
+    assert ai.model == "yolo26n"

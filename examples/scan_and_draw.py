@@ -174,8 +174,8 @@ def main():
             print("Connected.")
             
             # 2. Configure AI Model
-            # yolov6n is the backend's default: general detection, 80 COCO classes
-            model_name = "yolov6n"
+            # yolo26n is the backend's default: general detection, 80 COCO classes
+            model_name = "yolo26n"
             print(f"Setting AI model to {model_name}...")
             ok, message = robot.switch_ai_model(model_name, timeout=10.0)
             if ok:

@@ -542,11 +542,12 @@ class AIModelInfo:
     Information about an AI model available on the robot.
 
     Attributes:
-        name: Model identifier (e.g., "yolov6n")
+        name: Model identifier (e.g., "yolo26n")
         type: Model type (detection, pose, hand, etc.)
         description: Human-readable description
         classes: Number of classes (for detection models)
-        slug: Luxonis Model Hub slug
+        slug: Luxonis Model Hub slug, or the archive file name for models
+            the backend ships itself (``yolo26n``)
         active: Whether this model is currently loaded
     """
     name: str
@@ -1053,7 +1054,7 @@ class AISubsystem:
 
         Example:
             >>> robot.ai.set_model(AIModel.HAND)
-            >>> robot.ai.set_model(AIModel.YOLOV6N)
+            >>> robot.ai.set_model(AIModel.YOLO26N)
         """
         # Resolve deprecated aliases so the cached name matches what the robot
         # actually loaded, not what the caller asked for.
@@ -1104,7 +1105,7 @@ class AISubsystem:
             List of Detection objects.
 
         Example:
-            >>> robot.ai.set_model(AIModel.YOLOV6N)
+            >>> robot.ai.set_model(AIModel.YOLO26N)
             >>> while True:  # control loop: only ever the current frame
             ...     for det in robot.ai.get_detections(timeout=0, latest_only=True):
             ...         print(f"{det.label}: {det.confidence:.0%}")

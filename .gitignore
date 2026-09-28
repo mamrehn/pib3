@@ -211,3 +211,6 @@ CLAUDE.md
 
 # Test local - contains separate git repositories (pib-backend, etc.)
 test_local/
+
+# persoenliches GitHub-Token aus einrichten.py - nie einchecken
+.github-token

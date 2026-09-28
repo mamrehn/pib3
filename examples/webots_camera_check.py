@@ -348,7 +348,7 @@ def main():
             record("8. ultralytics path (optional)", True,
                    "ultralytics not installed — skipped.")
         else:
-            if sim.ai.set_model("yolov8n"):
+            if sim.ai.set_model("yolo26n"):
                 settle(sim, 5)
                 yolo_dets = sim.ai.get_detections(latest_only=True)
                 record("8. ultralytics runs on simulated frames", True,
@@ -359,7 +359,7 @@ def main():
                           "Use 'recognition' for teaching, or texture the objects."))
             else:
                 record("8. ultralytics model load", False,
-                       "set_model('yolov8n') failed — weights not available offline?")
+                       "set_model('yolo26n') failed — weights not available offline?")
 
     return summary()
 

@@ -80,7 +80,7 @@ def demo_detection_models(robot, duration: float = 5.0):
 
     print("\n=== Detection Model Comparison ===")
 
-    detection_models = ["yolov6n", "yolov10n", "person", "face"]
+    detection_models = ["yolo26n", "person", "face"]
 
     for model_name in detection_models:
         print(f"\n--- Testing {model_name} ---")
@@ -137,7 +137,7 @@ def demo_pose_estimation(robot, duration: float = 5.0):
     """Demonstrate pose estimation models."""
     print("\n=== Pose Estimation Demo ===")
 
-    pose_models = ["human-pose-estimation", "yolov8n-pose"]
+    pose_models = ["pose_yolo", "pose_hrnet"]
 
     for model_name in pose_models:
         print(f"\n--- Testing {model_name} ---")
@@ -267,7 +267,7 @@ def demo_quick_switch(robot):
     print("\n=== Quick Switch Demo ===")
     print("Switching between models rapidly...")
 
-    models = ["yolov6n", "yolov10n", "pose_yolo", "yolov6n"]
+    models = ["yolo26n", "pose_yolo", "hand", "yolo26n"]
 
     for model_name in models:
         start = time.time()

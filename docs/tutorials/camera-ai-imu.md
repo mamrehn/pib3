@@ -52,7 +52,7 @@ from pib3 import Robot, AIModel
 
 with Robot(host="192.168.178.71") as robot:
     # Set AI model (waits for confirmation)
-    robot.ai.set_model(AIModel.YOLOV6N)
+    robot.ai.set_model(AIModel.YOLO26N)
     
     # Get detections (waits automatically for results)
     for det in robot.ai.get_detections():
@@ -167,7 +167,7 @@ Four differences from the real robot:
   `confidence` always `1.0`, no model and no inference cost. Ideal for teaching
   the *downstream* logic (debouncing, state machines, control) without
   perception noise in the way.
-- **`"yolov8n"`, `"pose"`, `"hand"`, …** — runs ultralytics or mediapipe on the
+- **`"yolo26n"`, `"pose_yolo"`, `"hand"`, …** — runs ultralytics or mediapipe on the
   simulated frames and emits the same payload the robot publishes, so results
   come back as the same typed `Detection` / `PoseKeypoints` / `HandLandmarks`.
   Install with `pip install "pib3[sim] @ git+https://github.com/mamrehn/pib3.git"`.
@@ -291,17 +291,15 @@ with Robot(host="192.168.178.71") as robot:
 
 ### Available AI Models
 
-The OAK-D Lite supports multiple AI model types:
+The pib camera node offers these models on the OAK-D Lite (see `AIModel`):
 
-| Model Type | Example Models | Output |
-|------------|----------------|--------|
-| **Detection** | `mobilenet-ssd`, `yolov8n`, `yolov6n`, `face-detection-retail-0004` | Bounding boxes with class labels |
-| **Classification** | `resnet50` | Top-K class predictions |
-| **Segmentation** | `deeplabv3`, `deeplabv3-person`, `selfie-segmentation` | Pixel-wise masks |
-| **Instance Segmentation** | `yolov8n-seg` | Per-object masks |
-| **Pose Estimation** | `human-pose-estimation`, `openpose`, `yolov8n-pose` | Body keypoints |
-| **Age/Gender** | `age-gender` | Age and gender estimation |
-| **Emotion** | `emotion-recognition` | Facial emotion detection |
+| Model Type | Models | Output |
+|------------|--------|--------|
+| **Detection** | `yolo26n` (default), `person`, `face` | Bounding boxes with class labels |
+| **Instance Segmentation** | `segmentation` | Per-object masks |
+| **Pose Estimation** | `pose_yolo`, `pose_hrnet` | 17 body keypoints |
+| **Hand** | `hand` | 21 hand landmarks with finger angles |
+| **Other** | `gaze`, `lines` | Gaze direction, line segments |
 
 Query available models at runtime:
 
@@ -355,7 +353,7 @@ All detection messages include common metadata:
 
 ```python
 {
-    "model": "yolov6n",
+    "model": "yolo26n",
     "type": "detection",  # or "classification", "segmentation", "pose"
     "frame_id": 42,
     "timestamp_ns": 1234567890123456789,
@@ -423,8 +421,8 @@ with Robot(host="192.168.178.71") as robot:
     print(f"Available: {list(models.keys())}")
 
     # Switch to YOLO (waits for confirmation)
-    if robot.set_ai_model("yolov6n"):
-        print("Model switched to yolov8n")
+    if robot.set_ai_model("yolo26n"):
+        print("Model switched to yolo26n")
     else:
         print("Model switch timed out")
 
@@ -452,8 +450,8 @@ with Robot(host="192.168.178.71") as robot:
 **Returns:** `bool` - `True` if model switch confirmed, `False` if timeout.
 
 !!! note "Model Switch Delay"
-    Switching models causes a brief interruption (~200-500ms)
-    as the neural network pipeline rebuilds on the OAK-D Lite.
+    Switching models interrupts video, IMU and AI for about 4 s: the backend
+    rebuilds the pipeline, which restarts the OAK-D Lite.
 
 ### Advanced AI Configuration
 
@@ -462,7 +460,7 @@ For more control, use `set_ai_config()`:
 ```python
 with Robot(host="192.168.178.71") as robot:
     robot.set_ai_config(
-        model="yolov6n",
+        model="yolo26n",
         confidence=0.5,  # Detection threshold (0.0-1.0)
     )
 ```
@@ -484,7 +482,7 @@ with Robot(host="192.168.178.71") as robot:
     sub = robot.subscribe_current_ai_model(on_model_change)
 
     # Switch models - callback will fire when switch completes
-    robot.set_ai_model("yolov6n")
+    robot.set_ai_model("yolo26n")
     robot.set_ai_model("human-pose-estimation")
 
     sub.unsubscribe()
@@ -683,7 +681,7 @@ def test_ai_models(robot):
 
     # ===== Object Detection =====
     print("=" * 50)
-    print("Testing OBJECT DETECTION (yolov8n)")
+    print("Testing OBJECT DETECTION (yolo26n)")
     print("=" * 50)
 
     detection_count = 0
@@ -698,8 +696,8 @@ def test_ai_models(robot):
                 print(f"    - Class {det['label']} (conf: {det['confidence']:.2f})")
 
     # Switch model (synchronous - waits for confirmation)
-    if robot.set_ai_model("yolov6n", timeout=10.0):
-        print("Model switched to yolov8n")
+    if robot.set_ai_model("yolo26n", timeout=10.0):
+        print("Model switched to yolo26n")
     else:
         print("Model switch timeout")
         return
@@ -773,7 +771,7 @@ class VisionController:
     def run(self, duration=30):
         """Run vision-based control loop."""
         # Switch to YOLO model for person detection
-        if not self.robot.set_ai_model("yolov6n"):
+        if not self.robot.set_ai_model("yolo26n"):
             print("Failed to switch model")
             return
 
@@ -857,10 +855,9 @@ with Robot(host="192.168.178.71") as robot:
 
 ### AI Inference Slow
 
-1. Some models are more demanding - try `mobilenet-ssd` for speed
+1. Some models are more demanding - `gaze` manages only ~4 inferences/s
 2. Check robot CPU/NPU usage
 3. Reduce camera resolution
-4. YOLOv8 models are fast; ResNet/DeepLab are slower
 
 ### Model Switch Timeout
 

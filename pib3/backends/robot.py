@@ -6,7 +6,6 @@ import logging
 import math
 import threading
 import time
-import warnings
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -23,7 +22,7 @@ except ImportError:
 from .base import RobotBackend
 from .audio import AudioOutput, AudioInput, RobotAudioPlayer, RobotAudioRecorder, DEFAULT_SAMPLE_RATE
 from ..config import RobotConfig, LowLatencyConfig
-from ..types import ImuType, AIModel, DEPRECATED_MODEL_ALIASES
+from ..types import ImuType, AIModel, resolve_model_name
 
 # Type alias for Tinkerforge motor mapping: motor_name -> (bricklet_uid, channel)
 TinkerforgeMotorMapping = Dict[str, Tuple[str, int]]
@@ -2185,7 +2184,7 @@ class RealRobotBackend(RobotBackend):
 
         Args:
             callback: Called with detection dict containing:
-                - model: str - Model name (e.g., "yolov6n", "hand", "pose_yolo")
+                - model: str - Model name (e.g., "yolo26n", "hand", "pose_yolo")
                 - type: str - "detection", "hand", "pose", "instance-segmentation"
                 - frame_id: int - Frame sequence number
                 - timestamp_ns: int - Timestamp in nanoseconds
@@ -2236,11 +2235,11 @@ class RealRobotBackend(RobotBackend):
             Dict mapping model names to their info, as published by the
             backend's model registry:
             {
-                "yolov6n": {
+                "yolo26n": {
                     "type": "detection",
-                    "description": "YOLOv6 Nano - fast & accurate object detection",
+                    "description": "YOLO26 Nano - newest YOLO generation, drop-in for yolov6n",
                     "classes": 80,
-                    "slug": "luxonis/yolov6-nano:r2-coco-512x288"
+                    "slug": "yolo26n-nms-coco-512x288.rvc2.tar.xz"
                 },
                 ...
             }
@@ -2272,23 +2271,11 @@ class RealRobotBackend(RobotBackend):
         """
         Normalise a model argument to a name the backend registry accepts.
 
-        Names this SDK used to expose but the backend never accepted are
-        remapped via :data:`pib3.types.DEPRECATED_MODEL_ALIASES` with a
-        DeprecationWarning, so old scripts keep working instead of failing
-        with an opaque timeout.
+        Names pib3 no longer uses are remapped via
+        :data:`pib3.types.DEPRECATED_MODEL_ALIASES` with a DeprecationWarning,
+        so old scripts keep working instead of failing with an opaque timeout.
         """
-        name = model.value if isinstance(model, AIModel) else str(model)
-        replacement = DEPRECATED_MODEL_ALIASES.get(name)
-        if replacement is not None:
-            warnings.warn(
-                f"AI model {name!r} is not in the pib backend's model registry; "
-                f"using {replacement!r} instead. Update your code to one of: "
-                f"{', '.join(m.value for m in AIModel)}.",
-                DeprecationWarning,
-                stacklevel=3,
-            )
-            return replacement
-        return name
+        return resolve_model_name(model, stacklevel=3)
 
     def switch_ai_model(
         self,
@@ -2347,9 +2334,10 @@ class RealRobotBackend(RobotBackend):
         answer. Note that inference only runs while something is subscribed to
         ``camera/ai/detections`` -- see :meth:`subscribe_ai_detections`.
 
-        Model switching rebuilds the pipeline, so colour and depth are briefly
-        interrupted. A model the robot has not cached is fetched from the
-        Luxonis Model Hub on first use, which can take several seconds.
+        Model switching rebuilds the pipeline and restarts the OAK-D, so
+        video, IMU and AI pause for about 4 s (measured on an OAK-D Lite with
+        depthai 3.10). A model the robot has not cached is fetched from the
+        Luxonis Model Hub on first use, which adds several seconds more.
 
         Args:
             model: AI model to load, as an AIModel enum value or string:
@@ -2365,7 +2353,7 @@ class RealRobotBackend(RobotBackend):
             >>> from pib3 import Robot, AIModel
             >>> with Robot(host="...") as robot:
             ...     robot.set_ai_model(AIModel.HAND)
-            ...     robot.set_ai_model(AIModel.YOLOV6N)
+            ...     robot.set_ai_model(AIModel.YOLO26N)
         """
         success, message = self.switch_ai_model(model, timeout=timeout)
         if not success and message:
@@ -2388,7 +2376,8 @@ class RealRobotBackend(RobotBackend):
             segmentation_mode: "bbox" (lightweight) or "mask" (detailed RLE).
             segmentation_target_class: Class ID for mask mode segmentation.
 
-        Note: Model/confidence changes cause pipeline rebuild (~200-500ms).
+        Note: Model/confidence changes rebuild the camera pipeline, which
+              restarts the OAK-D: about 4 s without video, IMU or AI.
               Segmentation mode changes are instant (output format only).
         """
         if not self.is_connected:
@@ -2397,8 +2386,7 @@ class RealRobotBackend(RobotBackend):
 
         config = {}
         if model is not None:
-            # Convert AIModel enum to string value
-            config['model'] = model.value if isinstance(model, AIModel) else str(model)
+            config['model'] = self.resolve_ai_model_name(model)
         if confidence is not None:
             config['confidence'] = confidence
         if segmentation_mode is not None:
@@ -2426,11 +2414,11 @@ class RealRobotBackend(RobotBackend):
         Args:
             callback: Called with model info roughly once a second:
                 {
-                    "name": "yolov6n",
+                    "name": "yolo26n",
                     "type": "detection",
                     "description": "...",
                     "classes": 80,
-                    "slug": "luxonis/yolov6-nano:r2-coco-512x288",
+                    "slug": "yolo26n-nms-coco-512x288.rvc2.tar.xz",
                     "active": True,    # False while nothing subscribes to detections
                     "loading": False,  # True while the model is being built
                     "error": None      # last load error, if any

@@ -64,7 +64,7 @@ def main():
 
         # --- 2. what the robot sees -----------------------------------
         # "recognition" is the simulator's ground truth: exact boxes, no
-        # model, confidence always 1.0. Swap in "yolov8n" to run a real
+        # model, confidence always 1.0. Swap in "yolo26n" to run a real
         # network on the same frames (pip install "pib3[sim] @ git+https://github.com/mamrehn/pib3.git").
         sim.ai.set_model("recognition")
 

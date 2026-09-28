@@ -394,7 +394,7 @@ def subscribe_ai_detections(callback: Callable[[dict], None]) -> roslibpy.Topic
 
 Callback receives:
 ```python
-{"model": "yolov6n", "type": "detection", "frame_id": 42,
+{"model": "yolo26n", "type": "detection", "frame_id": 42,
  "result": {"detections": [{"label": 15, "confidence": 0.92, "bbox": {...}}]}}
 ```
 
@@ -417,12 +417,14 @@ def set_ai_model(model_name: str, timeout: float = 5.0) -> bool
 ```
 
 ```python
-if robot.set_ai_model("yolov6n"):
+if robot.set_ai_model("yolo26n"):
     print("Model ready!")
 ```
 
 !!! note
-    Model switching causes ~200-500ms interruption.
+    Model switching restarts the camera: video, IMU and AI pause for about
+    4 s. The model is a property of the camera, so a switch affects every
+    client connected to that robot.
 
 ### set_ai_config()
 
