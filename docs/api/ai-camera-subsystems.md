@@ -53,16 +53,25 @@ Switch AI model on the OAK-D Lite camera.
 ```python
 def set_model(
     model: Union[AIModel, str],
-    timeout: float = 5.0
+    timeout: float = 15.0
 ) -> bool
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `model` | `AIModel` or `str` | *required* | Model to load (prefer enum for IDE support) |
-| `timeout` | `float` | `5.0` | Max wait time for confirmation |
+| `timeout` | `float` | `15.0` | Max time for the switch and the model's first result together |
 
-**Returns:** `True` if switch confirmed, `False` if timeout.
+**Returns:** `True` once the first result of the new model has arrived;
+`False` if the backend refused the switch or no result came in time (a
+warning names `robot.subscribe_ai_status()` for load errors).
+
+A switch restarts the camera, so this takes about 4 s. The model belongs to
+the camera, not to your script: from the switch on, `robot.ai` returns only
+results of the model you set. Frames still in flight from the old model are
+dropped silently. If another client (a second script, the pib web app)
+switches the shared camera later, its results are ignored too, and pib3
+logs one warning naming the model it now runs.
 
 ```python
 from pib3 import AIModel
@@ -273,7 +282,7 @@ from pib3 import AIModel
 
 | Enum Value | String | Luxonis slug | Description |
 |------------|--------|--------------|-------------|
-| `AIModel.POSE_YOLO` | `"pose_yolo"` | `luxonis/yolov8-nano-pose-estimation:coco-512x288` | 17-keypoint body pose |
+| `AIModel.POSE_YOLO` | `"pose_yolo"` | `luxonis/yolo26-nano-pose-estimation:coco-512x288` | 17-keypoint body pose (YOLO26) |
 | `AIModel.POSE_HRNET` | `"pose_hrnet"` | `luxonis/lite-hrnet:18-coco-288x384` | 17-keypoint pose, higher resolution |
 
 ### Segmentation

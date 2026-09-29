@@ -793,10 +793,38 @@ class AIDetectionReceiver:
         self._lock = threading.Lock()
         self._new_data = threading.Event()
 
+        # Model filter (see expect_model): results from other models are dropped
+        self._expected_model: Optional[str] = None
+        self._expected_seen = threading.Event()
+        self._warned_models: set = set()
+
         # FPS tracking
         self._frame_times: List[float] = []
         self._latencies: List[float] = []
         self._fps_window = 30  # Calculate FPS over last N frames
+
+    def expect_model(self, model: Optional[str]) -> None:
+        """
+        Accept only results of ``model`` from now on, and clear the buffers.
+
+        The model belongs to the camera, not to one script. Results of any
+        other model are dropped: silently until the first result of
+        ``model`` arrives (frames still in flight from before a switch), and
+        with one warning per model after that, because then another client
+        has switched the camera. ``None`` accepts every model again.
+        """
+        with self._lock:
+            self._expected_model = model
+            self._warned_models = set()
+            self._expected_seen.clear()
+            self._results.clear()
+            self._frame_times.clear()
+            self._latencies.clear()
+        self._new_data.clear()
+
+    def wait_for_expected_model(self, timeout: float) -> bool:
+        """Wait until the first result of the expected model arrives."""
+        return self._expected_seen.wait(timeout=max(0.0, timeout))
 
     def on_detection(self, data: dict) -> None:
         """
@@ -805,27 +833,50 @@ class AIDetectionReceiver:
         Pass this method to robot.subscribe_ai_detections().
         """
         now = time.time()
+        model = data.get("model")
 
         with self._lock:
-            # Store raw result
-            self._results.append(data)
-            if len(self._results) > self.max_buffer:
-                self._results.pop(0)
+            expected = self._expected_model
+            mismatch = expected is not None and model is not None and model != expected
+            # Before the expected model's first result, a mismatch is a frame
+            # still in flight from the previous model; after it, another
+            # client has switched the camera.
+            warn = (mismatch and self._expected_seen.is_set()
+                    and model not in self._warned_models)
+            if warn:
+                self._warned_models.add(model)
+            if not mismatch:
+                if expected is not None:
+                    self._expected_seen.set()
 
-            # Track timing
-            self._frame_times.append(now)
-            if len(self._frame_times) > self._fps_window:
-                self._frame_times.pop(0)
+                # Store raw result
+                self._results.append(data)
+                if len(self._results) > self.max_buffer:
+                    self._results.pop(0)
 
-            # Track latency
-            latency_ms = data.get("latency_ms", 0)
-            if latency_ms > 0:
-                self._latencies.append(latency_ms)
-                if len(self._latencies) > self._fps_window:
-                    self._latencies.pop(0)
+                # Track timing
+                self._frame_times.append(now)
+                if len(self._frame_times) > self._fps_window:
+                    self._frame_times.pop(0)
 
-        # Signal that new data is available
-        self._new_data.set()
+                # Track latency
+                latency_ms = data.get("latency_ms", 0)
+                if latency_ms > 0:
+                    self._latencies.append(latency_ms)
+                    if len(self._latencies) > self._fps_window:
+                        self._latencies.pop(0)
+
+        if warn:
+            logger.warning(
+                "The camera now runs AI model %r, not %r: another client "
+                "switched it (the model belongs to the camera, not to this "
+                "script). Its results are ignored; call "
+                "robot.ai.set_model(%r) to switch back.",
+                model, expected, expected,
+            )
+        if not mismatch:
+            # Signal that new data is available
+            self._new_data.set()
 
     def _wait_for_data(self, timeout: float) -> None:
         """Wait until data is available or timeout."""
@@ -1039,36 +1090,53 @@ class AISubsystem:
                 self._receiver.on_detection
             )
 
-    def set_model(self, model: "Union[AIModel, str]", timeout: float = 10.0) -> bool:
+    def set_model(self, model: "Union[AIModel, str]", timeout: float = 15.0) -> bool:
         """
-        Switch AI model on the OAK-D Lite camera.
+        Switch AI model on the OAK-D Lite camera and wait for its first result.
+
+        A switch restarts the camera (about 4 s), so this returns only once
+        results of the new model actually arrive. From then on, results of
+        any other model are ignored: frames still in flight from the old one,
+        and those of another client that switches the shared camera (logged
+        once as a warning).
 
         Args:
             model: AI model to load (AIModel enum or string name).
-            timeout: Max time to wait for the backend's answer. A model the
-                robot has not cached is fetched from the Luxonis Model Hub on
-                first use, so allow generous time.
+            timeout: Max time for the switch and the first result together.
+                A model the robot has not cached is fetched from the Luxonis
+                Model Hub on first use, so allow generous time.
 
         Returns:
-            True if the backend confirmed the switch, False otherwise.
+            True once the first result of the new model has arrived; False
+            if the backend refused the switch or no result came in time.
 
         Example:
             >>> robot.ai.set_model(AIModel.HAND)
             >>> robot.ai.set_model(AIModel.YOLO26N)
         """
-        # Resolve deprecated aliases so the cached name matches what the robot
-        # actually loaded, not what the caller asked for.
+        # Resolve deprecated aliases so the expected name matches what the
+        # robot actually loads and reports, not what the caller asked for.
         model_name = self._robot.resolve_ai_model_name(model)
-        success = self._robot.set_ai_model(model_name, timeout)
-        if success:
-            self._current_model = model_name
-            self._receiver.clear()  # Clear old results from different model
-            self._ensure_subscribed()
-        return success
+        deadline = time.monotonic() + timeout
+        # Expect the new model before switching: whatever the old one still
+        # sends during the restart is dropped, not buffered.
+        self._receiver.expect_model(model_name)
+        if not self._robot.set_ai_model(model_name, timeout):
+            self._receiver.expect_model(self._current_model)
+            return False
+        self._current_model = model_name
+        self._ensure_subscribed()  # a first subscription starts the pipeline
+        if self._receiver.wait_for_expected_model(deadline - time.monotonic()):
+            return True
+        logger.warning(
+            "AI model %r was switched but sent no result within %.0f s. "
+            "robot.subscribe_ai_status() shows load errors.", model_name, timeout,
+        )
+        return False
 
     @property
     def model(self) -> Optional[str]:
-        """Currently active AI model name."""
+        """The AI model this script set; only its results are returned."""
         return self._current_model
 
     @property

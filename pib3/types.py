@@ -45,7 +45,7 @@ class AIModel(str, Enum):
     FACE = "face"                # luxonis/yunet:640x480
 
     # Pose estimation (17 keypoints)
-    POSE_YOLO = "pose_yolo"      # luxonis/yolov8-nano-pose-estimation:coco-512x288
+    POSE_YOLO = "pose_yolo"      # luxonis/yolo26-nano-pose-estimation:coco-512x288
     POSE_HRNET = "pose_hrnet"    # luxonis/lite-hrnet:18-coco-288x384
 
     # Hand tracking
