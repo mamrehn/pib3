@@ -53,7 +53,7 @@ Local audio playback, recording and text-to-speech are an optional extra:
 Two things must be in place before `pip install` succeeds. Getting either wrong is what
 produces the usual wall of red text.
 
-#### 1. Python 3.10–3.13, 64-bit — not the newest release
+#### 1. Python 3.10-3.13, 64-bit — not the newest release
 
 This is the most common cause of a failed install. `roboticstoolbox-python` publishes
 pre-built wheels only for **CPython 3.10, 3.11, 3.12 and 3.13 on `win_amd64`**. On any
@@ -106,7 +106,7 @@ git --version
 |---|---|
 | `error: Microsoft Visual C++ 14.0 or greater is required` | No wheel matches your interpreter, so pip is building from source. Fix the Python version (step 1) — that resolves it in almost every case. Only if you truly must build from source, install the [Visual C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and select the **"Desktop development with C++"** workload; the redistributable alone will not do. |
 | `Cannot find command 'git'` | Step 2, then reopen the terminal. |
-| `Package 'pib3' requires a different Python` | Your interpreter is outside 3.10–3.13. Step 1 — do not try to force it with `--ignore-requires-python`. |
+| `Package 'pib3' requires a different Python` | Your interpreter is outside 3.10-3.13. Step 1 — do not try to force it with `--ignore-requires-python`. |
 | `No matching distribution found ...`, or pip resolves a years-old `roboticstoolbox-python` and then fails to build it | A 32-bit install, or a stale checkout whose pins let pip backtrack. pip does not warn about this — it quietly picks a prehistoric release and compiles that instead. Step 1. |
 | `ImportError: DLL load failed while importing cv2` / `onnxruntime` at *runtime* (install succeeded) | Missing C++ runtime. Install the Visual C++ Redistributable: [x64](https://aka.ms/vs/17/release/vc_redist.x64.exe). |
 | `Activate.ps1 cannot be loaded because running scripts is disabled` | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, confirm, reopen PowerShell. Or use `venv\Scripts\activate.bat` from `cmd.exe`. |

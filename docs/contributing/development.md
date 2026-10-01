@@ -4,7 +4,7 @@ Complete guide for setting up a development environment.
 
 ## Prerequisites
 
-- Python 3.10–3.13, 64-bit (not 3.14 — `roboticstoolbox-python` has no wheels for it yet)
+- Python 3.10-3.13, 64-bit (not 3.14 — `roboticstoolbox-python` has no wheels for it yet)
 - Git
 - A code editor (VS Code, PyCharm, etc.)
 

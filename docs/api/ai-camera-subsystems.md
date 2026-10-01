@@ -305,7 +305,7 @@ from pib3 import AIModel
     It uses YOLO26's one-to-many head, so its confidences differ slightly from
     the end-to-end head the simulation runs; boxes and classes agree. The
     Hub's `luxonis/yolo26-nano` uses the end-to-end head and managed only
-    11–13 inferences/s in a camera pipeline on an OAK-D Lite, against 27 for
+    11-13 inferences/s in a camera pipeline on an OAK-D Lite, against 27 for
     this build and 30 (the camera's rate) for YOLOv6-nano. The OAK-D Lite has no time-of-flight sensor,
     and the network only sees the RGB image -- the stereo pair is not used.
 

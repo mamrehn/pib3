@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- **Python**: 3.10–3.13, 64-bit. Not 3.14 — `roboticstoolbox-python` publishes no
+- **Python**: 3.10-3.13, 64-bit. Not 3.14 — `roboticstoolbox-python` publishes no
   wheels for it yet, so pip would try to compile it from source.
 - **pip**: Latest version recommended
 - **Git**: Required, since the package is installed from a Git URL
@@ -116,7 +116,7 @@ pip install -e ".[sim,dev]"
 | `pip: command not found` | Use `pip3` or `python3 -m pip install` |
 | `No module named 'pib3'` | Activate venv: `source venv/bin/activate` |
 | Permission errors (Linux) | Use venv or `pip install --user` |
-| `Package 'pib3' requires a different Python` | You are outside 3.10–3.13; see [Windows prerequisites](../../README.md#windows-prerequisites) |
+| `Package 'pib3' requires a different Python` | You are outside 3.10-3.13; see [Windows prerequisites](../../README.md#windows-prerequisites) |
 | `Cannot find command 'git'` | Install Git and reopen the terminal |
 | `Microsoft Visual C++ 14.0 or greater is required` | Wrong Python version, not a missing build tool — see [Windows prerequisites](../../README.md#windows-prerequisites) |
 | PowerShell script error | `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` |
