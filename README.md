@@ -123,18 +123,19 @@ under emulation, or use an x64 machine or WSL2.
 
 ### Emergency Stop
 
-`Robot(...)` arms a software emergency stop when it connects. It works on every
-laptop:
+A software emergency stop arms itself with the first motion command. It works
+on every laptop, and in Webots for practice (Space in the 3D view):
 
 | Stop with | Notes |
 |---|---|
 | **Space** or **Esc** (also Numpad-0, Pause) | anywhere on the desktop; macOS needs *Input Monitoring* permission, Wayland blocks it |
 | **Ctrl+C** in the terminal | always works |
-| the on-screen **STOP** button | opens by itself where the keys cannot work; `robot.show_stop_button()` |
+| the on-screen **STOP** window | appears when the stop arms and shows that it is armed; lists what works on this laptop |
 | `pib3-estop --host <robot>` | the teacher's remote stop, from any laptop |
 
-The motors freeze and hold. The stop latches: further motion commands raise
-`pib3.EmergencyStopError` until `robot.resume()`. Slow down a first run with
+The motors freeze and hold, on the whole robot: every pib3 program connected
+to it latches. Further motion commands raise `pib3.EmergencyStopError` until
+`robot.resume()`. Slow down a first run with
 `robot.default_speed = 45`. Details: [Safety](https://mamrehn.github.io/pib3/getting-started/safety/).
 
 ### Digital Twin - Same Code Everywhere

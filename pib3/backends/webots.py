@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 from .base import RobotBackend
 from .hints import hint
+from ..safety import describe_keys
 
 
 # Mapping from trajectory joint names to Webots motor device names
@@ -110,12 +111,32 @@ class WebotsBackend(RobotBackend):
     DEFAULT_SPEED = 150.0          # deg/s
     DEFAULT_ACCELERATION = 150.0   # deg/s^2
 
+    #: The emergency stop works in the simulator too, so it can be practised
+    #: before the real arm. Keys come from Webots' own keyboard device, which
+    #: only sees key presses while the 3D view has focus: typing in the editor
+    #: while the simulation runs does not stop it, and no permission is needed.
+    ESTOP_KEYS_DEFAULT = True
+    DEFAULT_ESTOP_KEYS = ("space",)
+    KEY_FOCUS_HINT = " (click into the 3D view first)"
+    #: Webots starts controllers without a terminal.
+    STOP_ON_CTRL_C = False
+    #: The STOP window shows that the stop is armed, as on the robot.
+    ESTOP_BUTTON_DEFAULT = True
+    STOP_EFFECT = "sim"
+
+    #: Key codes Webots R2025a delivers to controllers (measured): Space 32,
+    #: Enter 4, Numpad-0 as Insert 6 (NumLock off) or '0', letters upper-case.
+    #: Esc never reaches a controller, so Space is the stop key here, the
+    #: same key that works on the real robot.
+    _WEBOTS_KEY_CODES = {"space": (32,), "enter": (4,), "kp_0": (6, 48),
+                         "insert": (6,)}
+
     def __init__(
         self,
         step_ms: int = 50,
         realistic_motion: bool = True,
-        estop_keys: Union[bool, str, Sequence[str]] = False,
-        stop_button: Union[bool, str] = False,
+        estop_keys: Union[bool, str, Sequence[str]] = True,
+        stop_button: Union[bool, str] = True,
     ):
         """
         Initialize Webots backend.
@@ -126,8 +147,12 @@ class WebotsBackend(RobotBackend):
             realistic_motion: Move like the real robot (150 deg/s, ramped,
                 ``speed=`` honoured). False restores the proto's instant
                 motors (about 1150 deg/s, no ramp).
-            estop_keys: Same as on ``Robot``; off by default in simulation.
-            stop_button: Same as on ``Robot``; off by default in simulation.
+            estop_keys: Emergency-stop keys, armed by the first motion
+                command: True (default) = Space and Esc in the 3D view; a key
+                name or list for others; False for none (e.g. if your
+                controller reads the keyboard itself).
+            stop_button: Show the on-screen STOP button while the stop is
+                armed (default True, as on the robot); False never.
         """
         super().__init__()
         self.step_ms = step_ms
@@ -141,6 +166,8 @@ class WebotsBackend(RobotBackend):
         # listener's thread only marks the freeze, the main thread does it.
         self._pending_halt = False
         self._velocity_set: Dict[int, float] = {}
+        self._keyboard = None
+        self._estop_codes: Dict[int, str] = {}
         self._robot = None
         self._timestep = None
         self._motors: Dict[str, Any] = {}
@@ -368,6 +395,66 @@ class WebotsBackend(RobotBackend):
         if self._pending_halt:
             self._halt_motion()
 
+    # --- emergency-stop keys via Webots' keyboard ----------------------
+
+    def _stop_button_title(self) -> str:
+        return "Webots"
+
+    def _stop_triggers(self):
+        triggers = ["click"]
+        if self._estop_keys and self._estop_keys_ok and "space" in self._estop_keys:
+            triggers.append("space3d")
+        return triggers
+
+    def _start_estop_keys(self, names) -> bool:
+        """Read the stop keys from Webots' keyboard device (3D view focus)."""
+        if self._robot is None:
+            return False
+        codes: Dict[int, str] = {}
+        for name in names:
+            if name in self._WEBOTS_KEY_CODES:
+                for code in self._WEBOTS_KEY_CODES[name]:
+                    codes[code] = name
+            elif len(name) == 1:
+                codes[ord(name.upper())] = name
+            else:
+                logger.warning(
+                    "Webots does not pass the key %r to controllers; use "
+                    "\"space\" (default), \"enter\" or a letter.", name)
+        if not codes:
+            return False
+        keyboard = self._robot.getKeyboard()
+        keyboard.enable(int(self._timestep))
+        self._keyboard = keyboard
+        self._estop_codes = codes
+        self._estop_keys = tuple(names)
+        return True
+
+    def disable_estop_key(self) -> None:
+        """Stop reading the emergency-stop keys."""
+        if self._keyboard is not None:
+            try:
+                self._keyboard.disable()
+            except Exception:
+                pass
+        self._keyboard = None
+        self._estop_codes = {}
+        self._estop_keys = ()
+
+    def _poll_estop_keys(self) -> None:
+        """Check the keyboard for a stop key; runs on the controller's thread."""
+        keyboard = self._keyboard
+        if keyboard is None or self._stopped:
+            return
+        while True:
+            key = keyboard.getKey()
+            if key is None or key < 0:
+                return
+            name = self._estop_codes.get(key & 0xFFFF)
+            if name is not None:
+                self.stop(reason=f"{describe_keys([name])} key")
+                return
+
     def _read_home_offsets(self) -> None:
         """Read and store each joint's initial position as its home offset.
 
@@ -552,7 +639,9 @@ class WebotsBackend(RobotBackend):
             return False
         self._apply_pending_halt()
         ms = int(duration_ms if duration_ms is not None else self._timestep)
-        return self._robot.step(ms) != -1
+        alive = self._robot.step(ms) != -1
+        self._poll_estop_keys()
+        return alive
 
     # Default timeout for waiting for motor stabilization (seconds)
     DEFAULT_GET_JOINTS_TIMEOUT = 5.0
@@ -601,6 +690,7 @@ class WebotsBackend(RobotBackend):
                 webots_pos_old = sensor.getValue()
                 while (time.time() - start) < timeout:
                     self._robot.step(self._timestep)
+                    self._poll_estop_keys()
                     webots_pos = sensor.getValue()
                     # Check if motor has stabilized (same reading twice)
                     if abs(webots_pos - webots_pos_old) < 0.0001:
@@ -680,6 +770,7 @@ class WebotsBackend(RobotBackend):
         start = time.time()
         while (time.time() - start) < timeout:
             self._robot.step(self._timestep)
+            self._poll_estop_keys()
 
             all_stable = True
             current_readings: Dict[str, float] = {}
@@ -749,6 +840,7 @@ class WebotsBackend(RobotBackend):
 
         # Step simulation once to initiate movement
         self._robot.step(self._timestep)
+        self._poll_estop_keys()
         return True
 
     def _verify_positions(
@@ -820,6 +912,7 @@ class WebotsBackend(RobotBackend):
             if self._robot.step(self._timestep) == -1:
                 return False
             stepped = True
+            self._poll_estop_keys()
 
             # Check if all joints are within per-joint tolerance
             all_within_tolerance = True
@@ -900,6 +993,7 @@ class WebotsBackend(RobotBackend):
 
             if self._robot.step(step_ms) == -1:
                 return False
+            self._poll_estop_keys()
 
             if progress_callback:
                 progress_callback(i + 1, total)

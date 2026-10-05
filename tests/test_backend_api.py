@@ -372,17 +372,36 @@ class FakeMotor:
         return self.sensor
 
 
+class FakeKeyboard:
+    def __init__(self):
+        self.queue = []
+        self.enabled_with = None
+
+    def enable(self, period):
+        self.enabled_with = period
+
+    def disable(self):
+        self.enabled_with = None
+
+    def getKey(self):
+        return self.queue.pop(0) if self.queue else -1
+
+
 class FakeWebotsRobot:
     def __init__(self):
         self.steps = 0
+        self.keyboard = FakeKeyboard()
 
     def step(self, ms):
         self.steps += 1
         return 0
 
+    def getKeyboard(self):
+        return self.keyboard
+
 
 def webots(realistic=True):
-    sim = WebotsBackend(realistic_motion=realistic)
+    sim = WebotsBackend(realistic_motion=realistic, stop_button=False)
     sim._robot = FakeWebotsRobot()
     sim._timestep = 32
     sim._motors = {"elbow_left": FakeMotor(), "wrist_left": FakeMotor(vmax=1.0)}
@@ -468,3 +487,60 @@ def test_webots_instant_read_does_not_step():
     assert sim.get_joints([Joint.ELBOW_LEFT], unit="rad", timeout=0) == {
         "elbow_left": pytest.approx(0.3)}
     assert sim._robot.steps == steps
+
+
+def test_webots_stop_key_works_in_the_3d_view():
+    sim = webots()
+    assert not sim.estop_armed                   # connecting arms nothing
+    sim.set_joint(Joint.ELBOW_LEFT, 0.5, unit="rad", async_=True)
+    keyboard = sim._robot.keyboard
+    assert sim.estop_armed and keyboard.enabled_with == 32
+    assert sim.estop_keys == ("space",)
+    sim._motors["elbow_left"].sensor.value = 0.2
+    keyboard.queue = [ord("A"), 32]             # some key, then Space
+    sim.step()
+    assert sim.stopped and "Space" in sim.stop_reason
+    assert sim._motors["elbow_left"].target == pytest.approx(0.2)   # frozen
+    with pytest.raises(Exception, match="emergency stop"):
+        sim.set_joint(Joint.ELBOW_LEFT, 0.9, unit="rad", async_=True)
+
+
+def test_webots_estop_can_be_switched_off():
+    sim = WebotsBackend(estop_keys=False, stop_button=False)
+    sim._robot, sim._timestep = FakeWebotsRobot(), 32
+    sim._motors = {"elbow_left": FakeMotor()}
+    sim.set_joint(Joint.ELBOW_LEFT, 0.5, unit="rad", async_=True)
+    assert sim._robot.keyboard.enabled_with is None
+
+
+def test_observer_program_latches_but_does_not_freeze():
+    r, servo = direct_robot()                     # never moved the robot
+    r._on_remote_estop({"data": '{"action": "stop", "source": "pib-laptop-3"}'})
+    deadline = time.monotonic() + 2
+    while not r.stopped and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert r.stopped and "pib-laptop-3" in r.stop_reason
+    assert servo.writes == []                     # the sender froze the servos
+
+
+def test_a_local_stop_reaches_the_robots_other_programs(monkeypatch):
+    import pib3.backends.robot as robot_module
+    published = []
+    r, _ = direct_robot()
+    r._estop_publisher = types.SimpleNamespace(publish=lambda m: published.append(m))
+    monkeypatch.setattr(robot_module.roslibpy, "Message", lambda d: d)
+    r.stop(reason="Space key")
+    r.stop(reason="Space key")                    # second press: no second message
+    assert len(published) == 1 and '"action": "stop"' in published[0]["data"]
+    r._estop_publisher = None
+
+
+
+def test_webots_window_lists_space_in_the_3d_view():
+    sim = webots()
+    sim._estop_keys_setting = True
+    sim._estop_armed = True
+    sim._start_estop_keys(("space",))
+    sim._estop_keys_ok = True
+    assert sim._stop_triggers() == ["click", "space3d"]
+    assert sim.STOP_EFFECT == "sim"

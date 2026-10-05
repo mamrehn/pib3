@@ -37,8 +37,8 @@ with WebotsBackend() as backend:
 WebotsBackend(
     step_ms: int = 50,
     realistic_motion: bool = True,
-    estop_keys=False,
-    stop_button=False,
+    estop_keys=True,
+    stop_button=True,
 )
 ```
 
@@ -48,7 +48,8 @@ WebotsBackend(
 |-----------|------|---------|-------------|
 | `step_ms` | `int` | `50` | Unused; kept so old code keeps running. Use `run_trajectory(rate_hz=...)`. |
 | `realistic_motion` | `bool` | `True` | Move like the real robot: at most 150 deg/s, ramped with 150 deg/s², and `speed=` is honoured. `False` restores the proto's instant motors (20 rad/s ≈ 1150 deg/s, no ramp). |
-| `estop_keys`, `stop_button` | | `False` | Same as on [`Robot`](robot.md); off in simulation by default. |
+| `estop_keys` | `bool`, `str` or list | `True` | Emergency stop for practice: **Space** while the 3D view has focus (Webots does not pass Esc to controllers). Armed by the first motion command; typing in the editor never triggers it. `False` if your controller reads the keyboard itself. |
+| `stop_button` | `bool` | `True` | STOP window while the stop is armed, as on the robot ("Klick · Leertaste im 3D-Fenster"). |
 
 !!! warning "Control loops tuned with instant motors do not transfer"
     With instant motors a loop that adds `K * error` to the target **every

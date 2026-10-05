@@ -16,6 +16,7 @@ import yaml
 
 from ..types import Joint, HandPose
 from ..safety import (
+    DEFAULT_STOP_KEYS,
     EmergencyStopError,
     KeyboardHook,
     SigintGuard,
@@ -240,9 +241,8 @@ class RobotBackend(ABC):
     # on its way to the start while the drawing is already being streamed.
     DEFAULT_APPROACH_SPEED: float = 30.0
 
-    # Emergency-stop defaults applied by connect() (see _activate_safety).
-    # The simulator needs no emergency stop, so it opts out; the real robot
-    # opts in.
+    # Emergency-stop defaults, armed by the first motion command (see
+    # _arm_safety). A program that only reads the camera never arms them.
     ESTOP_KEYS_DEFAULT: Union[bool, Sequence[str]] = False
     ESTOP_BUTTON_DEFAULT: Union[bool, str] = False
     STOP_ON_CTRL_C: bool = True
@@ -291,6 +291,11 @@ class RobotBackend(ABC):
         self._stop_button: Optional[StopButton] = None
         self._estop_keys_setting: Union[bool, Sequence[str]] = self.ESTOP_KEYS_DEFAULT
         self._estop_button_setting: Union[bool, str] = self.ESTOP_BUTTON_DEFAULT
+        self._estop_keys_ok = True
+        # Armed once this program sends its first motion command. Until then
+        # the program is a pure observer: no keys, and Ctrl+C or a crash does
+        # not freeze motors that another program may be driving.
+        self._estop_armed = False
         self._default_speed: Optional[float] = self.DEFAULT_SPEED
 
         # Unified audio system
@@ -434,7 +439,7 @@ class RobotBackend(ABC):
         """
         try:
             if (exc_type is not None and not issubclass(exc_type, SystemExit)
-                    and self.is_connected):
+                    and self._estop_armed and self.is_connected):
                 try:
                     self._halt_motion()
                 except Exception as exc:  # never mask the user's exception
@@ -1259,6 +1264,10 @@ class RobotBackend(ABC):
         The keys (Space, Esc, ...), Ctrl+C, the on-screen STOP button and the
         teacher's remote stop all end up here.
 
+        On the real robot the stop applies to the whole robot: every pib3
+        program connected to it latches too (two groups share one pib, one
+        arm each). They continue only after a restart or ``resume()``.
+
         Args:
             reason: Shown in the log and on the STOP button.
 
@@ -1266,16 +1275,27 @@ class RobotBackend(ABC):
             >>> robot.stop()       # freeze now
             >>> robot.resume()     # continue on purpose
         """
+        self._trigger_stop(reason or "robot.stop()", broadcast=True)
+
+    def _trigger_stop(self, reason: str, broadcast: bool = True,
+                      freeze: bool = True) -> None:
+        """Latch, freeze and announce. ``broadcast`` tells the robot's other programs."""
         first = not self._stopped
-        self._stop_reason = reason or "robot.stop()"
+        self._stop_reason = reason
         # Latch BEFORE freezing: a command racing with us either finished
         # sending already (the freeze below overrides it) or sees the latch.
         self._stopped = True
         self._stop_event.set()
-        try:
-            self._halt_motion()
-        except Exception as exc:
-            logger.error("Emergency stop could not freeze the motors: %s", exc)
+        if freeze:
+            try:
+                self._halt_motion()
+            except Exception as exc:
+                logger.error("Emergency stop could not freeze the motors: %s", exc)
+        if broadcast and first:
+            try:
+                self._broadcast_stop(reason)
+            except Exception as exc:
+                logger.error("Could not tell the robot's other programs about the stop: %s", exc)
         if first:
             logger.warning(
                 "\n%s\nEMERGENCY STOP (%s): the motors hold their current position.\n"
@@ -1310,6 +1330,9 @@ class RobotBackend(ABC):
         if button is not None:
             button.notify_resumed()
 
+    def _broadcast_stop(self, reason: str) -> None:
+        """Tell every other program on this robot to latch (backend-specific)."""
+
     def _halt_motion(self) -> None:
         """Freeze every motor at its current position (backend-specific).
 
@@ -1332,25 +1355,27 @@ class RobotBackend(ABC):
         keys: Union[None, str, Sequence[str]] = None,
     ) -> bool:
         """
-        Make keys trigger :meth:`stop`, wherever the keyboard focus is.
+        Make keys trigger :meth:`stop`, and arm the emergency stop now.
 
-        The default keys are Space, Esc, Numpad-0 and Pause. Every laptop has
-        Space and Esc. The stop latches: pressing the key again does not
-        resume.
+        Normally there is no need to call this: the stop arms itself with the
+        first motion command. Call it to arm earlier, e.g. before asking
+        people to step back, or to choose other keys.
 
-        The keys need a global keyboard hook (``pynput``), which some systems
-        block: macOS until the terminal or editor is allowed under *Input
-        Monitoring*, and Linux desktops running Wayland. In those cases this
-        method says so and returns False. Ctrl+C in the terminal and
-        :meth:`show_stop_button` still work.
+        On the real robot the keys work wherever the keyboard focus is
+        (default: Space, Esc, Numpad-0, Pause). That needs a global keyboard
+        hook (``pynput``), which some systems block: macOS until the terminal
+        or editor is allowed under *Input Monitoring*, and Linux desktops
+        running Wayland. Then this method says so and returns False; Ctrl+C
+        and :meth:`show_stop_button` still work. In Webots the keys work
+        while the 3D view has focus, so typing in the editor does not stop
+        the simulation.
 
-        Process-wide: all robot objects share one hook. Calling it again
-        replaces this robot's key set.
+        The stop latches: pressing the key again does not resume.
 
         Args:
             keys: Key name or list of names, e.g. ``"space"``, ``"esc"``,
                 ``"kp_0"``, ``"pause"``, ``"F12"`` or one character. ``None``
-                means the defaults.
+                means the backend's defaults.
 
         Returns:
             True if the keys are expected to work.
@@ -1359,10 +1384,21 @@ class RobotBackend(ABC):
             >>> robot.enable_estop_key()                 # Space, Esc, Numpad-0, Pause
             >>> robot.enable_estop_key(["space", "f12"])
         """
-        names = coerce_keys(keys)
+        names = coerce_keys(self.DEFAULT_ESTOP_KEYS if keys is None else keys)
         if not names:
             self.disable_estop_key()
+            self._estop_keys_ok = False
             return False
+        self._estop_keys_setting = list(names)
+        self._estop_keys_ok = self._start_estop_keys(names)
+        self._arm_safety(keys_started=True)
+        return self._estop_keys_ok
+
+    #: Keys enable_estop_key() uses when called without arguments.
+    DEFAULT_ESTOP_KEYS: Tuple[str, ...] = DEFAULT_STOP_KEYS
+
+    def _start_estop_keys(self, names: Tuple[str, ...]) -> bool:
+        """Listen for ``names`` with the global keyboard hook (pynput)."""
 
         def on_key(name: str) -> None:
             if self._stopped:
@@ -1400,28 +1436,57 @@ class RobotBackend(ABC):
         """Keys that currently trigger :meth:`stop` (empty if none)."""
         return self._estop_keys
 
+    @property
+    def estop_armed(self) -> bool:
+        """Whether this program has armed the emergency stop (it moved the robot)."""
+        return self._estop_armed
+
     def show_stop_button(self, title: Optional[str] = None) -> bool:
         """
-        Open a big red on-screen STOP button for this robot.
+        Show the big red on-screen STOP button, and arm the stop now.
 
-        Works on every laptop: click it with the touchpad, or press Space,
-        Esc or Enter while it has focus. It stays on top of other windows and
-        closes when the program ends. pib3 opens it by itself on the real
-        robot when the stop keys cannot work.
+        By default the button opens by itself when the stop arms (first
+        motion command): it is the visible sign that the stop is armed. It
+        lists every way to stop the robot that works on this computer
+        (click, Space, Esc, Ctrl+C), stays on top, turns grey with
+        "STOPPED" after a stop, and closes when the program ends. Its texts
+        follow the system language (German or English; ``PIB3_LANG=de``
+        forces German).
 
-        Needs tkinter, which the python.org and uv Python builds include. On
-        Debian/Ubuntu system Python: ``sudo apt install python3-tk``.
+        Needs tkinter, which the python.org and current uv Python builds
+        include. On Debian/Ubuntu system Python: ``sudo apt install python3-tk``.
 
         Returns:
             True once the button is on screen.
         """
+        self._estop_button_setting = True
+        if not self._estop_armed and self.is_connected:
+            self._arm_safety()               # opens the button as part of arming
+            return self._stop_button is not None
+        return self._open_stop_button(title=title, wait=True)
+
+    #: How the STOP window describes the effect: "robot" or "sim".
+    STOP_EFFECT = "robot"
+
+    def _stop_triggers(self) -> List[str]:
+        """What the STOP window lists: only ways that work on this computer."""
+        triggers = ["click"]
+        if self._estop_keys and self._estop_keys_ok:
+            triggers += [k for k in self._estop_keys if k in ("space", "esc")]
+        if self.STOP_ON_CTRL_C and self._estop_armed:
+            triggers.append("ctrl_c")
+        return triggers
+
+    def _open_stop_button(self, title: Optional[str] = None, wait: bool = True) -> bool:
         if self._stop_button is not None and self._stop_button.running:
             return True
         button = StopButton(
             on_stop=lambda: self.stop(reason="STOP button"),
             title=title or self._stop_button_title(),
+            triggers=self._stop_triggers(),
+            effect=self.STOP_EFFECT,
         )
-        if not button.start():
+        if not button.start(wait=wait):
             logger.warning(
                 "Could not open the on-screen STOP button: %s. "
                 "Use Ctrl+C in the terminal to stop the robot.", button.failure,
@@ -1441,35 +1506,56 @@ class RobotBackend(ABC):
     def _stop_button_title(self) -> str:
         return "pib3"
 
-    def _activate_safety(self) -> None:
-        """Arm the emergency stop; backends call this at the end of connect().
+    #: Words for the connect banner: how Ctrl+C reaches this backend.
+    CTRL_C_HINT = "Ctrl+C in this terminal"
 
-        Ctrl+C always freezes the robot (``STOP_ON_CTRL_C``). Keys and the
-        on-screen button follow the constructor arguments ``estop_keys`` and
-        ``stop_button``. With ``stop_button="auto"`` the button opens only
-        when the keys cannot work on this system.
+    def _activate_safety(self) -> None:
+        """Called by connect(): the stop is NOT armed yet.
+
+        It arms with the first motion command (:meth:`_arm_safety`). A
+        program that only reads the camera, e.g. at a camera station or next
+        to a robot another group is moving, never arms it.
         """
+        self._estop_armed = False
+
+    def _arm_safety(self, keys_started: bool = False) -> None:
+        """Arm the emergency stop for a program that moves the robot. Idempotent.
+
+        Ctrl+C freezes the robot (``STOP_ON_CTRL_C``). Keys and the on-screen
+        button follow the constructor arguments ``estop_keys`` and
+        ``stop_button``: True shows the button as the visible sign that the
+        stop is armed; ``"auto"`` only when the keys cannot work here.
+        """
+        if self._estop_armed or not self.is_connected:
+            return
+        self._estop_armed = True
         if self.STOP_ON_CTRL_C:
             SigintGuard.add(self._estop_token, lambda: self.stop(reason="Ctrl+C"))
         keys = self._estop_keys_setting
-        keys_ok = True
-        if keys:
-            keys_ok = self.enable_estop_key(None if keys is True else keys)
+        if keys and not keys_started:
+            names = coerce_keys(self.DEFAULT_ESTOP_KEYS if keys is True else keys)
+            self._estop_keys_ok = bool(names) and self._start_estop_keys(names)
         button = self._estop_button_setting
-        if button is True or (button == "auto" and keys and not keys_ok):
-            self.show_stop_button()
-        if keys or button:
-            ways = []
-            if self._estop_keys and keys_ok:
-                ways.append(describe_keys(self._estop_keys))
-            if self.STOP_ON_CTRL_C:
-                ways.append("Ctrl+C in this terminal")
-            if self._stop_button is not None:
-                ways.append("the STOP button")
-            logger.warning("Emergency stop: %s.", " / ".join(ways))
+        if button is True or (button == "auto" and keys and not self._estop_keys_ok):
+            # Wait for the window only if it is the one way to stop that works
+            # besides Ctrl+C; otherwise the first motion must not be delayed.
+            self._open_stop_button(wait=not (keys and self._estop_keys_ok))
+        ways = []
+        if self._estop_keys and self._estop_keys_ok:
+            ways.append(describe_keys(self._estop_keys) + self.KEY_FOCUS_HINT)
+        if self.STOP_ON_CTRL_C:
+            ways.append(self.CTRL_C_HINT)
+        if self._stop_button is not None:
+            ways.append("the STOP button")
+        if ways:
+            logger.warning("Emergency stop armed: %s.", " / ".join(ways))
+
+    #: Appended to the key list in the banner (Webots: where the focus must be).
+    KEY_FOCUS_HINT = ""
 
     def _deactivate_safety(self) -> None:
-        """Undo :meth:`_activate_safety`; backends call this in disconnect()."""
+        """Disarm everything; backends call this in disconnect()."""
+        self._estop_armed = False
         SigintGuard.remove(self._estop_token)
         self.disable_estop_key()
         self.hide_stop_button()
@@ -1621,6 +1707,8 @@ class RobotBackend(ABC):
         targets, clamped = self._clamp_to_limits(radians, requested, unit)
 
         velocity_centideg = round(speed * 100) if speed is not None else None
+        self._ensure_not_stopped("set_joints()")
+        self._arm_safety()          # this program moves the robot from now on
         with self._command_lock:
             self._ensure_not_stopped("set_joints()")
             success = self._set_joints_impl(targets, velocity_centideg=velocity_centideg)
@@ -1904,6 +1992,7 @@ class RobotBackend(ABC):
         if backend_radians.ndim != 2 or len(backend_radians) == 0:
             return True
 
+        self._arm_safety()
         if approach_speed is None:
             approach_speed = self.DEFAULT_APPROACH_SPEED
         if approach_speed and approach_speed > 0:

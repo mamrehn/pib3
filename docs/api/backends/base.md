@@ -485,7 +485,10 @@ with backend as robot:
 
 See the [Safety page](../../getting-started/safety.md) for the classroom view.
 In short: the stop **latches**, freezes the motors where they are, and every
-later motion command raises `EmergencyStopError` until `resume()`.
+later motion command raises `EmergencyStopError` until `resume()`. It arms
+itself with a program's **first motion command** (`estop_armed`); a program
+that only reads the camera never arms it. On the real robot one stop latches
+**every** pib3 program connected to that robot.
 
 ### stop() / resume() / stopped / stop_reason
 
@@ -504,8 +507,9 @@ blocking wait, `run_trajectory()` or `set_joints_sequence()` at once (they
 return `False`), and makes later motion commands raise
 `pib3.EmergencyStopError`. Pressing a stop key again does **not** resume.
 
-A program that ends with an exception or Ctrl+C inside `with Robot(...)`
-freezes the motors as well; a normal end lets the last moves finish.
+A program that has moved the robot and ends with an exception or Ctrl+C
+inside `with Robot(...)` freezes the motors as well; a normal end lets the
+last moves finish.
 
 ### enable_estop_key() / disable_estop_key() / estop_keys
 
@@ -516,13 +520,17 @@ def disable_estop_key(self) -> None
 def estop_keys(self) -> Tuple[str, ...]
 ```
 
-Default keys: **Space, Esc, Numpad-0, Pause** (`pib3.DEFAULT_STOP_KEYS`);
-pass a name or list for others (`"f12"`, `"enter"`, single characters).
-The real robot arms them on connect (`Robot(estop_keys=...)`).
+Default keys: **Space, Esc, Numpad-0, Pause** on the robot
+(`pib3.DEFAULT_STOP_KEYS`), **Space** in Webots (Webots does not pass Esc to
+controllers); pass a name or list for others (`"f12"`, `"enter"`, single
+characters). Calling it arms the stop at once; otherwise the first motion
+command arms it with the constructor's `estop_keys`.
 
-Returns `False` and says why when the global keyboard hook cannot work:
-macOS without *Input Monitoring* permission, Linux under Wayland, no
-display. One process-wide `pynput` listener serves all robot objects.
+On the robot the keys need a global keyboard hook (`pynput`, one listener
+for all robot objects); it returns `False` and says why when that cannot
+work: macOS without *Input Monitoring* permission, Linux under Wayland, no
+display. In Webots the keys come from Webots' own keyboard device, which only
+sees key presses while the 3D view has focus.
 
 !!! bug "Fixed in 0.2: Numpad-0 never worked"
     The old default `KeyCode.from_vk(96)` never compared equal to a real key
@@ -536,9 +544,12 @@ def show_stop_button(self, title: Optional[str] = None) -> bool
 def hide_stop_button(self) -> None
 ```
 
-A big red STOP window (separate process, always on top). Click it with a
-touchpad, or press Space/Esc/Enter while it has focus. The real robot opens
-it by itself when the keys cannot work (`Robot(stop_button="auto")`).
+A big red STOP window (separate process, always on top) that opens by itself
+when the stop arms and is the visible sign that it is armed. It lists the
+ways to stop that work here (click, Space, Esc, Ctrl+C; in Webots "Space in
+the 3D view"), turns grey after a stop, and follows the system language
+(German/English, `PIB3_LANG` forces one). Click it, or press Space/Esc while
+it has focus. `stop_button="auto"` shows it only where the keys cannot work.
 
 ### Ctrl+C
 

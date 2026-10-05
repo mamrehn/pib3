@@ -4,6 +4,7 @@ import base64
 import json
 import logging
 import math
+import socket
 import threading
 import time
 import urllib.request
@@ -286,10 +287,10 @@ class RealRobotBackend(RobotBackend):
     DEFAULT_SPEED = DEFAULT_MOTION_VELOCITY / 100.0
     DEFAULT_ACCELERATION = DEFAULT_MOTION_ACCELERATION / 100.0
 
-    # The real robot arms the emergency stop on connect: keys, Ctrl+C and,
-    # where the keys cannot work, the on-screen STOP button.
+    # The real robot arms the emergency stop with the first motion command:
+    # keys, Ctrl+C and the on-screen STOP button, which shows it is armed.
     ESTOP_KEYS_DEFAULT = True
-    ESTOP_BUTTON_DEFAULT = "auto"
+    ESTOP_BUTTON_DEFAULT = True
 
     # Speed (deg/s) for go_home(). The real robot powers on with un-driven
     # servos — the arms hang loose — so homing can swing every joint through
@@ -307,7 +308,7 @@ class RealRobotBackend(RobotBackend):
         timeout: float = 5.0,
         motor_mode: str = "direct",
         estop_keys: Union[bool, str, Sequence[str]] = True,
-        stop_button: Union[bool, str] = "auto",
+        stop_button: Union[bool, str] = True,
     ):
         """
         Initialize real robot backend.
@@ -327,10 +328,11 @@ class RealRobotBackend(RobotBackend):
             estop_keys: Emergency-stop keys armed on connect. True (default)
                 = Space, Esc, Numpad-0 and Pause; a key name or list for your
                 own; False for none. Ctrl+C always stops the robot.
-            stop_button: Show the on-screen STOP button. ``"auto"`` (default)
-                opens it only when the keys cannot work on this computer
-                (macOS without permission, Wayland, no pynput); True always;
-                False never.
+            stop_button: Show the on-screen STOP button while the stop is
+                armed. True (default): it opens with the first motion command
+                and is the visible sign that the stop is armed; ``"auto"``:
+                only when the keys cannot work on this computer (macOS
+                without permission, Wayland, no pynput); False: never.
         """
         if motor_mode not in ("direct", "ros"):
             raise ValueError(f'motor_mode must be "direct" or "ros", got {motor_mode!r}')
@@ -340,6 +342,7 @@ class RealRobotBackend(RobotBackend):
         self._estop_keys_setting = estop_keys
         self._estop_button_setting = stop_button
         self._estop_subscriber = None
+        self._estop_publisher = None
         self.host = host
         self.port = port
         self.timeout = timeout
@@ -520,14 +523,18 @@ class RealRobotBackend(RobotBackend):
         )
         self._motor_settings_subscriber.subscribe(self._on_motor_settings)
 
-        # The teacher's remote stop (python -m pib3.tools.estop) publishes here.
+        # Robot-wide emergency stop: every pib3 program on this robot, and
+        # the teacher's tool (pib3-estop), publishes and listens here.
         try:
             self._estop_subscriber = roslibpy.Topic(
                 self._client, ESTOP_TOPIC, ESTOP_TOPIC_TYPE,
             )
             self._estop_subscriber.subscribe(self._on_remote_estop)
+            self._estop_publisher = roslibpy.Topic(
+                self._client, ESTOP_TOPIC, ESTOP_TOPIC_TYPE,
+            )
         except Exception as exc:
-            self._estop_subscriber = None
+            self._estop_subscriber = self._estop_publisher = None
             logger.debug("Remote emergency stop unavailable: %s", exc)
 
         # Connect Tinkerforge if low-latency mode is enabled
@@ -537,15 +544,37 @@ class RealRobotBackend(RobotBackend):
         self._activate_safety()
 
     def _on_remote_estop(self, message: dict) -> None:
-        """Latch the emergency stop when the teacher's tool says so."""
+        """Latch when another program on this robot, or the teacher, stopped it.
+
+        A program that never moved the robot latches but does not freeze:
+        the sender has frozen the servos already.
+        """
         source = parse_estop_message(message)
         if source is None or self._stopped:
             return
         # Runs on the rosbridge thread; the freeze talks to hardware.
         threading.Thread(
-            target=self.stop, kwargs={"reason": f"remote stop ({source})"},
+            target=self._trigger_stop,
+            kwargs={"reason": f"stop from {source}", "broadcast": False,
+                    "freeze": self._estop_armed},
             name="pib3-estop-remote", daemon=True,
         ).start()
+
+    def _broadcast_stop(self, reason: str) -> None:
+        """Latch the stop in every other pib3 program connected to this robot.
+
+        Two groups drive the two arms of one pib at the same time. A freeze
+        alone would be undone by the other group's next command.
+        """
+        topic = self._estop_publisher
+        if topic is None or not self.is_connected:
+            return
+        payload = json.dumps({
+            "action": "stop",
+            "source": f"{socket.gethostname()}: {reason}",
+            "time": time.time(),
+        })
+        topic.publish(roslibpy.Message({"data": payload}))
 
     def _stop_button_title(self) -> str:
         return self.host
@@ -1411,6 +1440,12 @@ class RealRobotBackend(RobotBackend):
             except Exception:
                 pass
             self._estop_subscriber = None
+        if self._estop_publisher is not None:
+            try:
+                self._estop_publisher.unadvertise()
+            except Exception:
+                pass
+            self._estop_publisher = None
 
         # Stop subsystems
         if self._ai_subsystem is not None:

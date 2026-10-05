@@ -16,28 +16,76 @@ plus defaults that keep a first run slow and inside the joint limits.
 
 | Trigger | Works on | Needs |
 |---|---|---|
-| **Space**, **Esc**, Numpad-0 or Pause, anywhere on the desktop | Windows; macOS after granting permission; Linux on X11 | nothing on Windows, see [below](#if-the-keys-do-not-work) otherwise |
+| **Space** (also Esc, Numpad-0, Pause), anywhere on the desktop | Windows; macOS after granting permission; Linux on X11 | nothing on Windows, see [below](#if-the-keys-do-not-work) otherwise |
 | **Ctrl+C** in the terminal that runs the program | everywhere | nothing |
-| **STOP button** on screen (click, or Space/Esc while it has focus) | everywhere with a desktop | tkinter (included in the python.org and uv builds) |
+| **STOP button** on screen (click, or Space/Esc while it has focus) | everywhere with a desktop | tkinter (included in the python.org and current uv builds) |
 | **Teacher's remote stop** `pib3-estop --host <robot>` | any laptop on the robot's network | nothing on the student laptop |
+| **Space in Webots** (3D view focused) | the simulation, for practice | nothing |
 
-`Robot(...)` arms the keys and Ctrl+C when it connects. If the keys cannot
-work on that laptop, it opens the STOP button by itself and says why. The
-connect message lists what works:
+The stop **arms itself with the first motion command** of a program and
+stays armed until the program ends, including the pauses between moves. At
+that moment the **STOP window** appears (top right, always on top). It is the
+visible sign that the stop is armed, and it lists every way to stop that works
+on this computer:
 
 ```text
-Emergency stop: Space, Esc, Numpad-0 or Pause / Ctrl+C in this terminal.
+NOT-AUS SCHARF · pib-01            (English systems: E-STOP ARMED)
+STOP
+Klick · Leertaste · Esc · Strg+C
+hält den ganzen Roboter an
 ```
+
+After a stop it turns grey ("GESTOPPT" / "STOPPED") and names the cause. It
+follows the system language; `PIB3_LANG=de` or `PIB3_LANG=en` forces one. If
+the keys cannot work on that laptop, the window lists only click and Ctrl+C,
+and the console says why. The console also shows:
+
+```text
+Emergency stop armed: Space, Esc, Numpad-0 or Pause / Ctrl+C in this terminal / the STOP button.
+```
+
+The window takes no keyboard focus and ignores Enter, so it cannot turn the
+next Return of a typing hand into a stop. `Robot(stop_button="auto")` shows it
+only where the keys cannot work, `stop_button=False` never.
+
+A program that never moves a motor never arms it. A camera station
+(`KameraStation`, no servos) or a perception script next to a robot that
+another group drives therefore grabs no keys, and its Ctrl+C or crash does
+not freeze someone else's arm.
+
+### Ctrl+C keeps its meaning
+
+Ctrl+C still cancels the program, exactly as before: pib3 does not take the
+key over. Its signal handler freezes the motors and then passes the signal on,
+so `KeyboardInterrupt` arrives as usual. A program that never moved the robot
+is not touched at all. The global key hook does not listen for Ctrl+C.
+
+- Copying in the editor, browser or chat never stops anything.
+- In a terminal, copy is Ctrl+Shift+C on Linux and Cmd+C on macOS. Windows
+  Terminal and the VS Code terminal copy with Ctrl+C only when text is
+  selected; without a selection Ctrl+C interrupts.
+- Ctrl+C in that terminal ended the program before pib3 0.2 as well. The
+  difference is what the arm does: it used to finish its last move after the
+  program had died; now it stops where it is.
+
+The keys that *can* fire unintentionally are Space and Esc: the hook sees
+them in every window while a program drives the robot. A false stop only
+ends the program, and the stop is armed only in programs that move a motor.
+Pass `estop_keys=["esc"]` (or `"f12"`, ...) to `Robot(...)` if Space gets in
+the way.
 
 ## What a stop does
 
-1. **Every servo freezes where it is** and holds its position. The arms do
-   not fall.
-2. **The stop latches.** Every later motion command raises
+1. **Every servo of the robot freezes where it is** and holds its position.
+   The arms do not fall.
+2. **The whole robot stops, not just one program.** Two groups drive the two
+   arms of one pib at the same time. A stop from either group latches every
+   pib3 program connected to that robot; both groups restart afterwards.
+3. **The stop latches.** Every later motion command raises
    `pib3.EmergencyStopError`, so the program ends with a clear message
    instead of moving on. A running `run_trajectory()`, `set_joints_sequence()`
    or blocking `set_joint()` returns `False` at once.
-3. **Pressing the key again does nothing.** Only `robot.resume()` in the
+4. **Pressing the key again does nothing.** Only `robot.resume()` in the
    program releases the stop. That is deliberate: a panicked double press
    must not start the robot again.
 
@@ -56,6 +104,19 @@ A program that crashes or is interrupted inside `with Robot(...)` also
 freezes the motors. Without that, the servo bricklets would finish the last
 move on their own, after the program had already ended.
 
+## Practise it in Webots
+
+`pib3.Webots()` has the same stop and the same STOP window ("Klick ·
+Leertaste im 3D-Fenster"), so it can be practised before anyone stands next to
+a real arm. Click into the 3D view, press **Space** (or click the STOP
+window): the joints freeze, and the next motion command ends the controller
+with `EmergencyStopError`. Reset the simulation to continue.
+
+Webots only passes key presses to the controller while its 3D view has
+focus. Typing in the editor while the simulation runs therefore never stops
+it, and no permission is needed. Webots does not pass Esc to controllers, so
+Space is the key here, the same key that works on the robot.
+
 ## If the keys do not work
 
 === "macOS"
@@ -72,7 +133,9 @@ move on their own, after the program had already ended.
     presses of other windows. The keys then work only while an X11 window
     has focus. Use the STOP button or Ctrl+C, or log in with an
     "Ubuntu on Xorg" session. A system Python may lack tkinter:
-    `sudo apt install python3-tk`.
+    `sudo apt install python3-tk`. Older uv-managed Python builds (e.g.
+    3.13.4/3.13.5) ship a Tk that crashes on Linux; pib3 names the fix:
+    `uv python upgrade`, then recreate the venv.
 
 === "Windows"
 
@@ -111,7 +174,8 @@ again. Students continue with `robot.resume()` or by restarting.
 - **Trajectories** first move to their start pose at 30 deg/s and wait there.
 - **Same motion in the simulator.** Webots moves the joints with the same
   speed and ramps as the real robot, so timing you tune in the simulation
-  carries over.
+  carries over. Control loops must therefore start from the measured joint
+  position (`sim.get_joint(..., timeout=0)`), as on the robot.
 
 ## Limits of the stop
 

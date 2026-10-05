@@ -369,7 +369,24 @@ def test_stop_button_reports_a_failing_window(tmp_path):
     assert "tkinter" in button.failure
 
 
-# ==================== arming on connect ====================
+# ==================== arming ====================
+
+
+def test_connecting_arms_nothing_until_the_first_move(robot, monkeypatch):
+    robot._activate_safety()                      # what connect() does
+    assert not robot.estop_armed
+    robot.get_joints()                            # reading does not arm
+    assert not robot.estop_armed
+    robot.set_joint(Joint.ELBOW_LEFT, 20.0, async_=True)
+    assert robot.estop_armed
+
+
+def test_observer_crash_does_not_freeze_other_programs_motors(robot):
+    with pytest.raises(ZeroDivisionError):
+        with robot:
+            robot.get_joints()                    # camera/observer use only
+            1 / 0
+    assert robot.halts == 0
 
 
 def test_button_opens_by_itself_when_keys_cannot_work(robot, monkeypatch, caplog):
@@ -377,13 +394,14 @@ def test_button_opens_by_itself_when_keys_cannot_work(robot, monkeypatch, caplog
     monkeypatch.setattr("pib3.backends.base.keyboard_hook_problem",
                         lambda: "this desktop runs Wayland")
     monkeypatch.setattr(KeyboardHook, "subscribe", classmethod(lambda cls, *a: None))
-    monkeypatch.setattr(StopButton, "start", lambda self, timeout=8.0: opened.append(1) or True)
+    monkeypatch.setattr(StopButton, "start", lambda self, timeout=8.0, wait=True: opened.append(wait) or True)
     monkeypatch.setattr(StopButton, "close", lambda self: None)
     robot._estop_keys_setting = True
     robot._estop_button_setting = "auto"
-    robot._activate_safety()
-    assert opened == [1]
-    banner = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Emergency stop:")]
+    robot.set_joint(Joint.ELBOW_LEFT, 20.0, async_=True)
+    assert opened == [True]          # only way besides Ctrl+C: wait for it
+    banner = [r.getMessage() for r in caplog.records
+              if r.getMessage().startswith("Emergency stop armed:")]
     assert banner and "Space" not in banner[-1] and "STOP button" in banner[-1]
     robot._deactivate_safety()
 
@@ -393,10 +411,10 @@ def test_no_button_when_keys_work(robot, monkeypatch):
     monkeypatch.setattr("pib3.backends.base.keyboard_hook_problem", lambda: None)
     monkeypatch.setattr(KeyboardHook, "subscribe", classmethod(lambda cls, *a: None))
     monkeypatch.setattr(KeyboardHook, "is_subscribed", classmethod(lambda cls, t: True))
-    monkeypatch.setattr(StopButton, "start", lambda self, timeout=8.0: opened.append(1) or True)
+    monkeypatch.setattr(StopButton, "start", lambda self, timeout=8.0, wait=True: opened.append(wait) or True)
     robot._estop_keys_setting = True
     robot._estop_button_setting = "auto"
-    robot._activate_safety()
+    robot.set_joint(Joint.ELBOW_LEFT, 20.0, async_=True)
     assert opened == []
     assert robot.estop_keys == DEFAULT_STOP_KEYS
     robot._deactivate_safety()
@@ -462,3 +480,88 @@ def test_estop_cli_reports_an_unreachable_robot(monkeypatch, capsys):
     monkeypatch.setattr(estop, "broadcast_stop", lambda host, source="teacher": False)
     assert estop.main(["--host", "pib-03"]) == 1
     assert "FAILED" in capsys.readouterr().out
+
+
+def test_stop_button_names_the_old_tk_build(tmp_path):
+    script = tmp_path / "crash.py"
+    script.write_text(
+        "import sys\n"
+        "sys.stderr.write('[xcb] Unknown sequence number while appending request\\n')\n"
+        "sys.stderr.write(\"python: xcb_io.c:166: append_pending_request: Assertion failed.\\n\")\n"
+        "sys.exit(134)\n")
+    button = StopButton(on_stop=lambda: None, script=str(script))
+    assert button.start(timeout=10) is False
+    assert "uv python upgrade" in button.failure
+
+
+def test_real_ctrl_c_still_cancels_the_program(tmp_path):
+    """Ctrl+C keeps its meaning (KeyboardInterrupt); pib3 only freezes first."""
+    import os
+    import subprocess
+
+    script = tmp_path / "probe.py"
+    script.write_text(textwrap.dedent("""
+        import os, signal, sys, threading, time
+        from tests.test_safety import MemoryBackend
+        from pib3 import Joint
+        robot = MemoryBackend()
+        if sys.argv[1] == "moved":
+            robot.set_joint(Joint.ELBOW_LEFT, 80.0, async_=True)
+        threading.Timer(0.3, os.kill, args=(os.getpid(), signal.SIGINT)).start()
+        try:
+            time.sleep(10)
+            print("NOT INTERRUPTED")
+        except KeyboardInterrupt:
+            time.sleep(0.3)
+            print(f"INTERRUPTED halts={robot.halts}")
+    """))
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join([root] + sys.path))
+    for mode, halts in (("moved", 1), ("observer", 0)):
+        out = subprocess.run([sys.executable, str(script), mode], cwd=root, env=env,
+                             capture_output=True, text=True, timeout=30).stdout
+        assert f"INTERRUPTED halts={halts}" in out, out
+
+
+
+def test_the_button_shows_the_stop_is_armed_and_lists_what_works(robot, monkeypatch):
+    started = []
+    monkeypatch.setattr("pib3.backends.base.keyboard_hook_problem", lambda: None)
+    monkeypatch.setattr(KeyboardHook, "subscribe", classmethod(lambda cls, *a: None))
+    monkeypatch.setattr(KeyboardHook, "is_subscribed", classmethod(lambda cls, t: True))
+    monkeypatch.setattr(StopButton, "start",
+                        lambda self, timeout=8.0, wait=True: started.append((self._triggers, wait)) or True)
+    monkeypatch.setattr(StopButton, "close", lambda self: None)
+    robot._estop_keys_setting = True
+    robot._estop_button_setting = True
+    robot.get_joints()
+    assert started == []                          # not armed: no window
+    robot.set_joint(Joint.ELBOW_LEFT, 20.0, async_=True)
+    (triggers, wait), = started
+    assert triggers == ["click", "space", "esc", "ctrl_c"]
+    assert wait is False                          # keys work: do not delay the move
+    robot._deactivate_safety()
+
+
+def test_window_language_follows_the_system():
+    from pib3.safety import ui_language
+    assert ui_language({"PIB3_LANG": "de"}, "linux") == "de"
+    assert ui_language({"PIB3_LANG": "en", "LANG": "de_DE.UTF-8"}, "linux") == "en"
+    assert ui_language({"LANG": "de_DE.UTF-8"}, "linux") == "de"
+    assert ui_language({"LANG": "en_US.UTF-8"}, "linux") in ("en", "de")   # getlocale may add more
+    assert ui_language({"LC_ALL": "German_Germany.1252"}, "win32") == "de"
+
+
+def test_stop_window_script_texts_exist_for_every_trigger():
+    from pib3.tools.stop_button import TEXTE
+    for lang in TEXTE.values():
+        for token in ("click", "space", "space3d", "esc", "ctrl_c", "scharf", "gestoppt"):
+            assert token in lang
+
+
+
+def test_german_window_translates_stop_reasons():
+    from pib3.tools.stop_button import _grund
+    assert _grund("Space key", "de") == "Leertaste"
+    assert _grund("stop from laptop-3: Space key", "de") == "Stopp von laptop-3: Leertaste"
+    assert _grund("Space key", "en") == "Space key"

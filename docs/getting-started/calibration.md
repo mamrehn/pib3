@@ -202,8 +202,8 @@ joints:
     min: -1.5700
     max: 1.5700
   tilt_forward_motor:
-    min: -0.5000
-    max: 0.5000
+    min: -0.7854
+    max: 0.7854
 
   # Left arm joints
   elbow_left:
@@ -214,6 +214,28 @@ joints:
 
 !!! note "Uncalibrated Joints"
     Joints with `null` values are not calibrated. Using percentage mode with uncalibrated joints will raise a `ValueError`. Use `unit="rad"` until calibrated.
+
+!!! warning "Where the calibration lives - and when it is lost"
+    The calibration tool writes into the **installed package**
+    (`<venv>/.../site-packages/pib3/resources/joint_limits_robot.yaml`).
+    That has three consequences:
+
+    - **Reinstalling or upgrading pib3 overwrites it** with the shipped
+      defaults (`pip install -U ...`, or a course setup that installs pib3
+      fresh from GitHub).
+    - **It belongs to one laptop and one venv**, not to one robot. Two robots
+      calibrated from the same laptop overwrite each other.
+    - The limits are the same for every program in that venv.
+
+    Back up the file after calibrating and copy it back after an upgrade:
+
+    ```bash
+    python -c "import pib3, pathlib; print(pathlib.Path(pib3.__file__).parent / 'resources' / 'joint_limits_robot.yaml')"
+    ```
+
+    The shipped defaults are the ranges the pib backend itself configures
+    (all joints +-90 deg, elbow -45..+90 deg, head tilt +-45 deg), so an
+    uncalibrated robot is safe to drive.
 
 ### Manual Editing
 

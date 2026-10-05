@@ -12,8 +12,12 @@ joints:
     min: -1.5707963267948966  # -90 degrees
     max: 1.5707963267948966   # +90 degrees
   tilt_forward_motor:
+    # +-45 degrees: the range the pib backend configures for the real head
+    # (pib-api default rotationRangeMin/Max -4500/4500). The Webots proto
+    # allows more (+70), but both backends use the robot's range so that
+    # the same percent means the same tilt.
     min: -0.7853981633974483  # -45 degrees
-    max: 1.2217304763960306   # +70 degrees
+    max: 0.7853981633974483   # +45 degrees
 
   # Left arm joints
   shoulder_vertical_left:

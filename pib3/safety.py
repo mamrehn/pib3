@@ -27,6 +27,7 @@ double press cannot restart the motion.
 from __future__ import annotations
 
 import json
+import locale
 import logging
 import os
 import signal
@@ -340,6 +341,36 @@ class SigintGuard:
 # ==================== ON-SCREEN BUTTON ====================
 
 
+def ui_language(environ: Optional[Dict[str, str]] = None,
+                platform: str = sys.platform) -> str:
+    """``"de"`` or ``"en"`` for the STOP window.
+
+    ``PIB3_LANG`` wins; otherwise the system language (German if it starts
+    with ``de`` or names German, as Windows locales do).
+    """
+    env = os.environ if environ is None else environ
+    wanted = env.get("PIB3_LANG", "")
+    if wanted:
+        return "de" if wanted.lower().startswith("de") else "en"
+    names = [env.get(k, "") for k in ("LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE")]
+    try:
+        names.append(locale.getlocale()[0] or "")
+    except (ValueError, TypeError):
+        pass
+    if platform == "win32" and environ is None:
+        try:
+            import ctypes
+            # Primary language id 0x07 = German (de-DE, de-AT, de-CH, ...).
+            names.append("de" if (ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0x3FF) == 0x07 else "")
+        except Exception:
+            pass
+    for name in names:
+        low = (name or "").lower()
+        if low.startswith("de") or "german" in low or "deutsch" in low:
+            return "de"
+    return "en"
+
+
 class StopButton:
     """A big red STOP button in its own small window.
 
@@ -351,9 +382,25 @@ class StopButton:
     """
 
     def __init__(self, on_stop: Callable[[], None], title: str = "pib3",
-                 script: Optional[str] = None) -> None:
+                 script: Optional[str] = None,
+                 triggers: Sequence[str] = ("click",), effect: str = "robot",
+                 lang: Optional[str] = None) -> None:
+        """
+        Args:
+            on_stop: Called (on a reader thread) for every press.
+            title: Robot name shown in the window.
+            script: The window script; tests pass a stand-in.
+            triggers: Ways to stop that the window lists, as tokens:
+                ``click``, ``space``, ``space3d`` (Webots), ``esc``, ``kp_0``,
+                ``pause``, ``ctrl_c``.
+            effect: ``"robot"`` (stops the whole robot) or ``"sim"``.
+            lang: ``"de"`` or ``"en"``; None = :func:`ui_language`.
+        """
         self._on_stop = on_stop
         self._title = title
+        self._triggers = list(triggers)
+        self._effect = effect
+        self._lang = lang or ui_language()
         # Run the file directly, not ``-m pib3.tools...``: that would import
         # the whole package (numpy, OpenCV, ...) and delay the window by
         # seconds. The script itself imports nothing from pib3.
@@ -368,11 +415,23 @@ class StopButton:
     def running(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 
-    def start(self, timeout: float = 8.0) -> bool:
-        """Open the window. Returns True once it is on screen."""
+    def start(self, timeout: float = 8.0, wait: bool = True) -> bool:
+        """Open the window.
+
+        Args:
+            timeout: How long to wait for the window to appear.
+            wait: False returns at once (True if the process started) and
+                reports a failure later in the log. Used when the stop keys
+                already work, so the first motion is not delayed.
+
+        Returns:
+            True once the window is on screen (``wait=True``).
+        """
         if self.running:
             return True
-        cmd = [sys.executable, self._script, "--title", self._title]
+        cmd = [sys.executable, self._script, "--title", self._title,
+               "--ausloeser", ",".join(self._triggers),
+               "--wirkung", self._effect, "--sprache", self._lang]
         kwargs = {}
         if sys.platform == "win32":
             # Keep Ctrl+C in the console for the user's program only.
@@ -387,6 +446,14 @@ class StopButton:
             return False
         threading.Thread(target=self._read_loop, name="pib3-stop-button",
                          daemon=True).start()
+        if not wait:
+            def report():
+                if not self._ready.wait(timeout) or self._failed:
+                    logger.warning("Could not open the on-screen STOP button: %s",
+                                   self._failed or "the window did not open in time")
+            threading.Thread(target=report, name="pib3-stop-button-check",
+                             daemon=True).start()
+            return True
         if not self._ready.wait(timeout):
             self._failed = self._failed or "the window did not open in time"
             self.close()
@@ -417,11 +484,20 @@ class StopButton:
         if not self._ready.is_set():
             err = ""
             try:
-                err = (proc.stderr.read() or "").strip().splitlines()[-1:]
-                err = err[0] if err else ""
+                err = proc.stderr.read() or ""
             except Exception:
                 pass
-            self._failed = self._failed or err or "the window process ended"
+            last = err.strip().splitlines()[-1:] or [""]
+            reason = last[0] or "the window process ended"
+            if "xcb" in err and "sequence number" in err:
+                # Old python-build-standalone builds (e.g. uv's CPython
+                # 3.13.4/3.13.5) link Tk 8.6 statically in a way that aborts
+                # on the first widget. Fixed in later builds (Tk 9).
+                reason = ("this Python build's Tk crashes on Linux (old uv/"
+                          "python-build-standalone build). Fix: `uv python "
+                          "upgrade` (or install a current Python), then "
+                          "recreate the venv")
+            self._failed = self._failed or reason
             self._ready.set()
 
     def _send(self, line: str) -> None:

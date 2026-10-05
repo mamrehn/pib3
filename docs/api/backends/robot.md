@@ -50,8 +50,8 @@ Robot(
 | `port` | `int` | `9090` | Rosbridge websocket port. |
 | `timeout` | `float` | `5.0` | Connection timeout in seconds. |
 | `motor_mode` | `str` | `"direct"` | Motor control mode: `"direct"` (Tinkerforge) or `"ros"` (via rosbridge). Anything else raises `ValueError`. |
-| `estop_keys` | `bool`, `str` or list | `True` | Emergency-stop keys armed on connect: `True` = Space, Esc, Numpad-0, Pause; a name or list for others; `False` for none. Ctrl+C always stops. See [Safety](../../getting-started/safety.md). |
-| `stop_button` | `bool` or `"auto"` | `"auto"` | On-screen STOP button: `"auto"` opens it only where the keys cannot work; `True` always; `False` never. |
+| `estop_keys` | `bool`, `str` or list | `True` | Emergency-stop keys, armed by the program's first motion command: `True` = Space, Esc, Numpad-0, Pause; a name or list for others; `False` for none. Ctrl+C stops too. A stop latches every pib3 program on this robot. See [Safety](../../getting-started/safety.md). |
+| `stop_button` | `bool` or `"auto"` | `True` | On-screen STOP window while the stop is armed (the visible "armed" sign, lists the working triggers); `"auto"` only where the keys cannot work; `False` never. |
 
 **Example:**
 
