@@ -2,6 +2,10 @@
 
 import pytest
 
+# Hardware scripts named like tests: they need a robot and take --host on the
+# command line, so pytest must not collect them.
+collect_ignore = ["test_low_latency.py"]
+
 
 @pytest.fixture(autouse=True)
 def clear_module_caches():

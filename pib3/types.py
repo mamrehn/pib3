@@ -180,6 +180,63 @@ RIGHT_HAND_JOINTS: List[Joint] = [
 ]
 
 
+# Default motor settings from expert control.py
+# These match the datatypes/MotorSettings fields on the ROS node
+DEFAULT_MOTOR_SETTINGS = {
+    "turned_on": True,
+    "visible": True,
+    "invert": False,
+    "velocity": 16000,
+    "acceleration": 10000,
+    "deceleration": 5000,
+    "pulse_width_min": 700,
+    "pulse_width_max": 2500,
+    "period": 19500,
+    "rotation_range_min": -9000,  # centidegrees (-90°)
+    "rotation_range_max": 9000,   # centidegrees (+90°)
+}
+
+# Motor groups from expert control.py - defines which motors belong to each group
+MOTOR_GROUPS = {
+    "right_arm": [
+        "shoulder_vertical_right",
+        "shoulder_horizontal_right",
+        "upper_arm_right_rotation",
+        "elbow_right",
+        "lower_arm_right_rotation",
+        "wrist_right",
+    ],
+    "left_arm": [
+        "shoulder_vertical_left",
+        "shoulder_horizontal_left",
+        "upper_arm_left_rotation",
+        "elbow_left",
+        "lower_arm_left_rotation",
+        "wrist_left",
+    ],
+    "right_hand": [
+        "index_right_stretch",
+        "middle_right_stretch",
+        "ring_right_stretch",
+        "pinky_right_stretch",
+        "thumb_right_stretch",
+        "thumb_right_opposition",
+    ],
+    "left_hand": [
+        "index_left_stretch",
+        "middle_left_stretch",
+        "ring_left_stretch",
+        "pinky_left_stretch",
+        "thumb_left_stretch",
+        "thumb_left_opposition",
+    ],
+    "head": [
+        "turn_head_motor",
+        "tilt_forward_motor",
+    ],
+}
+
+
 class HandPose(Enum):
     """Hand pose presets (values in percent).
 
@@ -272,10 +329,13 @@ class Stroke:
         return len(self.points)
 
     def length(self) -> float:
-        """Calculate total arc length of the stroke."""
+        """Total arc length of the stroke, including the closing segment if closed."""
         if len(self.points) < 2:
             return 0.0
-        diffs = np.diff(self.points, axis=0)
+        pts = self.points
+        if self.closed and len(pts) >= 3:
+            pts = np.vstack([pts, pts[:1]])
+        diffs = np.diff(pts, axis=0)
         distances = np.linalg.norm(diffs, axis=1)
         return float(np.sum(distances))
 

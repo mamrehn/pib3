@@ -37,6 +37,8 @@ Robot(
     port: int = 9090,
     timeout: float = 5.0,
     motor_mode: str = "direct",
+    estop_keys=True,
+    stop_button="auto",
 )
 ```
 
@@ -47,7 +49,9 @@ Robot(
 | `host` | `str` | `"172.26.34.149"` | IP address of the robot. |
 | `port` | `int` | `9090` | Rosbridge websocket port. |
 | `timeout` | `float` | `5.0` | Connection timeout in seconds. |
-| `motor_mode` | `str` | `"direct"` | Motor control mode: `"direct"` (Tinkerforge, auto-discovered) or `"ros"` (via rosbridge). |
+| `motor_mode` | `str` | `"direct"` | Motor control mode: `"direct"` (Tinkerforge) or `"ros"` (via rosbridge). Anything else raises `ValueError`. |
+| `estop_keys` | `bool`, `str` or list | `True` | Emergency-stop keys armed on connect: `True` = Space, Esc, Numpad-0, Pause; a name or list for others; `False` for none. Ctrl+C always stops. See [Safety](../../getting-started/safety.md). |
+| `stop_button` | `bool` or `"auto"` | `"auto"` | On-screen STOP button: `"auto"` opens it only where the keys cannot work; `True` always; `False` never. |
 
 **Example:**
 
@@ -70,6 +74,13 @@ robot = Robot(
 # Use ROS for motor control instead of Tinkerforge
 robot = Robot(host="192.168.1.100", motor_mode="ros")
 ```
+
+!!! note "ROS motor mode"
+    The robot's `motor_control` node expects **one trajectory point per
+    joint**. pib3 0.2 sends all joints of a command in one such request
+    (earlier versions moved only the first joint of a trajectory waypoint).
+    The node ignores the velocity, so `speed=` has no effect in ROS mode;
+    joints move with the speed set in Cerebra.
 
 ---
 
@@ -521,7 +532,18 @@ Bypass ROS for direct Tinkerforge motor control with ~5-20ms latency (vs ~100-20
 
 ### Quick Setup
 
-Direct Tinkerforge control is the default mode. Servo bricklets are auto-discovered on connect:
+Direct Tinkerforge control is the default mode. On connect pib3 reads the
+robot's own motor table from pib-api (`http://<host>:5000/motor`, the table
+Cerebra edits). It gives the exact bricklet UID and pin of every motor, plus
+each motor's `invert` flag and rotation range, so direct control moves every
+joint exactly like the ROS path. Without pib-api, pib3 falls back to
+enumerating the servo bricklets (`LowLatencyConfig.use_robot_motor_config`).
+
+!!! note "What `get_joint()` reads"
+    pib's hobby servos report nothing back. In direct mode `get_joint()`
+    returns the position of the bricklet's motion ramp, i.e. where the servo
+    is being *told* to be right now. A blocked joint therefore still reads
+    as "arrived".
 
 ```python
 from pib3 import Robot
@@ -546,7 +568,9 @@ with Robot(host="172.26.34.149", motor_mode="ros") as robot:
 
 ### Default motion config
 
-The direct Tinkerforge path uses these class-level defaults whenever `speed` is not provided. Override per call via `speed=...` or per channel via `configure_servo_channel()`.
+Every motion command sets its velocity: `speed=...`, else `robot.default_speed`
+(150 deg/s). Acceleration and deceleration come from these constants; change
+them with `configure_all_servo_channels()`.
 
 | Constant | Default | Unit | Notes |
 |----------|---------|------|-------|

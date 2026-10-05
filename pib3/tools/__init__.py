@@ -3,6 +3,8 @@
 This module contains preprocessing and utility tools:
 - proto_converter: Convert Webots .proto files to URDF format
 - calibrate_joints: Interactive joint limit calibration tool
+- estop: Teacher's emergency stop for one or more robots (``pib3-estop``)
+- stop_button: The on-screen STOP window (started by ``robot.show_stop_button()``)
 
 Run calibration tool:
     python -m pib3.tools.calibrate_joints --host 172.26.34.149 --group left_hand

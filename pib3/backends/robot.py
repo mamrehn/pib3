@@ -6,7 +6,8 @@ import logging
 import math
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+import urllib.request
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -20,8 +21,10 @@ except ImportError:
     roslibpy = None  # type: ignore[assignment]
 
 from .base import RobotBackend
+from .hints import hint
 from .audio import AudioOutput, AudioInput, RobotAudioPlayer, RobotAudioRecorder, DEFAULT_SAMPLE_RATE
 from ..config import RobotConfig, LowLatencyConfig
+from ..safety import ESTOP_TOPIC, ESTOP_TOPIC_TYPE, parse_estop_message
 from ..types import ImuType, AIModel, resolve_model_name
 
 # Type alias for Tinkerforge motor mapping: motor_name -> (bricklet_uid, channel)
@@ -146,6 +149,78 @@ def build_motor_mapping(
     }
 
 
+# Motor pins as stored in the robot's database: (bricklet_uid, pin, invert).
+MotorPins = List[Tuple[str, int, bool]]
+
+
+def parse_robot_motor_config(data: Any) -> Dict[str, Dict[str, Any]]:
+    """Parse pib-api's ``GET /motor`` answer into pib3's motor table.
+
+    pib-api returns ``{"motors": [{"name", "invert", "rotationRangeMin",
+    "rotationRangeMax", "brickletPins": [{"pin", "invert", "bricklet"}]}]}``
+    where ``bricklet`` is the bricklet's UID (or null if not set yet).
+
+    Returns:
+        ``{motor_name: {"pins": MotorPins, "invert": bool,
+        "range": (min_centideg, max_centideg)}}``. Malformed entries are
+        skipped, not fatal: this table only refines the defaults.
+    """
+    motors = data.get("motors") if isinstance(data, dict) else None
+    table: Dict[str, Dict[str, Any]] = {}
+    for motor in motors or []:
+        if not isinstance(motor, dict) or not isinstance(motor.get("name"), str):
+            continue
+        pins: MotorPins = []
+        for pin in motor.get("brickletPins") or []:
+            if not isinstance(pin, dict):
+                continue
+            uid, channel = pin.get("bricklet"), pin.get("pin")
+            if isinstance(uid, str) and uid and isinstance(channel, int):
+                pins.append((uid, channel, bool(pin.get("invert", False))))
+        try:
+            lo = int(motor.get("rotationRangeMin", -9000))
+            hi = int(motor.get("rotationRangeMax", 9000))
+        except (TypeError, ValueError):
+            lo, hi = -9000, 9000
+        table[motor["name"]] = {
+            "pins": pins,
+            "invert": bool(motor.get("invert", False)),
+            "range": (min(lo, hi), max(lo, hi)),
+        }
+    return table
+
+
+def joint_trajectory_message(
+    joint_names: Sequence[str],
+    positions_centideg: Sequence[float],
+    velocity_centideg: Optional[float] = None,
+) -> dict:
+    """Build an ``ApplyJointTrajectory`` request the pib backend understands.
+
+    The backend's ``motor_control`` node zips ``joint_names`` with
+    **one point per joint** and reads ``point.positions[0]`` of each. A single
+    point carrying all positions, the standard ROS layout, moves only the
+    first joint and silently drops the rest.
+    """
+    velocities = [float(velocity_centideg)] if velocity_centideg is not None else []
+    return {
+        'joint_trajectory': {
+            'header': {'stamp': {'sec': 0, 'nanosec': 0}, 'frame_id': ''},
+            'joint_names': list(joint_names),
+            'points': [
+                {
+                    'positions': [float(p)],
+                    'velocities': list(velocities),
+                    'accelerations': [],
+                    'effort': [],
+                    'time_from_start': {'sec': 0, 'nanosec': 0},
+                }
+                for p in positions_centideg
+            ],
+        }
+    }
+
+
 class _CompositeImuSubscription:
     """Bundle accel + gyro subscriptions behind a single .unsubscribe()."""
 
@@ -206,6 +281,16 @@ class RealRobotBackend(RobotBackend):
     DEFAULT_MOTION_ACCELERATION = 15000
     DEFAULT_MOTION_DECELERATION = 15000
 
+    # The same values in deg/s and deg/s^2, as used by set_joints(speed=...).
+    # Every command applies its speed explicitly (see RobotBackend.DEFAULT_SPEED).
+    DEFAULT_SPEED = DEFAULT_MOTION_VELOCITY / 100.0
+    DEFAULT_ACCELERATION = DEFAULT_MOTION_ACCELERATION / 100.0
+
+    # The real robot arms the emergency stop on connect: keys, Ctrl+C and,
+    # where the keys cannot work, the on-screen STOP button.
+    ESTOP_KEYS_DEFAULT = True
+    ESTOP_BUTTON_DEFAULT = "auto"
+
     # Speed (deg/s) for go_home(). The real robot powers on with un-driven
     # servos — the arms hang loose — so homing can swing every joint through
     # its full range at once, from a pose the caller has not seen. This is
@@ -221,6 +306,8 @@ class RealRobotBackend(RobotBackend):
         port: int = 9090,
         timeout: float = 5.0,
         motor_mode: str = "direct",
+        estop_keys: Union[bool, str, Sequence[str]] = True,
+        stop_button: Union[bool, str] = "auto",
     ):
         """
         Initialize real robot backend.
@@ -237,8 +324,22 @@ class RealRobotBackend(RobotBackend):
                 - ``"ros"``: Send motor commands via ROS/rosbridge
                   (~100-200 ms latency). Use this if Tinkerforge is
                   unavailable or you need ROS-based motor control.
+            estop_keys: Emergency-stop keys armed on connect. True (default)
+                = Space, Esc, Numpad-0 and Pause; a key name or list for your
+                own; False for none. Ctrl+C always stops the robot.
+            stop_button: Show the on-screen STOP button. ``"auto"`` (default)
+                opens it only when the keys cannot work on this computer
+                (macOS without permission, Wayland, no pynput); True always;
+                False never.
         """
+        if motor_mode not in ("direct", "ros"):
+            raise ValueError(f'motor_mode must be "direct" or "ros", got {motor_mode!r}')
+        if stop_button not in (True, False, "auto"):
+            raise ValueError(f'stop_button must be True, False or "auto", got {stop_button!r}')
         super().__init__()
+        self._estop_keys_setting = estop_keys
+        self._estop_button_setting = stop_button
+        self._estop_subscriber = None
         self.host = host
         self.port = port
         self.timeout = timeout
@@ -275,6 +376,17 @@ class RealRobotBackend(RobotBackend):
         self._tinkerforge_reverse_map: Dict[Tuple[str, int], str] = {}
         # Events signalled by CALLBACK_POSITION_REACHED: motor_name -> Event
         self._position_reached_events: Dict[str, threading.Event] = {}
+        # From the robot's own motor table (pib-api), see _apply_robot_motor_config:
+        # every pin of a motor with its invert flag, the motor's invert flag,
+        # and its rotation range in centidegrees (the backend clamps to it too).
+        self._motor_pins: Dict[str, MotorPins] = {}
+        self._motor_invert: Dict[str, bool] = {}
+        self._motor_range_cd: Dict[str, Tuple[int, int]] = {}
+        # Ramp (acceleration, deceleration) each channel should run with;
+        # configure_*() change it, the emergency stop briefly overrides it.
+        self._motion_accel = self.DEFAULT_MOTION_ACCELERATION
+        self._motion_decel = self.DEFAULT_MOTION_DECELERATION
+        self._channel_ramp: Dict[Tuple[str, int], Tuple[int, int]] = {}
 
         # Subsystems (lazy-initialized)
         self._ai_subsystem = None
@@ -408,9 +520,35 @@ class RealRobotBackend(RobotBackend):
         )
         self._motor_settings_subscriber.subscribe(self._on_motor_settings)
 
+        # The teacher's remote stop (python -m pib3.tools.estop) publishes here.
+        try:
+            self._estop_subscriber = roslibpy.Topic(
+                self._client, ESTOP_TOPIC, ESTOP_TOPIC_TYPE,
+            )
+            self._estop_subscriber.subscribe(self._on_remote_estop)
+        except Exception as exc:
+            self._estop_subscriber = None
+            logger.debug("Remote emergency stop unavailable: %s", exc)
+
         # Connect Tinkerforge if low-latency mode is enabled
         if self._low_latency_config.enabled:
             self._connect_tinkerforge()
+
+        self._activate_safety()
+
+    def _on_remote_estop(self, message: dict) -> None:
+        """Latch the emergency stop when the teacher's tool says so."""
+        source = parse_estop_message(message)
+        if source is None or self._stopped:
+            return
+        # Runs on the rosbridge thread; the freeze talks to hardware.
+        threading.Thread(
+            target=self.stop, kwargs={"reason": f"remote stop ({source})"},
+            name="pib3-estop-remote", daemon=True,
+        ).start()
+
+    def _stop_button_title(self) -> str:
+        return self.host
 
     def _on_motor_settings(self, message: dict) -> None:
         """Callback for motor settings updates from /motor_settings topic."""
@@ -468,10 +606,20 @@ class RealRobotBackend(RobotBackend):
             logger.info(f"Connected to Tinkerforge daemon at {tf_host}:{tf_port}")
 
             motor_mapping = self._low_latency_config.motor_mapping
+            robot_config = (
+                self._fetch_robot_motor_config()
+                if self._low_latency_config.use_robot_motor_config else None
+            )
+            if robot_config:
+                self._apply_robot_motor_config(robot_config, use_pins=not motor_mapping)
 
             if motor_mapping:
                 # Use explicitly provided mapping
-                self._tinkerforge_motor_map = motor_mapping
+                self._tinkerforge_motor_map = dict(motor_mapping)
+                self._motor_pins = {}
+                self._init_servo_bricklets()
+            elif self._motor_pins:
+                # Exact mapping from the robot's own database.
                 self._init_servo_bricklets()
             else:
                 # Auto-discover servo bricklets and build mapping
@@ -484,6 +632,59 @@ class RealRobotBackend(RobotBackend):
             )
             self._low_latency_config.enabled = False
             self._tinkerforge_conn = None
+
+    def _fetch_robot_motor_config(self, timeout: float = 1.5) -> Optional[Dict[str, Dict[str, Any]]]:
+        """Read the robot's motor table from pib-api, or None if unreachable."""
+        url = f"http://{self.host}:{self._low_latency_config.api_port}/motor"
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            logger.info(
+                "pib-api not reachable at %s (%s); using bricklet auto-discovery "
+                "and no per-motor invert/range settings.", url, exc,
+            )
+            return None
+        table = parse_robot_motor_config(data)
+        return table or None
+
+    def _apply_robot_motor_config(self, table: Dict[str, Dict[str, Any]],
+                                  use_pins: bool = True) -> None:
+        """Adopt invert flags, rotation ranges and (if complete) the pin map.
+
+        The pin map is used only when every pib motor has a bricklet UID;
+        a half-filled database is worse than auto-discovery.
+        """
+        self._motor_invert = {n: m["invert"] for n, m in table.items()}
+        self._motor_range_cd = {n: m["range"] for n, m in table.items()}
+        inverted = sorted(n for n, inv in self._motor_invert.items() if inv)
+        if inverted:
+            logger.info("Robot motor table: inverted motors %s", ", ".join(inverted))
+        if not use_pins:
+            return
+        complete = all(table.get(name, {}).get("pins") for name in self.MOTOR_NAMES)
+        if not complete:
+            missing = [n for n in self.MOTOR_NAMES if not table.get(n, {}).get("pins")]
+            logger.info(
+                "Robot motor table has no bricklet UID for %d motors (%s...); "
+                "using auto-discovery for the pin map.", len(missing), missing[0],
+            )
+            return
+        self._motor_pins = {name: list(table[name]["pins"]) for name in self.MOTOR_NAMES}
+        self._tinkerforge_motor_map = {
+            name: (pins[0][0], pins[0][1]) for name, pins in self._motor_pins.items()
+        }
+        self._discovered_servo_uids = sorted({uid for pins in self._motor_pins.values()
+                                              for uid, _, _ in pins})
+        logger.info("Motor map taken from the robot's own database (pib-api).")
+
+    def _pins(self, motor_name: str) -> MotorPins:
+        """All (uid, channel, pin_invert) a motor drives; empty if unmapped."""
+        pins = self._motor_pins.get(motor_name)
+        if pins:
+            return pins
+        mapped = self._tinkerforge_motor_map.get(motor_name)
+        return [(mapped[0], mapped[1], False)] if mapped else []
 
     def _auto_discover_servos(self) -> None:
         """Auto-discover servo bricklets and build the full motor mapping.
@@ -668,8 +869,9 @@ class RealRobotBackend(RobotBackend):
 
         # Get unique bricklet UIDs from the mapping
         unique_uids = set()
-        for motor_name, (uid, channel) in self._tinkerforge_motor_map.items():
-            unique_uids.add(uid)
+        for motor_name in self._tinkerforge_motor_map:
+            for uid, _channel, _inv in self._pins(motor_name):
+                unique_uids.add(uid)
 
         # Create servo bricklet objects
         for uid in unique_uids:
@@ -683,8 +885,9 @@ class RealRobotBackend(RobotBackend):
         # Build reverse map and register position-reached callbacks
         self._tinkerforge_reverse_map.clear()
         self._position_reached_events.clear()
-        for motor_name, (uid, channel) in self._tinkerforge_motor_map.items():
-            self._tinkerforge_reverse_map[(uid, channel)] = motor_name
+        for motor_name in self._tinkerforge_motor_map:
+            for uid, channel, _inv in self._pins(motor_name):
+                self._tinkerforge_reverse_map[(uid, channel)] = motor_name
             self._position_reached_events[motor_name] = threading.Event()
 
         for uid, servo in self._tinkerforge_servos.items():
@@ -755,6 +958,8 @@ class RealRobotBackend(RobotBackend):
             self._motion_config_cache.clear()
             self._tinkerforge_reverse_map.clear()
             self._position_reached_events.clear()
+            self._motor_pins.clear()
+            self._channel_ramp.clear()
 
     @property
     def low_latency_available(self) -> bool:
@@ -848,6 +1053,9 @@ class RealRobotBackend(RobotBackend):
             ... })
         """
         self._tinkerforge_motor_map.update(mapping)
+        for name in mapping:
+            # An explicit mapping replaces what the robot's database said.
+            self._motor_pins.pop(name, None)
 
         if reinitialize and self._tinkerforge_conn is not None:
             self._init_servo_bricklets()
@@ -868,8 +1076,12 @@ class RealRobotBackend(RobotBackend):
         Configure Tinkerforge servo channel settings for a motor.
 
         This configures the PWM pulse width range and motion parameters
-        for a specific motor. Should be called once after connecting,
-        before using low-latency mode.
+        for a specific motor (all of its pins).
+
+        Warning:
+            This changes the robot's servo settings for every program and for
+            Cerebra until the robot restarts. The pib defaults are 700-2500 us
+            for arm motors but 750-2500 us for fingers.
 
         Args:
             motor_name: Name of the motor to configure.
@@ -894,34 +1106,39 @@ class RealRobotBackend(RobotBackend):
             ...     deceleration=9000
             ... )
         """
-        if motor_name not in self._tinkerforge_motor_map:
+        # Any name of the Tinkerforge mapping is fine here, including custom
+        # ones added with configure_motor_mapping().
+        motor_name = getattr(motor_name, "value", motor_name)
+        pins = self._pins(motor_name)
+        if not pins:
             logger.warning(f"Motor {motor_name} not in Tinkerforge mapping")
             return False
 
-        uid, channel = self._tinkerforge_motor_map[motor_name]
-        servo = self._tinkerforge_servos.get(uid)
-
-        if servo is None:
-            logger.warning(f"Servo bricklet {uid} not initialized")
-            return False
-
-        try:
-            servo.set_period(channel, period)
-            servo.set_degree(channel, degree_min, degree_max)
-            servo.set_pulse_width(channel, pulse_width_min, pulse_width_max)
-            servo.set_motion_configuration(channel, velocity, acceleration, deceleration)
-            self._motion_config_cache[(uid, channel)] = (
-                int(velocity), int(acceleration), int(deceleration)
-            )
-            logger.debug(
-                f"Configured servo {motor_name}: pulse_width=[{pulse_width_min}, {pulse_width_max}], "
-                f"motion=[{velocity}, {acceleration}, {deceleration}], "
-                f"period={period}, degrees=[{degree_min}, {degree_max}]"
-            )
-            return True
-        except Exception as e:
-            logger.error(f"Failed to configure servo {motor_name}: {e}")
-            return False
+        ok = True
+        for uid, channel, _inv in pins:
+            servo = self._tinkerforge_servos.get(uid)
+            if servo is None:
+                logger.warning(f"Servo bricklet {uid} not initialized")
+                ok = False
+                continue
+            try:
+                servo.set_period(channel, period)
+                servo.set_degree(channel, degree_min, degree_max)
+                servo.set_pulse_width(channel, pulse_width_min, pulse_width_max)
+                servo.set_motion_configuration(channel, velocity, acceleration, deceleration)
+                self._motion_config_cache[(uid, channel)] = (
+                    int(velocity), int(acceleration), int(deceleration)
+                )
+                self._channel_ramp[(uid, channel)] = (int(acceleration), int(deceleration))
+                logger.debug(
+                    f"Configured servo {motor_name}: pulse_width=[{pulse_width_min}, {pulse_width_max}], "
+                    f"motion=[{velocity}, {acceleration}, {deceleration}], "
+                    f"period={period}, degrees=[{degree_min}, {degree_max}]"
+                )
+            except Exception as e:
+                logger.error(f"Failed to configure servo {motor_name}: {e}")
+                ok = False
+        return ok
 
     def configure_all_servo_channels(
         self,
@@ -936,10 +1153,14 @@ class RealRobotBackend(RobotBackend):
         Does NOT change degree ranges, pulse widths, or period — those are
         left at whatever the robot's firmware has configured.
 
+        Note:
+            Every motion command sets its own velocity (``speed`` or
+            ``robot.default_speed``), so ``velocity`` here only lasts until
+            the next command. Acceleration and deceleration stay.
+
         Args:
             velocity: Maximum velocity in 0.01°/s.
                 None (default) → ``DEFAULT_MOTION_VELOCITY`` (15000 ≈ 150°/s).
-                Pass 0 explicitly to remove the limit (servo runs full-speed).
             acceleration: Acceleration in 0.01°/s².
                 None → ``DEFAULT_MOTION_ACCELERATION`` (15000).
                 Pass 0 to disable ramping.
@@ -956,28 +1177,75 @@ class RealRobotBackend(RobotBackend):
             acceleration = self.DEFAULT_MOTION_ACCELERATION
         if deceleration is None:
             deceleration = self.DEFAULT_MOTION_DECELERATION
+        self._motion_accel = int(acceleration)
+        self._motion_decel = int(deceleration)
 
         all_success = True
         for motor_name in self._tinkerforge_motor_map:
-            uid, channel = self._tinkerforge_motor_map[motor_name]
-            servo = self._tinkerforge_servos.get(uid)
-            if servo is None:
-                logger.warning(f"Servo bricklet {uid} not initialized")
-                all_success = False
-                continue
-            try:
-                servo.set_motion_configuration(channel, velocity, acceleration, deceleration)
-                self._motion_config_cache[(uid, channel)] = (
-                    int(velocity), int(acceleration), int(deceleration)
-                )
-                logger.debug(
-                    f"Configured motion for {motor_name}: "
-                    f"velocity={velocity}, accel={acceleration}, decel={deceleration}"
-                )
-            except Exception as e:
-                logger.error(f"Failed to configure motion for {motor_name}: {e}")
-                all_success = False
+            for uid, channel, _inv in self._pins(motor_name):
+                servo = self._tinkerforge_servos.get(uid)
+                if servo is None:
+                    logger.warning(f"Servo bricklet {uid} not initialized")
+                    all_success = False
+                    continue
+                try:
+                    servo.set_motion_configuration(channel, velocity, acceleration, deceleration)
+                    self._motion_config_cache[(uid, channel)] = (
+                        int(velocity), int(acceleration), int(deceleration)
+                    )
+                    self._channel_ramp[(uid, channel)] = (int(acceleration), int(deceleration))
+                    logger.debug(
+                        f"Configured motion for {motor_name}: "
+                        f"velocity={velocity}, accel={acceleration}, decel={deceleration}"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to configure motion for {motor_name}: {e}")
+                    all_success = False
         return all_success
+
+    def _logical_to_raw(self, motor_name: str, position_centidegrees: int) -> int:
+        """Apply the motor's invert flag and rotation range, like the backend does.
+
+        Order matches the robot's ``Motor.set_position``: invert first, then
+        clamp to the rotation range. Pin-level invert is applied per pin.
+        """
+        raw = int(position_centidegrees)
+        if self._motor_invert.get(motor_name):
+            raw = -raw
+        bounds = self._motor_range_cd.get(motor_name)
+        if bounds is not None:
+            lo, hi = bounds
+            if raw < lo or raw > hi:
+                hint(
+                    f"robot-range-{motor_name}",
+                    f"{motor_name}: the robot's own motor settings (Cerebra) "
+                    f"limit it to {lo / 100:g} .. {hi / 100:g} deg, so "
+                    f"{raw / 100:g} deg was clamped. The ROS path does the same.",
+                )
+                raw = min(max(raw, lo), hi)
+        return raw
+
+    def _ensure_motion_config(self, servo, uid: str, channel: int,
+                              velocity: Optional[int]) -> None:
+        """Bring the channel's (velocity, acceleration, deceleration) up to date.
+
+        Cached per channel, so an unchanged speed costs no USB/network traffic.
+        """
+        key = (uid, channel)
+        cached = self._motion_config_cache.get(key)
+        if cached is None:
+            current = servo.get_motion_configuration(channel)
+            cached = (
+                int(getattr(current, 'velocity', current[0] if isinstance(current, tuple) else 0)),
+                int(getattr(current, 'acceleration', current[1] if isinstance(current, tuple) else 0)),
+                int(getattr(current, 'deceleration', current[2] if isinstance(current, tuple) else 0)),
+            )
+            self._motion_config_cache[key] = cached
+        accel, decel = self._channel_ramp.get(key, (self._motion_accel, self._motion_decel))
+        wanted = (abs(int(velocity)) if velocity is not None else cached[0], accel, decel)
+        if wanted != cached:
+            servo.set_motion_configuration(channel, *wanted)
+            self._motion_config_cache[key] = wanted
 
     def _set_motor_direct(
         self,
@@ -988,6 +1256,10 @@ class RealRobotBackend(RobotBackend):
         """
         Set motor position directly via Tinkerforge (low-latency mode).
 
+        Applies the robot's invert flags and rotation range (see
+        ``LowLatencyConfig.use_robot_motor_config``) and drives every pin of
+        the motor.
+
         Args:
             motor_name: Name of the motor.
             position_centidegrees: Target position in centidegrees (1/100 degree).
@@ -996,60 +1268,40 @@ class RealRobotBackend(RobotBackend):
         Returns:
             True if command was sent successfully.
         """
-        if motor_name not in self._tinkerforge_motor_map:
+        pins = self._pins(motor_name)
+        if not pins:
             logger.debug(
                 f"Motor {motor_name} not in Tinkerforge mapping, falling back to ROS"
             )
             return False
-
-        uid, channel = self._tinkerforge_motor_map[motor_name]
-        servo = self._tinkerforge_servos.get(uid)
-
-        if servo is None:
-            logger.warning(f"Servo bricklet {uid} not initialized")
+        if self._stopped:
+            # Last line of defence; callers check the latch under the lock.
             return False
 
+        raw = self._logical_to_raw(motor_name, position_centidegrees)
         try:
-            # Tinkerforge Servo V2 position is in units of 0.01° (same as centidegrees)
-            # Velocity is in 0.01°/s
+            for uid, channel, pin_invert in pins:
+                servo = self._tinkerforge_servos.get(uid)
+                if servo is None:
+                    logger.warning(f"Servo bricklet {uid} not initialized")
+                    return False
 
-            # Enable the servo channel if not already enabled
-            # Caching enabled state avoids redundant USB traffic (which is significant at high rates)
-            cache_key = (uid, channel)
-            if not self._servo_enabled_cache.get(cache_key, False):
-                servo.set_enable(channel, True)
-                self._servo_enabled_cache[cache_key] = True
+                # Enable the channel once (cached; redundant USB traffic is
+                # significant at high command rates).
+                cache_key = (uid, channel)
+                if not self._servo_enabled_cache.get(cache_key, False):
+                    servo.set_enable(channel, True)
+                    self._servo_enabled_cache[cache_key] = True
 
+                self._ensure_motion_config(servo, uid, channel, velocity_centideg)
 
-            # Set velocity if provided (overrides motion_configuration velocity).
-            # Cache the last-known (velocity, accel, decel) tuple per channel
-            # so we skip both the get_motion_configuration USB round-trip and
-            # the set_motion_configuration call when nothing changed.
-            if velocity_centideg is not None:
-                new_velocity = abs(int(velocity_centideg))
-                cached = self._motion_config_cache.get(cache_key)
-                if cached is None:
-                    current = servo.get_motion_configuration(channel)
-                    cached = (
-                        getattr(current, 'velocity', 0),
-                        getattr(current, 'acceleration', 0),
-                        getattr(current, 'deceleration', 0),
-                    )
-                if cached[0] != new_velocity:
-                    new_cfg = (new_velocity, cached[1], cached[2])
-                    servo.set_motion_configuration(channel, *new_cfg)
-                    self._motion_config_cache[cache_key] = new_cfg
-                else:
-                    self._motion_config_cache[cache_key] = cached
-
-            # Set position.  Event clearing is handled by _verify_positions
-            # (not here) to avoid a race where a stale callback from a
-            # previous command sets the event between clear and set_position.
-            servo.set_position(channel, position_centidegrees)
+                # Event clearing is handled by _verify_positions (not here) to
+                # avoid a race with a stale callback from a previous command.
+                servo.set_position(channel, -raw if pin_invert else raw)
 
             logger.debug(
                 f"Direct motor set: {motor_name} -> {position_centidegrees} centideg "
-                f"(bricklet={uid}, channel={channel})"
+                f"(raw={raw}, pins={pins})"
             )
             return True
 
@@ -1061,29 +1313,33 @@ class RealRobotBackend(RobotBackend):
         """
         Get motor position directly via Tinkerforge (low-latency mode).
 
-        Reads the actual servo position from the potentiometer feedback,
-        not the commanded position.
+        Note:
+            pib's hobby servos report nothing back. This is the position of
+            the bricklet's own motion ramp (``get_current_position``): where
+            the servo is being *told* to be right now. A blocked or overloaded
+            joint therefore still reads as "arrived".
 
         Args:
             motor_name: Name of the motor.
 
         Returns:
-            Current position in centidegrees (1/100 degree), or None if unavailable.
+            Position in centidegrees (1/100 degree) in pib3's convention
+            (invert flags undone), or None if unavailable.
         """
-        if motor_name not in self._tinkerforge_motor_map:
+        pins = self._pins(motor_name)
+        if not pins:
             return None
-
-        uid, channel = self._tinkerforge_motor_map[motor_name]
+        uid, channel, pin_invert = pins[0]
         servo = self._tinkerforge_servos.get(uid)
-
         if servo is None:
             return None
 
         try:
-            # get_current_position returns the actual measured position
-            # from the servo's potentiometer feedback in centidegrees
             position = servo.get_current_position(channel)
-
+            if pin_invert:
+                position = -position
+            if self._motor_invert.get(motor_name):
+                position = -position
             logger.debug(
                 f"Direct motor read: {motor_name} = {position} centideg "
                 f"(bricklet={uid}, channel={channel})"
@@ -1094,8 +1350,68 @@ class RealRobotBackend(RobotBackend):
             logger.error(f"Failed to read motor {motor_name} directly: {e}")
             return None
 
+    def _halt_motion(self) -> None:
+        """Freeze every servo channel at its current ramp position.
+
+        Deceleration goes to 0 first; otherwise the bricklet brakes along its
+        normal ramp, which at 150 deg/s and 150 deg/s^2 means 75 deg of
+        overshoot and a move back. The setters need no round trip, so only
+        one read per channel is waited for.
+        """
+        with self._command_lock:
+            channels = []
+            seen = set()
+            for name in list(self._tinkerforge_motor_map):
+                for uid, channel, _inv in self._pins(name):
+                    servo = self._tinkerforge_servos.get(uid)
+                    if servo is not None and (uid, channel) not in seen:
+                        seen.add((uid, channel))
+                        channels.append((servo, uid, channel))
+
+            # Pass 1: no braking ramp (setters only, no round trips).
+            for servo, uid, channel in channels:
+                key = (uid, channel)
+                velocity, accel, _ = self._motion_config_cache.get(
+                    key, (self.DEFAULT_MOTION_VELOCITY, self._motion_accel, 0))
+                try:
+                    servo.set_motion_configuration(channel, velocity, accel, 0)
+                    # The next command sees the difference and restores the ramp.
+                    self._motion_config_cache[key] = (velocity, accel, 0)
+                except Exception as exc:
+                    logger.debug("Emergency stop: ramp of %s/%d: %s", uid, channel, exc)
+
+            # Pass 2: target := where the ramp is right now.
+            frozen = 0
+            for servo, uid, channel in channels:
+                try:
+                    servo.set_position(channel, servo.get_current_position(channel))
+                    frozen += 1
+                except Exception as exc:
+                    logger.debug("Emergency stop: freeze of %s/%d: %s", uid, channel, exc)
+
+        if channels:
+            logger.debug("Emergency stop froze %d servo channels", frozen)
+        elif self.is_connected:
+            hint(
+                "estop-ros-mode",
+                "Emergency stop without direct servo access (motor_mode=\"ros\" "
+                "or Tinkerforge unreachable): pib3 sends no further commands, "
+                "but a move that is already running finishes. Use the default "
+                "motor_mode=\"direct\" for a real stop, or the teacher tool "
+                "python -m pib3.tools.estop --host <robot>.",
+            )
+
     def disconnect(self) -> None:
         """Close connection to robot."""
+        self._deactivate_safety()
+
+        if self._estop_subscriber is not None:
+            try:
+                self._estop_subscriber.unsubscribe()
+            except Exception:
+                pass
+            self._estop_subscriber = None
+
         # Stop subsystems
         if self._ai_subsystem is not None:
             try:
@@ -1111,8 +1427,12 @@ class RealRobotBackend(RobotBackend):
                 pass
             self._camera_subsystem = None
 
-        # Disconnect Tinkerforge first
-        self._disconnect_tinkerforge()
+        # Disconnect Tinkerforge first (under the command lock, so an
+        # emergency freeze running on another thread finishes first).
+        with self._command_lock:
+            self._disconnect_tinkerforge()
+            self._motor_invert = {}
+            self._motor_range_cd = {}
 
         if self._position_subscriber is not None:
             try:
@@ -1197,7 +1517,7 @@ class RealRobotBackend(RobotBackend):
             >>> # Multiple motors
             >>> robot.set_motor_settings(["elbow_left", "wrist_left"], velocity=10000)
         """
-        from ..dh_model import MOTOR_GROUPS, DEFAULT_MOTOR_SETTINGS
+        from ..types import MOTOR_GROUPS, DEFAULT_MOTOR_SETTINGS
         from ..types import Joint
 
         if not self.is_connected:
@@ -1307,7 +1627,7 @@ class RealRobotBackend(RobotBackend):
             >>> # Get settings for arm group, with defaults for missing motors
             >>> settings = robot.get_motor_settings("left_arm", use_defaults=True)
         """
-        from ..dh_model import MOTOR_GROUPS, DEFAULT_MOTOR_SETTINGS
+        from ..types import MOTOR_GROUPS, DEFAULT_MOTOR_SETTINGS
         from ..types import Joint
 
         # Resolve motor names
@@ -1515,6 +1835,8 @@ class RealRobotBackend(RobotBackend):
             return super()._verify_positions(target_positions, unit, timeout, tolerance)
 
         start_time = time.time()
+        if self._stopped:
+            return False
 
         # Separate low-latency and ROS motors
         ll_motors: Dict[str, float] = {}
@@ -1547,11 +1869,18 @@ class RealRobotBackend(RobotBackend):
             if current_pos is not None and abs(current_pos - target) <= tolerance:
                 continue
 
-            remaining = timeout - (time.time() - start_time)
-            if remaining <= 0:
-                return False
-
-            if not event.wait(timeout=remaining):
+            # Wait in short slices so the emergency stop ends the wait at once.
+            reached = False
+            while True:
+                if self._stopped:
+                    return False
+                remaining = timeout - (time.time() - start_time)
+                if remaining <= 0:
+                    break
+                if event.wait(timeout=min(0.05, remaining)):
+                    reached = True
+                    break
+            if not reached:
                 # Timeout — check if we're within tolerance anyway (the
                 # callback may not fire if the motor was already very
                 # close to the target).
@@ -1568,9 +1897,10 @@ class RealRobotBackend(RobotBackend):
 
         return True
 
-    # Default velocity for ROS motor movements (centidegrees per second).
-    # Used only for ROS-based commands; low-latency (Tinkerforge) commands
-    # use the hardware's configured velocity (velocity=0 means no limit).
+    # Velocity sent along with ROS commands (centidegrees per second). The
+    # robot's motor_control node currently ignores it; it uses the speed
+    # stored in the robot's motor settings (Cerebra). Kept for forward
+    # compatibility.
     DEFAULT_VELOCITY_CENTIDEG = 10000  # 100 degrees/sec
 
     def _set_joints_impl(
@@ -1588,9 +1918,9 @@ class RealRobotBackend(RobotBackend):
 
         Args:
             positions_radians: Dict mapping motor names to positions in radians.
-            velocity_centideg: Velocity in centidegrees/sec. If None, uses the
-                hardware's configured velocity for low-latency mode, or
-                DEFAULT_VELOCITY_CENTIDEG for ROS mode.
+            velocity_centideg: Velocity in centidegrees/sec. If None, the
+                channel keeps its current velocity (low-latency mode) or
+                DEFAULT_VELOCITY_CENTIDEG is sent (ROS mode).
             low_latency: Override low_latency setting for this call.
                 - None: Use configured default (LowLatencyConfig.enabled)
                 - True: Force low-latency mode (if available)
@@ -1600,8 +1930,8 @@ class RealRobotBackend(RobotBackend):
             True if all joints were set successfully.
 
         Note:
-            When using low_latency mode, the new position will NOT be visible
-            in ROS topics unless sync_to_ros is enabled in LowLatencyConfig.
+            In ROS mode the robot ignores the velocity; joints move with the
+            speed configured on the robot (Cerebra motor settings).
         """
         if not self.is_connected:
             return False
@@ -1615,41 +1945,23 @@ class RealRobotBackend(RobotBackend):
 
         # For ROS commands, always need a velocity value
         ros_velocity = velocity_centideg if velocity_centideg is not None else self.DEFAULT_VELOCITY_CENTIDEG
-
-        # For low-latency (Tinkerforge), only override velocity if explicitly provided.
-        # None means "use whatever the hardware already has configured" (typically no limit).
         tf_velocity = int(velocity_centideg) if velocity_centideg is not None else None
 
-        all_successful = True
+        if not use_low_latency:
+            return self._set_joints_via_ros(positions_radians, ros_velocity)
+
         motors_via_ros = {}  # Motors that couldn't be set directly
+        for joint_name, position in positions_radians.items():
+            centidegrees = self._radians_to_centidegrees(position)
+            if not self._set_motor_direct(joint_name, centidegrees, velocity_centideg=tf_velocity):
+                motors_via_ros[joint_name] = position
+            elif self._low_latency_config.sync_to_ros:
+                self._sync_position_to_ros(joint_name, centidegrees, ros_velocity)
 
-        if use_low_latency:
-            # Try direct Tinkerforge control first
-            for joint_name, position in positions_radians.items():
-                centidegrees = self._radians_to_centidegrees(position)
-
-                success = self._set_motor_direct(
-                    joint_name,
-                    centidegrees,
-                    velocity_centideg=tf_velocity,
-                )
-
-                if not success:
-                    # Motor not in Tinkerforge mapping, queue for ROS
-                    motors_via_ros[joint_name] = position
-                elif self._low_latency_config.sync_to_ros:
-                    # Optionally sync to ROS topic for visibility
-                    self._sync_position_to_ros(joint_name, centidegrees, ros_velocity)
-
-            # Fall back to ROS for motors not in Tinkerforge mapping
-            if motors_via_ros:
-                ros_success = self._set_joints_via_ros(motors_via_ros, ros_velocity)
-                all_successful = all_successful and ros_success
-
-            return all_successful
-
-        # Standard ROS path
-        return self._set_joints_via_ros(positions_radians, ros_velocity)
+        # Fall back to ROS for motors not in the Tinkerforge mapping
+        if motors_via_ros:
+            return self._set_joints_via_ros(motors_via_ros, ros_velocity)
+        return True
 
     def _set_joints_via_ros(
         self,
@@ -1657,60 +1969,35 @@ class RealRobotBackend(RobotBackend):
         velocity_centideg: float,
     ) -> bool:
         """
-        Set joint positions via ROS apply_joint_trajectory service.
+        Set joint positions via one ROS ``apply_joint_trajectory`` call.
 
-        Sends each joint as a separate service call because the PIB robot's
-        ROS implementation processes one joint per call.
+        All joints go into one request in the backend's
+        one-point-per-joint layout (see :func:`joint_trajectory_message`).
+        That replaces one service call per joint: ``go_home()`` used to make
+        26 round trips of 100-200 ms each, and the joints started one after
+        another.
 
         Args:
             positions_radians: Dict mapping motor names to positions in radians.
             velocity_centideg: Velocity in centidegrees/sec.
 
         Returns:
-            True if all joints were set successfully.
+            True if the robot reported success.
         """
-
-
-        all_successful = True
-
-        # Send each joint as a separate service call
-        for joint_name, position in positions_radians.items():
-            centidegrees = self._radians_to_centidegrees(position)
-
-            message = {
-                'joint_trajectory': {
-                    'header': {
-                        'stamp': {'sec': 0, 'nanosec': 0},
-                        'frame_id': '',
-                    },
-                    'joint_names': [joint_name],
-                    'points': [{
-                        'positions': [float(centidegrees)],
-                        'velocities': [float(velocity_centideg)],
-                        'accelerations': [],
-                        'effort': [],
-                        'time_from_start': {'sec': 0, 'nanosec': 0},
-                    }],
-                }
-            }
-
-            logger.debug(
-                f"Sending to {joint_name}: position={centidegrees} centideg "
-                f"({position:.4f} rad), velocity={velocity_centideg}"
-            )
-
-            try:
-                request = roslibpy.ServiceRequest(message)
-                result = self._service.call(request, timeout=self.timeout)
-                success = result.get('successful', False)
-                logger.debug(f"  Result: {result}")
-                if not success:
-                    all_successful = False
-            except Exception as e:
-                logger.debug(f"  Exception: {e}")
-                all_successful = False
-
-        return all_successful
+        if not positions_radians:
+            return True
+        if self._service is None:
+            return False
+        names = list(positions_radians)
+        positions_cd = [self._radians_to_centidegrees(positions_radians[n]) for n in names]
+        message = joint_trajectory_message(names, positions_cd, velocity_centideg)
+        logger.debug("ROS apply_joint_trajectory: %s", dict(zip(names, positions_cd)))
+        try:
+            result = self._service.call(roslibpy.ServiceRequest(message), timeout=self.timeout)
+        except Exception as e:
+            logger.warning(f"apply_joint_trajectory failed: {e}")
+            return False
+        return bool(result.get('successful', False))
 
     def _sync_position_to_ros(
         self,
@@ -1728,7 +2015,6 @@ class RealRobotBackend(RobotBackend):
         Instead, we just update our local position cache so get_joint() returns
         the correct value after a low-latency set.
         """
-        # Update local position cache (convert centidegrees back to radians)
         radians = self._centidegrees_to_radians(centidegrees)
         with self._joint_positions_lock:
             self._joint_positions[motor_name] = radians
@@ -1746,6 +2032,8 @@ class RealRobotBackend(RobotBackend):
 
         Uses low-latency Tinkerforge path when available for reduced latency.
         Falls back to ROS service calls for motors not in the Tinkerforge mapping.
+        Waypoints go out on a fixed schedule, so the time a command takes does
+        not stretch the playback.
         """
         if not self.is_connected:
             return False
@@ -1755,84 +2043,56 @@ class RealRobotBackend(RobotBackend):
         total = len(waypoints)
         motor_names = list(joint_names)
         fail_count = 0
+        # Every waypoint runs at the default speed, whatever an earlier call
+        # (e.g. the slow go_home) left on the channels.
+        speed = self.default_speed
+        velocity = int(round(speed * 100)) if speed else None
+        next_tick = time.monotonic()
 
         for i, point in enumerate(waypoints):
-            if self._stopped:
-                logger.warning(f"Trajectory aborted at waypoint {i}/{total} (emergency stop)")
-                return False
-
             # Waypoints are already in centidegrees from _to_backend_format
             positions_centideg = [float(point[j]) for j in range(len(motor_names))]
 
-            if use_low_latency:
-                # Fast path: send directly to Tinkerforge servo bricklets
-                ros_fallback_names = []
-                ros_fallback_positions = []
+            with self._command_lock:
+                if self._stopped:
+                    logger.warning(f"Trajectory aborted at waypoint {i}/{total} (emergency stop)")
+                    return False
 
-                for name, centideg in zip(motor_names, positions_centideg):
-                    success = self._set_motor_direct(name, int(centideg))
-                    if not success:
-                        # Motor not in Tinkerforge mapping, queue for ROS
-                        ros_fallback_names.append(name)
-                        ros_fallback_positions.append(centideg)
-                    elif self._low_latency_config.sync_to_ros:
-                        radians = self._centidegrees_to_radians(centideg)
-                        with self._joint_positions_lock:
-                            self._joint_positions[name] = radians
+                if use_low_latency:
+                    ros_names, ros_positions = [], []
+                    for name, centideg in zip(motor_names, positions_centideg):
+                        if not self._set_motor_direct(name, int(centideg), velocity_centideg=velocity):
+                            ros_names.append(name)
+                            ros_positions.append(centideg)
+                        elif self._low_latency_config.sync_to_ros:
+                            radians = self._centidegrees_to_radians(centideg)
+                            with self._joint_positions_lock:
+                                self._joint_positions[name] = radians
+                else:
+                    ros_names, ros_positions = motor_names, positions_centideg
 
-                # Send remaining motors via ROS
-                if ros_fallback_names:
-                    message = {
-                        'joint_trajectory': {
-                            'header': {
-                                'stamp': {'sec': 0, 'nanosec': 0},
-                                'frame_id': '',
-                            },
-                            'joint_names': ros_fallback_names,
-                            'points': [{
-                                'positions': ros_fallback_positions,
-                                'velocities': [],
-                                'accelerations': [],
-                                'effort': [],
-                                'time_from_start': {'sec': 0, 'nanosec': 0},
-                            }],
-                        }
-                    }
+                if ros_names:
                     try:
-                        request = roslibpy.ServiceRequest(message)
-                        self._service.call(request, timeout=self.timeout)
+                        request = roslibpy.ServiceRequest(
+                            joint_trajectory_message(ros_names, ros_positions))
+                        result = self._service.call(request, timeout=self.timeout)
+                        if not result.get('successful', True):
+                            fail_count += 1
                     except Exception as e:
                         fail_count += 1
-                        logger.warning(f"Waypoint {i + 1}/{total} ROS fallback failed: {e}")
-            else:
-                # Standard ROS path
-                message = {
-                    'joint_trajectory': {
-                        'header': {
-                            'stamp': {'sec': 0, 'nanosec': 0},
-                            'frame_id': '',
-                        },
-                        'joint_names': motor_names,
-                        'points': [{
-                            'positions': positions_centideg,
-                            'velocities': [],
-                            'accelerations': [],
-                            'effort': [],
-                            'time_from_start': {'sec': 0, 'nanosec': 0},
-                        }],
-                    }
-                }
-                try:
-                    request = roslibpy.ServiceRequest(message)
-                    self._service.call(request, timeout=self.timeout)
-                except Exception as e:
-                    fail_count += 1
-                    logger.warning(f"Waypoint {i + 1}/{total} failed: {e}")
+                        logger.warning(f"Waypoint {i + 1}/{total} failed: {e}")
 
             if progress_callback:
                 progress_callback(i + 1, total)
 
-            time.sleep(period)
+            next_tick += period
+            delay = next_tick - time.monotonic()
+            if delay > 0:
+                if self._stop_event.wait(delay):
+                    logger.warning(f"Trajectory aborted after waypoint {i + 1}/{total} (emergency stop)")
+                    return False
+            else:
+                next_tick = time.monotonic()
 
         if fail_count > 0:
             logger.error(

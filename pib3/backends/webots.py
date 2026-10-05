@@ -1,8 +1,10 @@
 """Webots simulator backend for pib3 package."""
 
 import logging
+import math
+import threading
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 import numpy as np
 
@@ -82,6 +84,13 @@ class WebotsBackend(RobotBackend):
     are in motion. Use the `timeout` parameter in get_joints() to control
     how long to wait (default: 5.0 seconds).
 
+    By default the simulated motors move like the real ones: at most
+    150 deg/s, ramped with 150 deg/s^2 (the servo bricklet settings pib3 uses
+    on the robot), and ``speed=`` is honoured. The proto's own motors would
+    otherwise turn at 20 rad/s (about 1150 deg/s) with no ramp, so code
+    tuned in the simulator ran about eight times faster than on the robot.
+    Pass ``realistic_motion=False`` for the old, instant behaviour.
+
     Example:
         # In your Webots controller file:
         from pib3.backends import WebotsBackend
@@ -96,18 +105,42 @@ class WebotsBackend(RobotBackend):
             joints = backend.get_joints(timeout=2.0)
     """
 
+    #: Same motion limits as the real robot's servo bricklets
+    #: (RealRobotBackend.DEFAULT_MOTION_VELOCITY / _ACCELERATION).
+    DEFAULT_SPEED = 150.0          # deg/s
+    DEFAULT_ACCELERATION = 150.0   # deg/s^2
+
     def __init__(
         self,
         step_ms: int = 50,
+        realistic_motion: bool = True,
+        estop_keys: Union[bool, str, Sequence[str]] = False,
+        stop_button: Union[bool, str] = False,
     ):
         """
         Initialize Webots backend.
 
         Args:
-            step_ms: Time step per waypoint in milliseconds.
+            step_ms: Unused; kept so old code keeps running. The waypoint
+                rate is ``run_trajectory(rate_hz=...)``.
+            realistic_motion: Move like the real robot (150 deg/s, ramped,
+                ``speed=`` honoured). False restores the proto's instant
+                motors (about 1150 deg/s, no ramp).
+            estop_keys: Same as on ``Robot``; off by default in simulation.
+            stop_button: Same as on ``Robot``; off by default in simulation.
         """
         super().__init__()
         self.step_ms = step_ms
+        self.realistic_motion = realistic_motion
+        if not realistic_motion:
+            self._default_speed = None
+            self.DEFAULT_ACCELERATION = None
+        self._estop_keys_setting = estop_keys
+        self._estop_button_setting = stop_button
+        # Webots' controller API is not thread-safe: a stop from the key
+        # listener's thread only marks the freeze, the main thread does it.
+        self._pending_halt = False
+        self._velocity_set: Dict[int, float] = {}
         self._robot = None
         self._timestep = None
         self._motors: Dict[str, Any] = {}
@@ -163,7 +196,7 @@ class WebotsBackend(RobotBackend):
         return self._ai_subsystem
 
     def set_joints(self, positions, unit="percent", async_=False,
-                   timeout=2.0, tolerance=None, speed=None) -> bool:
+                   timeout=None, tolerance=None, speed=None) -> bool:
         """Same as :meth:`RobotBackend.set_joints`, plus a control-loop check.
 
         ``async_=False`` steps the simulator until the joint arrives. That is
@@ -289,6 +322,52 @@ class WebotsBackend(RobotBackend):
         # the joints are now at 0 rad and positions become absolute).
         self._reset_to_zero()
 
+        if self.realistic_motion:
+            accel = math.radians(self.DEFAULT_ACCELERATION)
+            for motor in self._all_motors():
+                try:
+                    motor.setAcceleration(accel)
+                except Exception as exc:  # very old Webots builds
+                    logger.debug("setAcceleration unavailable: %s", exc)
+                    break
+
+        self._activate_safety()
+
+    def _all_motors(self):
+        yield from self._motors.values()
+        yield from self._proximal_motors.values()
+
+    def _set_motor_velocity(self, motor, speed_deg_s: Optional[float]) -> None:
+        """Motor speed for position control; None = the proto's maximum."""
+        vmax = motor.getMaxVelocity()
+        value = vmax if speed_deg_s is None else math.radians(speed_deg_s)
+        if vmax and vmax > 0:
+            value = min(value, vmax)
+        if self._velocity_set.get(id(motor)) != value:
+            motor.setVelocity(value)
+            self._velocity_set[id(motor)] = value
+
+    def _halt_motion(self) -> None:
+        """Freeze every motor at its current sensor position."""
+        if self._robot is None:
+            return
+        if threading.current_thread() is not threading.main_thread():
+            self._pending_halt = True
+            return
+        self._pending_halt = False
+        for name, motor in self._motors.items():
+            sensor = motor.getPositionSensor()
+            if sensor is None:
+                continue
+            here = sensor.getValue()
+            self._set_motor_position(motor, here, name)
+            if name in self._proximal_motors:
+                self._set_motor_position(self._proximal_motors[name], here, name)
+
+    def _apply_pending_halt(self) -> None:
+        if self._pending_halt:
+            self._halt_motion()
+
     def _read_home_offsets(self) -> None:
         """Read and store each joint's initial position as its home offset.
 
@@ -367,9 +446,8 @@ class WebotsBackend(RobotBackend):
         self._home_offsets = {name: 0.0 for name in self._home_offsets}
 
     def disconnect(self) -> None:
-        """Cleanup (no-op for Webots, robot lifecycle managed by simulator)."""
-        # self._motors = {}
-        pass
+        """Release the emergency-stop hooks; the simulator owns the robot."""
+        self._deactivate_safety()
 
     @property
     def is_connected(self) -> bool:
@@ -472,6 +550,7 @@ class WebotsBackend(RobotBackend):
         """
         if not self.is_connected:
             return False
+        self._apply_pending_halt()
         ms = int(duration_ms if duration_ms is not None else self._timestep)
         return self._robot.step(ms) != -1
 
@@ -500,6 +579,8 @@ class WebotsBackend(RobotBackend):
             motor_name: Name of motor (e.g., "elbow_left").
             timeout: Max time to wait for motor to stabilize (seconds).
                     If None, uses DEFAULT_GET_JOINTS_TIMEOUT (5.0s).
+                    ``0`` reads the sensor at once without stepping, the way
+                    the real robot answers: use it inside control loops.
 
         Returns:
             Current position in absolute radians, or None if unavailable.
@@ -514,6 +595,8 @@ class WebotsBackend(RobotBackend):
                 if timeout is None:
                     timeout = self.DEFAULT_GET_JOINTS_TIMEOUT
                 offset = self._home_offsets.get(motor_name, 0.0)
+                if timeout <= 0:
+                    return sensor.getValue() + offset
                 start = time.time()
                 webots_pos_old = sensor.getValue()
                 while (time.time() - start) < timeout:
@@ -574,6 +657,14 @@ class WebotsBackend(RobotBackend):
         if not valid_names:
             return {}
 
+        if timeout <= 0:
+            # Instant read, as on the real robot (no stepping, no waiting).
+            return {
+                name: self._motors[name].getPositionSensor().getValue()
+                + self._home_offsets.get(name, 0.0)
+                for name in valid_names
+            }
+
         # Require several consecutive stable reads before accepting the
         # value — a single stable step can be a velocity zero-crossing mid
         # motion and give a false positive.
@@ -632,11 +723,14 @@ class WebotsBackend(RobotBackend):
 
         Args:
             positions_radians: Dict mapping motor names to positions in radians.
-            velocity_centideg: Ignored in Webots (motor velocity is set via
-                Webots motor API, not centidegrees).
+            velocity_centideg: Speed in centidegrees/second, applied with
+                ``Motor.setVelocity`` (capped at the proto's maxVelocity).
+                None = the proto's maximum.
         """
         if not self.is_connected:
             return False
+        self._apply_pending_halt()
+        speed = velocity_centideg / 100.0 if velocity_centideg is not None else None
 
         for joint_name, position in positions_radians.items():
             if joint_name in self._motors:
@@ -644,10 +738,14 @@ class WebotsBackend(RobotBackend):
                 webots_pos = position - offset
                 logger.debug(f"Setting {joint_name} to {position:.4f} rad absolute "
                              f"(webots={webots_pos:.4f}, offset={offset:.4f})")
-                self._set_motor_position(self._motors[joint_name], webots_pos, joint_name)
+                motor = self._motors[joint_name]
+                self._set_motor_velocity(motor, speed)
+                self._set_motor_position(motor, webots_pos, joint_name)
 
                 if joint_name in self._proximal_motors:
-                    self._set_motor_position(self._proximal_motors[joint_name], webots_pos, joint_name)
+                    proximal = self._proximal_motors[joint_name]
+                    self._set_motor_velocity(proximal, speed)
+                    self._set_motor_position(proximal, webots_pos, joint_name)
 
         # Step simulation once to initiate movement
         self._robot.step(self._timestep)
@@ -715,6 +813,9 @@ class WebotsBackend(RobotBackend):
         stepped = False
 
         for _ in range(max_steps):
+            if self._stopped:
+                self._apply_pending_halt()
+                return False
             # Step simulation to let motors move (and register the new target)
             if self._robot.step(self._timestep) == -1:
                 return False
@@ -773,11 +874,18 @@ class WebotsBackend(RobotBackend):
             if name in self._motors:
                 joint_indices[name] = i
 
-        step_ms = max(int(1000 / rate_hz), self._timestep)
+        # Whole multiples of the basic time step: the simulation advances in those anyway.
+        step_ms = max(1, round(1000.0 / rate_hz / self._timestep)) * self._timestep
         total = len(waypoints)
+        speed = self.default_speed
+        for name in joint_indices:
+            self._set_motor_velocity(self._motors[name], speed)
+            if name in self._proximal_motors:
+                self._set_motor_velocity(self._proximal_motors[name], speed)
 
         for i, point in enumerate(waypoints):
             if self._stopped:
+                self._apply_pending_halt()
                 logger.warning(f"Trajectory aborted at waypoint {i}/{total} (emergency stop)")
                 return False
 
@@ -790,7 +898,8 @@ class WebotsBackend(RobotBackend):
                 if name in self._proximal_motors:
                     self._set_motor_position(self._proximal_motors[name], webots_pos, name)
 
-            self._robot.step(step_ms)
+            if self._robot.step(step_ms) == -1:
+                return False
 
             if progress_callback:
                 progress_callback(i + 1, total)

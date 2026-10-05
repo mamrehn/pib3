@@ -51,7 +51,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
+from collections import deque
+from typing import Callable, Deque, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 import numpy as np
 
@@ -63,6 +64,11 @@ logger = logging.getLogger(__name__)
 
 
 # ==================== CONSTANTS ====================
+
+#: Payload ``type`` values whose results are object detections (boxes).
+#: The robot publishes segmentation as ``"instance-segmentation"``: each
+#: object is a box plus an optional mask, so get_detections() returns them too.
+DETECTION_TYPES = frozenset({"detection", "instance-segmentation", "segmentation"})
 
 # COCO class labels (80 classes)
 COCO_LABELS = [
@@ -704,7 +710,7 @@ class CameraFrameReceiver:
             max_buffer: Maximum number of frames to buffer.
         """
         self.max_buffer = max_buffer
-        self._frames: List[CameraFrame] = []
+        self._frames: Deque[CameraFrame] = deque(maxlen=max(1, int(max_buffer)))
         self._lock = threading.Lock()
         self._frame_count = 0
 
@@ -714,17 +720,14 @@ class CameraFrameReceiver:
 
         Pass this method to robot.subscribe_camera_image().
         """
-        self._frame_count += 1
-        frame = CameraFrame(
-            jpeg_bytes=jpeg_bytes,
-            frame_id=self._frame_count,
-            timestamp_ns=int(time.time() * 1e9),
-        )
-
         with self._lock:
+            self._frame_count += 1
+            frame = CameraFrame(
+                jpeg_bytes=jpeg_bytes,
+                frame_id=self._frame_count,
+                timestamp_ns=time.time_ns(),
+            )
             self._frames.append(frame)
-            if len(self._frames) > self.max_buffer:
-                self._frames.pop(0)
 
     def get_latest(self) -> Optional[CameraFrame]:
         """Get the most recent frame, or None if no frames received."""
@@ -736,7 +739,7 @@ class CameraFrameReceiver:
     def get_all(self) -> List[CameraFrame]:
         """Get all buffered frames and clear the buffer."""
         with self._lock:
-            frames = self._frames.copy()
+            frames = list(self._frames)
             self._frames.clear()
             return frames
 
@@ -960,7 +963,7 @@ class AIDetectionReceiver:
         self._wait_for_data(timeout)
         detections = []
         for result in self._results_snapshot(latest_only):
-            if result.get("type") == "detection":
+            if result.get("type") in DETECTION_TYPES:
                 for det_dict in result.get("result", {}).get("detections", []):
                     detections.append(Detection.from_dict(det_dict))
         return detections
@@ -1155,7 +1158,8 @@ class AISubsystem:
         latest_only: bool = False,
     ) -> List[Detection]:
         """
-        Get object detections from detection models (YOLO, MobileNet-SSD, etc.).
+        Get object detections (YOLO26n, person, face; segmentation models
+        return their objects as detections with ``mask_rle``).
 
         Waits automatically for results if buffer is empty.
 
@@ -1401,7 +1405,7 @@ def parse_ai_result(data: dict) -> Union[List[Detection], List[HandLandmarks], L
     model_type = data.get("type", "")
     result = data.get("result", {})
 
-    if model_type == "detection" or model_type == "instance-segmentation":
+    if model_type in DETECTION_TYPES:
         detections = []
         for det_dict in result.get("detections", []):
             detections.append(Detection.from_dict(det_dict))

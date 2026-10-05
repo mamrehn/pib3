@@ -444,6 +444,34 @@ def _get_joint_limits(robot) -> List[Tuple[float, float]]:
     return limits
 
 
+def _wrap_angles(q: np.ndarray) -> np.ndarray:
+    """Map revolute angles into [-pi, pi); the pose of the arm is unchanged."""
+    return (np.asarray(q, dtype=float) + np.pi) % (2.0 * np.pi) - np.pi
+
+
+def _within_motor_limits(q_arm: np.ndarray, motor_names: Sequence[str]) -> bool:
+    """Whether every arm angle is inside the motor limits of *both* backends.
+
+    The IK falls back to attempts without joint limits. Those can return
+    angles the servos cannot reach (beyond +-90 deg, or past the elbow's
+    -45 deg stop). Such a "solution" would be clamped at playback and draw
+    in the wrong place, or drive a joint into its mechanical stop.
+    """
+    from .backends.base import load_joint_limits
+
+    for limits_file in ("joint_limits_webots.yaml", "joint_limits_robot.yaml"):
+        limits = load_joint_limits(limits_file)
+        for value, name in zip(q_arm, motor_names):
+            lim = limits.get(name) or {}
+            lo, hi = lim.get("min"), lim.get("max")
+            if lo is None or hi is None:
+                continue
+            lo, hi = min(lo, hi), max(lo, hi)
+            if value < lo - 1e-6 or value > hi + 1e-6:
+                return False
+    return True
+
+
 def _solve_ik_point(
     target_pos: np.ndarray,
     q_init: np.ndarray,
@@ -484,6 +512,7 @@ def _solve_ik_point(
 
     # Determine which arm based on joint indices
     arm = "left" if arm_joint_indices[0] < 10 else "right"
+    motor_names = [URDF_TO_MOTOR_NAME[idx] for idx in arm_joint_indices]
 
     # Target in torso frame, meters → mm (the frame the DH base is defined in).
     target_mm = np.array(target_pos, dtype=float) * 1000.0
@@ -541,10 +570,13 @@ def _solve_ik_point(
             continue
 
         if getattr(sol, "success", False):
+            q_arm = _wrap_angles(sol.q)
+            if not _within_motor_limits(q_arm, motor_names):
+                continue
             # Build full configuration with DH solution
             q_solution = q_init.copy()
             for i, idx in enumerate(arm_joint_indices):
-                q_solution[idx] = sol.q[i]
+                q_solution[idx] = q_arm[i]
             return q_solution, True
 
     return q_init, False
@@ -676,10 +708,17 @@ def _interpolate_stroke_points(
     stroke: Stroke,
     density: float = 0.01,
 ) -> List[Tuple[float, float]]:
-    """Interpolate stroke points for smooth motion."""
+    """Interpolate stroke points for smooth motion.
+
+    A closed stroke gets its closing segment (last point back to the first);
+    without it every circle or letter "o" kept a gap. Shared corner points
+    appear once, not twice, so the arm does not pause at every vertex.
+    """
     points = stroke.points
     if len(points) < 2:
         return [(points[0, 0], points[0, 1])] if len(points) == 1 else []
+    if stroke.closed and len(points) >= 3 and not np.allclose(points[0], points[-1]):
+        points = np.vstack([points, points[:1]])
 
     path = []
     for i in range(len(points) - 1):
@@ -687,7 +726,9 @@ def _interpolate_stroke_points(
         p2 = points[i + 1]
         dist = np.linalg.norm(p2 - p1)
         n_steps = max(2, int(dist / density) + 1)
-        for s in np.linspace(0, 1, n_steps):
+        for k, s in enumerate(np.linspace(0, 1, n_steps)):
+            if i > 0 and k == 0:
+                continue  # same as the previous segment's last point
             interp = p1 + s * (p2 - p1)
             path.append((float(interp[0]), float(interp[1])))
 

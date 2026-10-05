@@ -34,28 +34,44 @@ with WebotsBackend() as backend:
 ## Constructor
 
 ```python
-WebotsBackend(step_ms: int = 50)
+WebotsBackend(
+    step_ms: int = 50,
+    realistic_motion: bool = True,
+    estop_keys=False,
+    stop_button=False,
+)
 ```
 
 **Parameters:**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `step_ms` | `int` | `50` | Simulation time step per waypoint in milliseconds. Smaller values give smoother motion but slower playback. |
+| `step_ms` | `int` | `50` | Unused; kept so old code keeps running. Use `run_trajectory(rate_hz=...)`. |
+| `realistic_motion` | `bool` | `True` | Move like the real robot: at most 150 deg/s, ramped with 150 deg/s², and `speed=` is honoured. `False` restores the proto's instant motors (20 rad/s ≈ 1150 deg/s, no ramp). |
+| `estop_keys`, `stop_button` | | `False` | Same as on [`Robot`](robot.md); off in simulation by default. |
+
+!!! warning "Control loops tuned with instant motors do not transfer"
+    With instant motors a loop that adds `K * error` to the target **every
+    step** settles in a few steps. With the real robot's ramps the head lags
+    behind, the increments pile up, and the loop overshoots until the object
+    leaves the image (measured in the course world for K = 10 to 45). Base
+    the correction on where the joint *is*:
+
+    ```python
+    ist = sim.get_joint(Joint.TURN_HEAD, timeout=0)     # instant read
+    sim.set_joint(Joint.TURN_HEAD, ist + K * error, async_=True)
+    ```
+
+    That settled in 8-16 steps for K = 10 to 31 with realistic motion, and
+    behaves the same way on the robot.
 
 **Example:**
 
 ```python
 from pib3.backends import WebotsBackend
 
-# Default: 50ms per step
-backend = WebotsBackend()
-
-# Custom step timing (slower, smoother)
-backend = WebotsBackend(step_ms=100)
-
-# Faster playback
-backend = WebotsBackend(step_ms=20)
+backend = WebotsBackend()                         # moves like the real robot
+backend = WebotsBackend(realistic_motion=False)   # old instant motors
 ```
 
 ---
@@ -191,7 +207,7 @@ with WebotsBackend() as robot:
 
 ### get_joint()
 
-Read a single joint position. Waits for motor readings to stabilize (same value twice) before returning.
+Read a single joint position. By default it steps the simulation until the reading is stable (same value twice). `timeout=0` reads the sensor at once without stepping, the way the real robot answers; use that inside control loops.
 
 ```python
 def get_joint(
@@ -208,7 +224,7 @@ def get_joint(
 |-----------|------|---------|-------------|
 | `motor_name` | `str` or `Joint` | *required* | Motor name or `Joint` enum to query. |
 | `unit` | `"percent"`, `"rad"`, `"deg"` | `"percent"` | Return unit. |
-| `timeout` | `float` or `None` | `5.0` | Max time to wait for motor reading to stabilize (seconds). |
+| `timeout` | `float` or `None` | `5.0` | Max time to wait for motor reading to stabilize (seconds); `0` = instant read without stepping. |
 
 **Returns:** `float` or `None` - Current position, or `None` if unavailable or motor still moving.
 

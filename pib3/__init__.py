@@ -34,6 +34,9 @@ from typing import Optional, Union
 # Core types
 from .types import Joint, Sketch, Stroke, HandPose, LEFT_HAND_JOINTS, RIGHT_HAND_JOINTS, AIModel, ImuType, DEPRECATED_MODEL_ALIASES
 
+# Emergency stop
+from .safety import EmergencyStopError, DEFAULT_STOP_KEYS
+
 # Configuration
 from .config import PaperConfig, IKConfig, ImageConfig, TrajectoryConfig, LowLatencyConfig, RobotConfig
 
@@ -76,7 +79,7 @@ Webots = WebotsBackend
 Robot = RealRobotBackend
 
 
-__version__ = "0.1.4"
+__version__ = "0.2.0"
 
 __all__ = [
     # Version
@@ -89,6 +92,9 @@ __all__ = [
     "AIModel",
     "DEPRECATED_MODEL_ALIASES",
     "ImuType",
+    # Emergency stop
+    "EmergencyStopError",
+    "DEFAULT_STOP_KEYS",
     # Config
     "PaperConfig",
     "IKConfig",

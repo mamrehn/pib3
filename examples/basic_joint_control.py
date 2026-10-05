@@ -74,7 +74,7 @@ def demo_write_joints(robot):
 
     # Set a single joint (async - returns immediately)
     print("\n1. Moving head left (async):")
-    robot.set_joint(Joint.TURN_HEAD, 70.0)
+    robot.set_joint(Joint.TURN_HEAD, 70.0, async_=True)
     print("   Command sent! (not waiting for completion)")
     time.sleep(1.0)
 
@@ -96,7 +96,7 @@ def demo_write_joints(robot):
     robot.set_joints({
         Joint.SHOULDER_VERTICAL_LEFT: 40.0,
         Joint.ELBOW_LEFT: 60.0,
-    })
+    }, async_=True)
     print("   Commands sent for shoulder and elbow")
     time.sleep(1.5)
 

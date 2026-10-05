@@ -102,6 +102,7 @@ nav:
       - Installation: getting-started/installation.md
       - Quick Start: getting-started/quickstart.md
       - Calibration: getting-started/calibration.md
+      - Safety & Emergency Stop: getting-started/safety.md
   - Tutorials:
       - Overview: tutorials/index.md
       - Image to Trajectory: tutorials/image-to-trajectory.md

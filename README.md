@@ -121,6 +121,22 @@ under emulation, or use an x64 machine or WSL2.
 
 ## Quick Start
 
+### Emergency Stop
+
+`Robot(...)` arms a software emergency stop when it connects. It works on every
+laptop:
+
+| Stop with | Notes |
+|---|---|
+| **Space** or **Esc** (also Numpad-0, Pause) | anywhere on the desktop; macOS needs *Input Monitoring* permission, Wayland blocks it |
+| **Ctrl+C** in the terminal | always works |
+| the on-screen **STOP** button | opens by itself where the keys cannot work; `robot.show_stop_button()` |
+| `pib3-estop --host <robot>` | the teacher's remote stop, from any laptop |
+
+The motors freeze and hold. The stop latches: further motion commands raise
+`pib3.EmergencyStopError` until `robot.resume()`. Slow down a first run with
+`robot.default_speed = 45`. Details: [Safety](https://mamrehn.github.io/pib3/getting-started/safety/).
+
 ### Digital Twin - Same Code Everywhere
 
 ```python
@@ -152,8 +168,11 @@ with Robot(host="172.26.34.149") as robot:
     # Use degrees or radians
     robot.set_joint(Joint.TURN_HEAD, -30.0, unit="deg")
 
-    # Wait for movement to complete
-    robot.set_joint(Joint.ELBOW_LEFT, 50.0, async_=False)
+    # Blocking is the default; async_=True returns at once (for loops)
+    robot.set_joint(Joint.ELBOW_LEFT, 50.0, async_=True)
+
+    # Slower, for a first run
+    robot.set_joint(Joint.ELBOW_LEFT, 20.0, speed=30.0)
 
     # Save and restore poses
     saved_pose = robot.get_joints()

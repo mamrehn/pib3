@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pib3"
-version = "0.1.4"
+version = "0.2.0"
 description = "Inverse kinematics and trajectory generation for the PIB humanoid robot"
 readme = "README.md"
 license = "MIT"
@@ -85,6 +85,10 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.0.0",
 ]
+
+[project.scripts]
+# Teacher's emergency stop: freeze one or more robots from any laptop.
+pib3-estop = "pib3.tools.estop:main"
 
 [project.urls]
 Homepage = "https://github.com/mamrehn/pib3"

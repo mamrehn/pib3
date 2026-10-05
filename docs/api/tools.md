@@ -2,6 +2,21 @@
 
 Utility functions for working with robot models.
 
+## Emergency stop (teacher tool)
+
+Freeze one or more robots from any laptop on the robot's network. It stops
+every servo directly through the robot's Tinkerforge daemon and latches the
+stop in every pib3 program connected to the robot.
+
+```bash
+pib3-estop --host 192.168.0.11               # or: python -m pib3.tools.estop ...
+pib3-estop --host pib-01 --host pib-02       # several robots
+pib3-estop --host pib-01 --window            # a STOP button for these robots
+pib3-estop --host pib-01 --relax             # servos off - arms drop!
+```
+
+See [Safety & Emergency Stop](../getting-started/safety.md).
+
 ## Proto to URDF Converter
 
 ::: pib3.tools.proto_converter.convert_proto_to_urdf

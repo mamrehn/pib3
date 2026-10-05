@@ -1,0 +1,44 @@
+Yes — this confirms all 26 motors are on servo bricklets, including the 3 that were missing. The backend data shows:
+
+turn_head_motor → bricklet 2, channel 4
+tilt_forward_motor → bricklet 2, channel 5
+wrist_right → bricklet 1, channel 6
+It also reveals two channel corrections vs the current mapping:
+
+shoulder_horizontal_right is on channel 0 (not 9)
+shoulder_horizontal_left is on channel 8 (not 9)
+
+
+
+
+Done. Here's what the backend data revealed and what changed:
+
+3 missing motors added:
+
+turn_head_motor → bricklet 2, channel 4
+tilt_forward_motor → bricklet 2, channel 5
+wrist_right → bricklet 1, channel 6
+2 channel corrections:
+
+shoulder_horizontal_right was (servo1, ch 9) — actually (servo2, ch 0)
+shoulder_horizontal_left was (servo3, ch 9) — actually (servo2, ch 8)
+Both shoulder horizontals are on bricklet 2 (the central bricklet), not sharing channels with the upper arm rotations on bricklets 1 and 3. The old mapping had them aliased to the same channel as upper_arm_*_rotation, which would have caused both motors to receive the same commands.
+
+Bricklet 2 role updated: It's not just "shoulder verticals" — it's the central bricklet handling all 4 shoulder motors plus both head motors (6 channels total).
+
+All 26 PIB motors now have correct Tinkerforge mappings, so the callback-based position verification covers every motor.
+
+
+
+
+
+
+Regarding the API / UX improvements you proposed:
+A1: do only the documentation improvement for tolerance.
+A2: I thought there already is an enum. Do you mean that you still can use strings instead? Then improve.
+A3: Unify then. Would it make sense to have percentage between no movement and maximum speed instead of this unit?
+A4: I think we already modularized in the meantime. Please check before editing.
+A5: Good catch. Make them more precise.
+A6: Not necessary. When the error list is long, users need to substancially check anyway.
+A7: Good catch.
+A8: With rad going from -pi/2 to +pi/2, is 0 position not already the 50% choice? Correct me if I am wrong here.

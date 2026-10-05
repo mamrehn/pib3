@@ -227,7 +227,7 @@ def set_joint(
     position: float,
     unit: Literal["percent", "rad", "deg"] = "percent",
     async_: bool = False,
-    timeout: float = 2.0,
+    timeout: Optional[float] = None,
     tolerance: Optional[float] = None,
     speed: Optional[float] = None,
 ) -> bool
@@ -243,7 +243,7 @@ def set_joint(
 | `async_` | `bool` | `False` | If `True`, return immediately. If `False` (default), poll the actual position until it matches the target. |
 | `timeout` | `float` | `2.0` | Maximum seconds to wait (only used when `async_=False`). |
 | `tolerance` | `float` or `None` | `None` | Acceptable error for completion. Default: `DEFAULT_VERIFY_TOLERANCE_PERCENT` (2.0%), `DEFAULT_VERIFY_TOLERANCE_DEG` (3.0°), or `DEFAULT_VERIFY_TOLERANCE` (0.05 rad). |
-| `speed` | `float` or `None` | `None` | Movement speed in degrees/second (e.g. `90.0` = 90°/s). `None` uses the backend's default speed. |
+| `speed` | `float` or `None` | `None` | Movement speed in degrees/second (e.g. `90.0` = 90°/s), must be > 0. `None` uses `robot.default_speed` (150 deg/s on the robot and in Webots). |
 
 **Returns:** `bool`
 
@@ -291,7 +291,7 @@ def set_joints(
     positions: Dict[Union[str, Joint], float],
     unit: Literal["percent", "rad", "deg"] = "percent",
     async_: bool = False,
-    timeout: float = 2.0,
+    timeout: Optional[float] = None,
     tolerance: Optional[float] = None,
     speed: Optional[float] = None,
 ) -> bool
@@ -308,13 +308,26 @@ def set_joints(
 | `tolerance` | `float` or `None` | `None` | Acceptable error for completion. |
 | `speed` | `float` or `None` | `None` | Movement speed in degrees/second. `None` uses the backend's default. |
 
-!!! warning "`speed` is shared state on the Tinkerforge direct path"
-    On the real-robot direct path, `speed` rewrites the servo channel's
+!!! note "Every command sets its own speed"
+    `speed=None` means `robot.default_speed`, not "whatever the last call
+    left behind". Earlier versions kept the last speed on the Tinkerforge
+    channel, so after the slow `go_home()` every later move crawled at
+    10 deg/s. Slow down a whole program with `robot.default_speed = 45`.
+
+!!! info "Timeouts, limits and the return value"
+    `timeout=None` derives the wait from the speed and the joint's range, so
+    slow moves no longer "fail" after a fixed 2 s. Targets outside a joint's
+    range are clamped to the limit (with a one-time hint) and a blocking call
+    then returns `False`. Unknown joint names and units raise `ValueError`
+    with a suggestion; `unit` accepts `"deg"`, `"degree"`, `"degrees"`,
+    `"rad"`, `"%"`, ...
+
+??? note "Before pib3 0.2: `speed` was shared state on the Tinkerforge direct path"
+    On the real-robot direct path, `speed` rewrote the servo channel's
     motion configuration, which is **shared state**. A later call (even
-    an `async_=True` one) that passes a different `speed` will change
-    the channel's velocity; subsequent calls that omit `speed` keep
-    using the last value. Don't rely on a per-call `speed` being
-    "sticky" only to that call.
+    an `async_=True` one) that passed a different `speed` changed
+    the channel's velocity; subsequent calls that omitted `speed` kept
+    using the last value.
 
 **Returns:** `bool`
 
@@ -363,7 +376,7 @@ def set_joints_pose(
     self,
     pose: HandPose,
     async_: bool = False,
-    timeout: float = 2.0,
+    timeout: Optional[float] = None,
     tolerance: Optional[float] = None,
     speed: Optional[float] = None,
 ) -> bool
@@ -414,9 +427,9 @@ def set_joints_sequence(
 | `unit` | `"percent"`, `"rad"`, `"deg"` | `"percent"` | Unit for all positions. |
 | `rate_hz` | `float` | `20.0` | Waypoint dispatch rate. |
 | `progress_callback` | `Callable[[int, int], None]` or `None` | `None` | Optional `callback(current_index, total)`. |
-| `speed` | `float` or `None` | `None` | Per-waypoint movement speed (deg/s). Shares the same shared-state caveat as `set_joints(speed=...)`. |
+| `speed` | `float` or `None` | `None` | Per-waypoint movement speed (deg/s); `None` = `default_speed`. |
 
-Stops early (and returns `False`) if [`stop()`](#stop) is called.
+Waypoints go out on a fixed schedule (command time does not add up). Stops early and returns `False` on an [emergency stop](#emergency-stop).
 
 **Example:**
 
@@ -450,7 +463,7 @@ For symmetric joints the value is ~50%, but asymmetric joints (e.g. elbow: −45
 Move all joints to their home position (0 radians — Webots proto zero / real-robot servo midpoint).
 
 ```python
-def go_home(self, async_: bool = False, timeout: float = 20.0, speed: Optional[float] = None) -> bool
+def go_home(self, async_: bool = False, timeout: Optional[float] = None, speed: Optional[float] = None) -> bool
 ```
 
 Equivalent to `set_joints({...: 0.0}, unit="rad")` for every motor in `MOTOR_NAMES`.
@@ -470,37 +483,68 @@ with backend as robot:
 
 ## Emergency Stop
 
-A single **process-wide** pynput keyboard listener is shared across all backend instances — creating two `Robot()` objects does not install two competing global keyboard hooks.
+See the [Safety page](../../getting-started/safety.md) for the classroom view.
+In short: the stop **latches**, freezes the motors where they are, and every
+later motion command raises `EmergencyStopError` until `resume()`.
 
-### stop() / resume() / stopped
+### stop() / resume() / stopped / stop_reason
 
 ```python
-def stop(self) -> None     # Halt all motor movement immediately
-def resume(self) -> None   # Clear the flag and allow new commands
+def stop(self, reason: Optional[str] = None) -> None  # freeze + latch, any thread
+def resume(self) -> None                              # deliberate release
 @property
-def stopped(self) -> bool  # True while in emergency-stop state
+def stopped(self) -> bool
+@property
+def stop_reason(self) -> Optional[str]
 ```
 
-`stop()` aborts any running trajectory or `set_joints_sequence()`.
+`stop()` freezes every servo at its current ramp position (deceleration
+briefly 0, so the bricklet does not brake through a 75° overshoot), ends any
+blocking wait, `run_trajectory()` or `set_joints_sequence()` at once (they
+return `False`), and makes later motion commands raise
+`pib3.EmergencyStopError`. Pressing a stop key again does **not** resume.
 
-### enable_estop_key() / disable_estop_key()
+A program that ends with an exception or Ctrl+C inside `with Robot(...)`
+freezes the motors as well; a normal end lets the last moves finish.
+
+### enable_estop_key() / disable_estop_key() / estop_keys
 
 ```python
-def enable_estop_key(self, key: str = "KP_0") -> None
+def enable_estop_key(self, keys: Union[None, str, Sequence[str]] = None) -> bool
 def disable_estop_key(self) -> None
+@property
+def estop_keys(self) -> Tuple[str, ...]
 ```
 
-Start/stop a background keyboard listener for emergency stop. Pressing the configured key toggles between `stop()` and `resume()`. Idempotent: calling twice on the same backend replaces the subscription, not duplicates it.
+Default keys: **Space, Esc, Numpad-0, Pause** (`pib3.DEFAULT_STOP_KEYS`);
+pass a name or list for others (`"f12"`, `"enter"`, single characters).
+The real robot arms them on connect (`Robot(estop_keys=...)`).
 
-Default key is `"KP_0"` (numpad 0). Other examples: `"KP_Insert"`, `"F12"`, `"pause"`, or any single character.
+Returns `False` and says why when the global keyboard hook cannot work:
+macOS without *Input Monitoring* permission, Linux under Wayland, no
+display. One process-wide `pynput` listener serves all robot objects.
 
-Requires `pynput`: `pip install pynput`
+!!! bug "Fixed in 0.2: Numpad-0 never worked"
+    The old default `KeyCode.from_vk(96)` never compared equal to a real key
+    press on Windows or Linux (pynput also compares the scan code / X11
+    symbol), and on macOS it matched **F5** instead of Numpad-0.
+
+### show_stop_button() / hide_stop_button()
 
 ```python
-with Robot(host="172.26.34.149") as robot:
-    robot.enable_estop_key()       # Numpad 0 = emergency stop
-    robot.run_trajectory(traj)     # Press numpad 0 to abort
+def show_stop_button(self, title: Optional[str] = None) -> bool
+def hide_stop_button(self) -> None
 ```
+
+A big red STOP window (separate process, always on top). Click it with a
+touchpad, or press Space/Esc/Enter while it has focus. The real robot opens
+it by itself when the keys cannot work (`Robot(stop_button="auto")`).
+
+### Ctrl+C
+
+While a robot is connected, Ctrl+C first freezes the motors and then raises
+the usual `KeyboardInterrupt`. That works on every system without any
+permission (`RobotBackend.STOP_ON_CTRL_C`).
 
 ---
 
@@ -516,8 +560,14 @@ def run_trajectory(
     trajectory: Union[str, Path, Trajectory],
     rate_hz: float = 20.0,
     progress_callback: Optional[Callable[[int, int], None]] = None,
+    approach_speed: Optional[float] = None,
 ) -> bool
 ```
+
+Before streaming, the arm moves to the first waypoint at `approach_speed`
+(default `DEFAULT_APPROACH_SPEED` = 30 deg/s; `0` skips it) and waits until it
+is there, so the start of a drawing is not smeared. Waypoints outside the
+joint limits are clamped with one warning.
 
 **Parameters:**
 

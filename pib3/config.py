@@ -116,6 +116,13 @@ class LowLatencyConfig:
             This ensures get_joint() returns correct values after low-latency sets.
             Note: Does NOT publish to ROS topics (that would cause double commands).
         command_timeout: Timeout for direct motor commands in seconds.
+        use_robot_motor_config: Read the robot's own motor table from pib-api
+            (``http://<host>:<api_port>/motor``) on connect. It gives the exact
+            bricklet UID and pin of every motor, plus the ``invert`` flags and
+            rotation ranges set in Cerebra, so direct control moves every joint
+            exactly like the ROS path does. Falls back to bricklet
+            auto-discovery when pib-api is unreachable.
+        api_port: Port of pib-api on the robot.
     """
     enabled: bool = True
     tinkerforge_host: Optional[str] = None  # Defaults to RobotConfig.host
@@ -123,6 +130,8 @@ class LowLatencyConfig:
     motor_mapping: Optional[Dict[str, tuple]] = None
     sync_to_ros: bool = True  # Default to True - keeps local cache updated
     command_timeout: float = 0.5
+    use_robot_motor_config: bool = True
+    api_port: int = 5000
 
 
 @dataclass

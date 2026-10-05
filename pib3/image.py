@@ -31,7 +31,7 @@ def _check_dependencies():
     if not HAS_CV2:
         raise ImportError(
             "opencv-python is required for contour detection. "
-            "Install with: pip install opencv-python-headless"
+            "Install with: pip install opencv-python"
         )
 
 
@@ -209,14 +209,21 @@ def _normalize_coordinates(
     image_height: int,
     margin: float = 0.05,
 ) -> List[Tuple[np.ndarray, bool]]:
-    """Convert pixel coordinates to normalized [0, 1] range."""
-    scale = 1.0 - 2 * margin
+    """Convert pixel coordinates to normalized [0, 1] range.
+
+    Both axes share one scale, so the drawing keeps its proportions: a circle
+    in a wide image stays a circle and is centred on the shorter axis.
+    (Separate scales used to squeeze every non-square image into a square.)
+    """
+    scale = (1.0 - 2 * margin) / max(image_width, image_height, 1)
+    offset_x = (1.0 - image_width * scale) / 2.0
+    offset_y = (1.0 - image_height * scale) / 2.0
     normalized = []
 
     for points, closed in contours:
         norm_points = np.empty_like(points)
-        norm_points[:, 0] = margin + (points[:, 0] / image_width) * scale
-        norm_points[:, 1] = margin + (points[:, 1] / image_height) * scale
+        norm_points[:, 0] = offset_x + points[:, 0] * scale
+        norm_points[:, 1] = offset_y + points[:, 1] * scale
         normalized.append((norm_points, closed))
 
     return normalized
