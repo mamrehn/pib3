@@ -35,6 +35,15 @@ blobs.
 - **Simulation matches the robot's threshold:** detections below 0.5
   confidence are dropped, as in the robot's YOLO archives (was 0.25).
 - Polling `/list_models` after a slow start no longer logs a warning per poll.
+- **YOLO26m on the laptop.** `AIModel.YOLO26M` and `AIModel.POSE_YOLO26M` run
+  in the simulation (`yolo26m.pt`, `yolo26m-pose.pt`) as the more accurate
+  choice on request (s stays the default); they are `LAPTOP_ONLY_MODELS`, and `robot.ai`
+  refuses them without asking the robot (4 results/s on the OAK-D).
+  `pib3.backends.sim_ai.inference_ms(model)` measures one frame on this
+  computer, to pick s, m or n.
+- **Weights offline.** The simulation loads weights from `$PIB3_WEIGHTS_DIR`,
+  the running script's folder or the working directory before ultralytics
+  downloads them.
 
 ### Robot AI, camera and IMU follow pib-backend `develop` (breaking)
 

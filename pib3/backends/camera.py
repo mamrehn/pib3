@@ -65,6 +65,7 @@ from .detection_messages import (
     HAND_KEYPOINT_NAMES,
     detection_topic,
 )
+from ..types import LAPTOP_ONLY_MODELS
 
 if TYPE_CHECKING:
     from .robot import RealRobotBackend
@@ -1225,6 +1226,13 @@ class AISubsystem:
             reason is logged together with the models it offers).
         """
         model_id = self._robot.resolve_ai_model_name(model)
+        if model_id in LAPTOP_ONLY_MODELS:
+            logger.warning(
+                "%s runs only on a laptop (simulation); the robot's camera "
+                "offers the small and nano models (AIModel.YOLO26S, "
+                "AIModel.YOLO26N and their pose versions).", model_id,
+            )
+            return False
         # A model this client already holds stays held on the robot whatever
         # happens to this call, so its receiver stays too.
         already_held = model_id in self._receivers

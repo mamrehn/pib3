@@ -300,11 +300,14 @@ from pib3 import AIModel
 | `AIModel.YOLO26N` | `yolo26n_coco_512x288` | Object detection, faster and less accurate | 4 |
 | `AIModel.POSE_YOLO` (also `POSE_YOLO26S`) | `yolo26s_pose_coco_512x288` | Body pose, 17 COCO keypoints (default) | 4 |
 | `AIModel.POSE_YOLO26N` | `yolo26n_pose_coco_512x288` | Body pose, faster and less accurate | 4 |
+| `AIModel.YOLO26M`, `AIModel.POSE_YOLO26M` | `yolo26m_coco_512x288`, `yolo26m_pose_coco_512x288` | More accurate, **laptop (simulation) only** | - |
 | `AIModel.HAND` | `hand_tracking_mp` | Hand landmarks, 21 points per hand | 8 |
 | `AIModel.FACE` | `face_detection_yunet_160x120` | Face boxes | 4 |
 | `AIModel.EMOTION` | `emotion_recognition_crop` | Emotion (one probability per emotion in `det.scalars`) | 8 |
 | `AIModel.HEAD_POSE` | `head_pose_estimation_crop` | Head `yaw`, `pitch`, `roll` in `det.scalars` | 8 |
 | `AIModel.QR_CODE` | `qr_code_detection_384x384` | QR code boxes | 4 |
+
+`AIModel.YOLO26M` and `POSE_YOLO26M` are in `LAPTOP_ONLY_MODELS`: on the OAK-D YOLO26m reached 4 results/s, so the robot's store does not have it, and `robot.ai` refuses them without asking the robot.
 
 pib-backend withdrew the face mesh (`facemesh_crop`) and the 68 facial landmarks (`facial_landmarks_68_crop`) from its camera model list (PR-1957), so `AIModel` no longer names them.
 
@@ -348,7 +351,7 @@ These were exposed by earlier versions of this SDK. `set_model()` remaps them wi
 The robot never had segmentation, gaze, line or person-only models in this store; they were part of an earlier backend branch.
 
 !!! note "Simulation"
-    The Webots backend (`sim.ai`) has the same methods and runs ultralytics or MediaPipe on your laptop instead of the OAK-D: `YOLO26S` → `yolo26s.pt`, `YOLO26N` → `yolo26n.pt`, `POSE_YOLO` → `yolo26s-pose.pt`, `POSE_YOLO26N` → `yolo26n-pose.pt`, `HAND` → MediaPipe, `"segmentation"` → `yolo26n-seg.pt` (simulation only, with `det.mask_rle`). On a laptop's CPU the nano models are about three times faster. It also takes a weights file name directly (`"yolo26m.pt"`) and `"recognition"` for Webots ground truth. Faces, emotion, head pose and QR codes have no simulated equivalent. Models run together, each inferring on every rendered frame.
+    The Webots backend (`sim.ai`) has the same methods and runs ultralytics or MediaPipe on your laptop instead of the OAK-D: `YOLO26S` → `yolo26s.pt`, `YOLO26N` → `yolo26n.pt`, `YOLO26M` → `yolo26m.pt`, `POSE_YOLO` → `yolo26s-pose.pt`, `POSE_YOLO26N` / `POSE_YOLO26M` → `yolo26n-pose.pt` / `yolo26m-pose.pt`, `HAND` → MediaPipe, `"segmentation"` → `yolo26n-seg.pt` (simulation only, with `det.mask_rle`). Use s by default; n on a laptop that is too slow for it, m when you want more accuracy. On a laptop CPU one frame took 38 / 86 / 212 ms (n / s / m); `pib3.backends.sim_ai.inference_ms(model)` measures it on yours. Weights are loaded from `$PIB3_WEIGHTS_DIR`, the running script's folder or the working directory before ultralytics downloads them. It also takes a weights file name directly (`"yolo26l.pt"`) and `"recognition"` for Webots ground truth. Faces, emotion, head pose and QR codes have no simulated equivalent. Models run together, each inferring on every rendered frame.
 
 ---
 

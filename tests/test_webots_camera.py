@@ -957,3 +957,55 @@ def test_simulated_pose_keeps_each_keypoints_confidence():
     assert detection["keypoint_score"] == pytest.approx(conf)
     assert pose.keypoints[16].confidence == pytest.approx(0.01)
     assert pose.nose.confidence == pytest.approx(0.99)
+
+
+def test_the_medium_models_run_only_in_the_simulation():
+    from pib3.backends.sim_ai import SIM_MODEL_ALIASES, simulated_models
+    from pib3.types import LAPTOP_ONLY_MODELS, AIModel
+
+    assert SIM_MODEL_ALIASES[AIModel.YOLO26M.value] == "yolo26m.pt"
+    assert SIM_MODEL_ALIASES[AIModel.POSE_YOLO26M.value] == "yolo26m-pose.pt"
+    assert LAPTOP_ONLY_MODELS == {AIModel.YOLO26M.value, AIModel.POSE_YOLO26M.value}
+    assert simulated_models()[AIModel.YOLO26M.value] == "object_detection"
+
+
+def test_weights_are_found_offline_before_ultralytics_downloads(tmp_path, monkeypatch):
+    from pib3.backends import sim_ai
+
+    folder, script_dir, cwd = (tmp_path / name for name in ("weights", "script", "cwd"))
+    for path in (folder, script_dir, cwd):
+        path.mkdir()
+    monkeypatch.setattr(sim_ai.sys, "argv", [str(script_dir / "run.py")])
+    monkeypatch.chdir(cwd)
+    monkeypatch.delenv(sim_ai.WEIGHTS_DIR_VARIABLE, raising=False)
+
+    assert sim_ai.resolve_weights("yolo26s.pt") == "yolo26s.pt"     # nothing local
+    (cwd / "yolo26s.pt").write_bytes(b"x")
+    assert sim_ai.resolve_weights("yolo26s.pt") == str(cwd / "yolo26s.pt")
+    (script_dir / "yolo26s.pt").write_bytes(b"x")
+    assert sim_ai.resolve_weights("yolo26s.pt") == str(script_dir / "yolo26s.pt")
+    (folder / "yolo26s.pt").write_bytes(b"x")
+    monkeypatch.setenv(sim_ai.WEIGHTS_DIR_VARIABLE, str(folder))
+    assert sim_ai.resolve_weights("yolo26s.pt") == str(folder / "yolo26s.pt")
+    assert sim_ai.resolve_weights("/elsewhere/yolo26s.pt") == "/elsewhere/yolo26s.pt"
+
+
+def test_inference_ms_times_the_model_after_a_warm_up(monkeypatch):
+    from pib3.backends import sim_ai
+
+    calls = []
+
+    class Runner:
+        def infer(self, image):
+            calls.append(image.shape)
+            return []
+
+        def close(self):
+            calls.append("closed")
+
+    monkeypatch.setattr(sim_ai, "build_runner", lambda name: Runner())
+
+    ms = sim_ai.inference_ms("yolo26s_coco_512x288", repeats=3)
+
+    assert ms >= 0.0
+    assert calls == [(360, 640, 3)] * 4 + ["closed"]      # warm-up + 3 timed

@@ -259,8 +259,8 @@ Differences worth knowing:
   simulator themselves, but a loop that only reads does not — without it the
   camera returns the same frame forever.
 - **`"recognition"`** is Webots ground truth: exact boxes, `confidence` always
-  `1.0`, no model. Pass a model (`AIModel.YOLO26N`, `AIModel.POSE_YOLO26N`,
-  `AIModel.HAND`; the nano models suit a laptop's CPU) to run a real network on the simulated frames instead — `pip install "pib3[sim] @ git+https://github.com/mamrehn/pib3.git"`.
+  `1.0`, no model. Pass a model (`AIModel.YOLO26S`, `AIModel.POSE_YOLO`,
+  `AIModel.HAND`; `YOLO26N` on a laptop too slow for s, `YOLO26M` for more accuracy) to run a real network on the simulated frames instead — `pip install "pib3[sim] @ git+https://github.com/mamrehn/pib3.git"`.
   Note a COCO-trained detector sees very little in an untextured world.
 - **Objects must opt in.** A Solid is only recognized if it sets
   `recognitionColors`; its `model` field becomes `det.label`.

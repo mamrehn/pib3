@@ -772,3 +772,16 @@ def test_a_detection_from_the_camera_has_no_keypoint_scores():
 
     assert {d.label for d in detections} == {"bus", "person"}
     assert all(d["keypoint_score"] == [] for d in message["detections"])
+
+
+def test_the_robot_refuses_laptop_only_models_without_asking_it(caplog):
+    robot = FakeRobot()
+    ai = AISubsystem(robot)
+
+    with caplog.at_level(logging.WARNING):
+        assert ai.set_model(AIModel.YOLO26M) is False
+        assert ai.start_model(AIModel.POSE_YOLO26M) is False
+
+    assert not any(call[0] == "start" for call in robot.calls)
+    assert "only on a laptop" in caplog.text
+    assert ai.models == ()

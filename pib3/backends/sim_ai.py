@@ -38,7 +38,11 @@ ground truth) needs no model at all.
 """
 
 import logging
-from typing import Any, Dict, List
+import os
+import sys
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -96,9 +100,11 @@ SIM_MODEL_ALIASES: Dict[str, str] = {
     # Detection — the robot runs the same YOLO26 sizes (its own RVC2 builds).
     AIModel.YOLO26S.value: "yolo26s.pt",
     AIModel.YOLO26N.value: "yolo26n.pt",
+    AIModel.YOLO26M.value: "yolo26m.pt",      # laptop only
     # Pose — both sides are YOLO26 with 17 COCO keypoints.
     AIModel.POSE_YOLO.value: "yolo26s-pose.pt",
     AIModel.POSE_YOLO26N.value: "yolo26n-pose.pt",
+    AIModel.POSE_YOLO26M.value: "yolo26m-pose.pt",   # laptop only
     # Hand — handled by MediaPipe, not ultralytics (see MediaPipeHands).
     AIModel.HAND.value: "hand",
     "hand_tracking": "hand",
@@ -118,11 +124,39 @@ def simulated_models() -> Dict[str, str]:
     return {
         AIModel.YOLO26S.value: "object_detection",
         AIModel.YOLO26N.value: "object_detection",
+        AIModel.YOLO26M.value: "object_detection",
         AIModel.POSE_YOLO.value: "pose_estimation",
         AIModel.POSE_YOLO26N.value: "pose_estimation",
+        AIModel.POSE_YOLO26M.value: "pose_estimation",
         AIModel.HAND.value: "hand_tracking",
         "segmentation": "instance_segmentation",   # simulation only
     }
+
+
+#: Environment variable naming a folder with weights files (``yolo26s.pt``
+#: ...), for computers without internet access.
+WEIGHTS_DIR_VARIABLE = "PIB3_WEIGHTS_DIR"
+
+
+def resolve_weights(weights: str) -> str:
+    """Where to load a weights file from, preferring a local copy.
+
+    Looks in ``$PIB3_WEIGHTS_DIR``, then next to the running script, then in
+    the working directory. Without a local copy the name is returned
+    unchanged, and ultralytics downloads the file on first use (which needs
+    internet).
+    """
+    if os.path.isabs(weights) or os.sep in weights:
+        return weights
+    folders = [os.environ.get(WEIGHTS_DIR_VARIABLE)]
+    if sys.argv and sys.argv[0]:
+        folders.append(str(Path(sys.argv[0]).resolve().parent))
+    folders.append(os.getcwd())
+    for folder in filter(None, folders):
+        candidate = Path(folder) / weights
+        if candidate.is_file():
+            return str(candidate)
+    return weights
 
 
 # ==================== RUNNERS ====================
@@ -154,7 +188,7 @@ class _UltralyticsBase(SimInference):
                 "Alternatively use sim.ai.set_model('recognition') for "
                 "Webots ground truth, which needs no model at all."
             ) from exc
-        self._net = YOLO(weights)
+        self._net = YOLO(resolve_weights(weights))
         self._conf = conf
         self.weights = weights
         # nms=False picks YOLO26's end-to-end (NMS-free) head, the one its
@@ -322,6 +356,30 @@ class MediaPipeHands(SimInference):
 
 
 # ==================== FACTORY ====================
+
+
+def inference_ms(
+    model_name: str, image: Optional[np.ndarray] = None, repeats: int = 3
+) -> float:
+    """Milliseconds one frame takes with this model on this computer.
+
+    Loads the model, runs it once to warm up, then times ``repeats`` frames
+    of ``image`` (default: a grey 640x360 frame, the size of the Webots and
+    webcam images after scaling) and returns the median. Use it to choose a
+    model size for a laptop before starting it with ``sim.ai.set_model``.
+    """
+    frame = image if image is not None else np.full((360, 640, 3), 114, np.uint8)
+    runner = build_runner(model_name)
+    try:
+        runner.infer(frame)
+        times = []
+        for _ in range(max(1, repeats)):
+            started = time.perf_counter()
+            runner.infer(frame)
+            times.append((time.perf_counter() - started) * 1000.0)
+    finally:
+        runner.close()
+    return sorted(times)[len(times) // 2]
 
 
 def build_runner(model_name: str, **kwargs) -> SimInference:

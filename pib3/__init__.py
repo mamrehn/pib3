@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 # Core types
-from .types import Joint, Sketch, Stroke, HandPose, LEFT_HAND_JOINTS, RIGHT_HAND_JOINTS, AIModel, ImuType, DEPRECATED_MODEL_ALIASES
+from .types import Joint, Sketch, Stroke, HandPose, LEFT_HAND_JOINTS, RIGHT_HAND_JOINTS, AIModel, ImuType, DEPRECATED_MODEL_ALIASES, LAPTOP_ONLY_MODELS
 
 # Emergency stop
 from .safety import EmergencyStopError, DEFAULT_STOP_KEYS
@@ -92,6 +92,7 @@ __all__ = [
     "Trajectory",
     "AIModel",
     "DEPRECATED_MODEL_ALIASES",
+    "LAPTOP_ONLY_MODELS",
     "ImuType",
     # Emergency stop
     "EmergencyStopError",

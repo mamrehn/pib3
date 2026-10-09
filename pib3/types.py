@@ -31,22 +31,34 @@ class AIModel(str, Enum):
     Any other model id the robot lists (``robot.get_available_ai_models()``)
     works as a plain string, for example ``"yolov6n_coco_640x640"``.
 
-    The YOLO26 models are Ultralytics builds (AGPL-3.0) at 512x288, the
-    camera's 16:9. The small (s) ones are the default: clearly more accurate,
-    at about 12 results per second on the camera. The nano (n) ones are about
-    twice as fast and stay as a fallback. The robot's model store must contain
-    them: pib-backend's b3 fork (branch ``b3-develop``) provisions them from its
-    model release; otherwise ``set_model`` reports that the robot does not
-    list the model.
+    The YOLO26 models are Ultralytics builds (AGPL-3.0). Three sizes, and
+    where each runs:
+
+    ===========  ==========================  =================================
+    Size         Robot (OAK-D, 512x288)      Laptop (simulation, ultralytics)
+    ===========  ==========================  =================================
+    s (default)  ``YOLO26S``, ``POSE_YOLO``  ``YOLO26S``, ``POSE_YOLO``
+    n (faster)   ``YOLO26N``, fallback       ``YOLO26N``, for weaker laptops
+    m (better)   not offered: 4 results/s    ``YOLO26M``, on request
+    ===========  ==========================  =================================
+
+    The robot's model store must contain its models: pib-backend's b3 fork
+    (branch ``b3-develop``) provisions them from its model release; otherwise
+    ``set_model`` reports that the robot does not list the model. The m models
+    are :data:`LAPTOP_ONLY_MODELS`: ``robot.ai`` refuses them without asking
+    the robot.
     """
 
-    # Object detection, 80 COCO classes: small (default) and nano (faster)
+    # Object detection, 80 COCO classes: small (default), nano (faster),
+    # medium (more accurate, laptop only, on request)
     YOLO26S = "yolo26s_coco_512x288"
     YOLO26N = "yolo26n_coco_512x288"
-    # Body pose, a person box with 17 COCO keypoints: small (default) and nano
+    YOLO26M = "yolo26m_coco_512x288"
+    # Body pose, a person box with 17 COCO keypoints: the same three sizes
     POSE_YOLO = "yolo26s_pose_coco_512x288"
     POSE_YOLO26S = "yolo26s_pose_coco_512x288"  # same model as POSE_YOLO
     POSE_YOLO26N = "yolo26n_pose_coco_512x288"
+    POSE_YOLO26M = "yolo26m_pose_coco_512x288"
     # Hand landmarks, 21 points per hand (MediaPipe landmarker)
     HAND = "hand_tracking_mp"
     # Faces: boxes, emotion, head pose
@@ -55,6 +67,12 @@ class AIModel(str, Enum):
     HEAD_POSE = "head_pose_estimation_crop"
     # QR codes
     QR_CODE = "qr_code_detection_384x384"
+
+
+#: Models only the simulation runs (on the laptop, with ultralytics). On the
+#: OAK-D YOLO26m reached 4 results/s, too slow for anything that moves, so the
+#: robot's model store does not have it.
+LAPTOP_ONLY_MODELS = frozenset({AIModel.YOLO26M.value, AIModel.POSE_YOLO26M.value})
 
 
 #: Names pib3 used before the robot switched to pib-backend's model store,
@@ -69,6 +87,7 @@ class AIModel(str, Enum):
 DEPRECATED_MODEL_ALIASES = MappingProxyType({
     "yolo26n": AIModel.YOLO26N.value,
     "yolo26s": AIModel.YOLO26S.value,
+    "yolo26m": AIModel.YOLO26M.value,
     "yolov6n": AIModel.YOLO26N.value,
     "yolov10n": AIModel.YOLO26N.value,
     "yolov8n": AIModel.YOLO26N.value,
