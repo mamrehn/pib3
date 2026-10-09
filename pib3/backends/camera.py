@@ -895,9 +895,9 @@ class AIDetectionReceiver:
         """
         Accept only messages of ``model_id`` from now on, and clear the buffers.
 
-        Both hand chains publish on one shared topic, and a message names its
-        model in ``model_id``; this keeps one chain's results out of the other's
-        receiver. A message without a ``model_id`` is kept. ``None`` accepts
+        The two older hand chains publish on one shared topic, and a message
+        names its model in ``model_id``; this keeps one chain's results out of
+        the other's receiver. A message without a ``model_id`` is kept. ``None`` accepts
         every model again.
         """
         with self._lock:

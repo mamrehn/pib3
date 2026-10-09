@@ -59,8 +59,10 @@ class AIModel(str, Enum):
     POSE_YOLO26S = "yolo26s_pose_coco_512x288"  # same model as POSE_YOLO
     POSE_YOLO26N = "yolo26n_pose_coco_512x288"
     POSE_YOLO26M = "yolo26m_pose_coco_512x288"
-    # Hand landmarks, 21 points per hand (MediaPipe landmarker)
-    HAND = "hand_tracking_mp"
+    # Hand landmarks, 21 points per hand (MediaPipe landmarker, crops computed
+    # on the camera). The older chains "hand_tracking_mp" and "hand_tracking"
+    # still start as strings, but the robot no longer lists them.
+    HAND = "hand_tracking_fast"
     # Faces: boxes, emotion, head pose
     FACE = "face_detection_yunet_160x120"
     EMOTION = "emotion_recognition_crop"

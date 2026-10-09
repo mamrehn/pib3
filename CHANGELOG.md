@@ -20,6 +20,12 @@ blobs.
   keypoint and the simulation passes ultralytics' values on; until now every
   keypoint read 1.0, so a check like "is the wrist visible?" always passed.
   A robot whose backend predates the field still reads 1.0.
+- **`AIModel.HAND` is `hand_tracking_fast`.** pib-backend replaced its two
+  hand chains with one that computes the hand crops on the camera
+  (PR-1961). It needs 9 of the camera's 16 cores, publishes on
+  `detections/hand_tracking_fast` and sends the same hand message. The robot
+  no longer lists `hand_tracking_mp`, the old value; it still starts as a
+  string, and the simulation still accepts it.
 - **Withdrawn upstream:** `AIModel.FACE_MESH` and `AIModel.FACE_LANDMARKS`
   are gone; pib-backend took both models off its camera list (PR-1957).
 - **A crashed script's model is released.** `set_model()` also releases this
@@ -99,8 +105,9 @@ What this needs and what is not verified:
 - Nothing here was run against a robot's camera node. Tested: the parsers with
   messages built by the backend's own code, the service and topic calls with a
   fake rosbridge, the models on an OAK-D Lite on a laptop. The hand chain
-  `hand_tracking_mp` (`AIModel.HAND`) has no published speed; its older
-  sibling `hand_tracking` measured 1.0 result/s on a robot.
+  `hand_tracking_fast` (`AIModel.HAND`) has not run on a camera yet, not even
+  at pib-backend; the oldest chain, `hand_tracking`, measured 1.0 result/s
+  on a robot.
 
 ## 0.2.0 (2026-10-05)
 

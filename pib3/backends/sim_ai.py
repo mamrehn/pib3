@@ -108,6 +108,7 @@ SIM_MODEL_ALIASES: Dict[str, str] = {
     # Hand — handled by MediaPipe, not ultralytics (see MediaPipeHands).
     AIModel.HAND.value: "hand",
     "hand_tracking": "hand",
+    "hand_tracking_mp": "hand",
     # Simulation only: the robot has no segmentation model.
     "segmentation": "yolo26n-seg.pt",
 }

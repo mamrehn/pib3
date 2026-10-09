@@ -81,7 +81,7 @@ robot.ai.set_model("yolov6n_coco_640x640")  # any id from get_available_ai_model
 
 #### `start_model()` / `stop_model()`
 
-Run several models at once. The camera has 16 processing cores; each model uses a fixed number (`AIModelInfo.shaves`, 4 for the YOLO models, 8 for the hand chain), so two or three models fit together.
+Run several models at once. The camera has 16 processing cores; each model uses a fixed number (`AIModelInfo.shaves`, 4 for the YOLO models, 9 for the hand chain), so two or three models fit together.
 
 ```python
 robot.ai.start_model(AIModel.YOLO26S)
@@ -301,7 +301,7 @@ from pib3 import AIModel
 | `AIModel.POSE_YOLO` (also `POSE_YOLO26S`) | `yolo26s_pose_coco_512x288` | Body pose, 17 COCO keypoints (default) | 4 |
 | `AIModel.POSE_YOLO26N` | `yolo26n_pose_coco_512x288` | Body pose, faster and less accurate | 4 |
 | `AIModel.YOLO26M`, `AIModel.POSE_YOLO26M` | `yolo26m_coco_512x288`, `yolo26m_pose_coco_512x288` | More accurate, **laptop (simulation) only** | - |
-| `AIModel.HAND` | `hand_tracking_mp` | Hand landmarks, 21 points per hand | 8 |
+| `AIModel.HAND` | `hand_tracking_fast` | Hand landmarks, 21 points per hand | 9 |
 | `AIModel.FACE` | `face_detection_yunet_160x120` | Face boxes | 4 |
 | `AIModel.EMOTION` | `emotion_recognition_crop` | Emotion (one probability per emotion in `det.scalars`) | 8 |
 | `AIModel.HEAD_POSE` | `head_pose_estimation_crop` | Head `yaw`, `pitch`, `roll` in `det.scalars` | 8 |
@@ -312,7 +312,9 @@ from pib3 import AIModel
 pib-backend withdrew the face mesh (`facemesh_crop`) and the 68 facial landmarks (`facial_landmarks_68_crop`) from its camera model list (PR-1957), so `AIModel` no longer names them.
 
 !!! warning "Hand tracking speed is unknown"
-    `AIModel.HAND` is `hand_tracking_mp`, the newer of the backend's two hand chains. pib-backend measured its older chain, `hand_tracking`, at **1.0 result/s** on a robot. Nobody has published a measurement of `hand_tracking_mp`. A hand-mirroring program needs several results per second: check `robot.ai.fps` on your robot before relying on it. `AIModel` has no member for the older chain; `"hand_tracking"` works as a string.
+    `AIModel.HAND` is `hand_tracking_fast`, which replaced the backend's two older hand chains (pib-backend PR-1961). It computes the hand crops on the camera, so no frame waits for the robot's computer; that wait is what held the oldest chain, `hand_tracking`, to **1.0 result/s** on a robot. Nobody has measured `hand_tracking_fast` on a camera yet, pib-backend included. A hand-mirroring program needs several results per second: check `robot.ai.fps` on your robot before relying on it.
+
+    The older chains `"hand_tracking_mp"` and `"hand_tracking"` still start as strings and publish on the shared topic `detections/hand_tracking`. The robot no longer lists them, so `available_models()` does not show them, and a start that takes longer than rosbridge's 5 s reports `False` even when the model came up.
 
 Any other model id works as a plain string; `robot.ai.available_models()` lists what the robot has. The model ids and core counts come from the backend's manifest and were not all measured by pib3; `available_models()` reports the numbers the robot itself uses.
 

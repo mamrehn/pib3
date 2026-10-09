@@ -58,7 +58,7 @@ def load(name):
     return json.loads((DATA / f"{name}.json").read_text())
 
 
-def hand_message(landmarks_px, handedness=0.73, frame=(1280, 720), model_id="hand_tracking_mp"):
+def hand_message(landmarks_px, handedness=0.73, frame=(1280, 720), model_id="hand_tracking_fast"):
     """A hand the way the backend publishes it (label, 21 names, four scalars)."""
     xs = [x for x, _ in landmarks_px]
     ys = [y for _, y in landmarks_px]
@@ -326,8 +326,8 @@ def test_list_models_becomes_a_dict_keyed_by_model_id(robot):
     FakeService.handlers["/list_models"] = lambda request: {"models": [
         {"model_id": "yolo26n_coco_512x288", "task": "object_detection", "licence": "AGPL-3.0",
          "shaves": 4, "size_bytes": 5472216, "available": True, "active": False},
-        {"model_id": "hand_tracking_mp", "task": "hand_tracking", "licence": "x",
-         "shaves": 8, "size_bytes": 1, "available": False, "active": False},
+        {"model_id": "hand_tracking_fast", "task": "hand_tracking", "licence": "x",
+         "shaves": 9, "size_bytes": 1, "available": False, "active": False},
     ]}
 
     models = robot.get_available_ai_models()
@@ -335,7 +335,7 @@ def test_list_models_becomes_a_dict_keyed_by_model_id(robot):
     assert FakeService.calls[0][:2] == ("/list_models", "datatypes/srv/ListModels")
     assert models["yolo26n_coco_512x288"]["shaves"] == 4
     assert "model_id" not in models["yolo26n_coco_512x288"]
-    info = AIModelInfo.from_dict("hand_tracking_mp", models["hand_tracking_mp"])
+    info = AIModelInfo.from_dict("hand_tracking_fast", models["hand_tracking_fast"])
     assert info.available is False and info.task == "hand_tracking"
 
 
@@ -418,7 +418,8 @@ def test_old_names_are_resolved_before_they_reach_the_robot(robot):
     (AIModel.YOLO26S, "/detections/yolo26s_coco_512x288"),
     (AIModel.POSE_YOLO, "/detections/yolo26s_pose_coco_512x288"),
     (AIModel.POSE_YOLO26N, "/detections/yolo26n_pose_coco_512x288"),
-    (AIModel.HAND, "/detections/hand_tracking"),          # shared hand topic
+    (AIModel.HAND, "/detections/hand_tracking_fast"),
+    ("hand_tracking_mp", "/detections/hand_tracking"),    # older chains share a topic
     (AIModel.FACE, "/detections/face_detection_yunet_160x120"),
     ("yolov6n_coco_640x640", "/detections/yolov6n_coco_640x640"),  # any model id
 ])
@@ -496,12 +497,12 @@ def test_set_model_stops_the_old_model_then_starts_the_new_one():
     assert ai.set_model(AIModel.YOLO26N)
 
     assert robot.calls == [
-        ("start", "hand_tracking_mp"),
-        ("stop", "hand_tracking_mp"),
+        ("start", "hand_tracking_fast"),
+        ("stop", "hand_tracking_fast"),
         ("start", "yolo26n_coco_512x288"),
     ]
     assert ai.model == "yolo26n_coco_512x288" and ai.models == ("yolo26n_coco_512x288",)
-    assert robot.subscriptions["hand_tracking_mp"].subscribed is False
+    assert robot.subscriptions["hand_tracking_fast"].subscribed is False
 
 
 def test_setting_the_running_model_again_does_not_restart_the_camera_twice():
@@ -522,8 +523,8 @@ def test_start_model_keeps_other_models_running():
     ai.start_model(AIModel.HAND)
 
     assert not any(c[0] == "stop" for c in robot.calls)
-    assert set(ai.models) == {"yolo26n_coco_512x288", "hand_tracking_mp"}
-    assert ai.model == "hand_tracking_mp"
+    assert set(ai.models) == {"yolo26n_coco_512x288", "hand_tracking_fast"}
+    assert ai.model == "hand_tracking_fast"
 
 
 def test_results_reach_the_receiver_of_their_model():
@@ -543,14 +544,14 @@ def test_results_reach_the_receiver_of_their_model():
 def test_a_refused_model_is_reported_with_what_the_robot_offers(caplog):
     robot = FakeRobot(refuse={"yolo26n_coco_512x288"},
                       offered={"yolov6n_coco_640x640": {"available": True},
-                               "hand_tracking_mp": {"available": False}})
+                               "hand_tracking_fast": {"available": False}})
     ai = AISubsystem(robot)
 
     with caplog.at_level(logging.WARNING):
         assert ai.set_model(AIModel.YOLO26N) is False
 
     assert "Unknown model" in caplog.text and "yolov6n_coco_640x640" in caplog.text
-    assert "hand_tracking_mp" not in caplog.text          # unavailable: not offered
+    assert "hand_tracking_fast" not in caplog.text        # unavailable: not offered
     assert ai.model is None and ai.models == ()
     assert robot.subscriptions["yolo26n_coco_512x288"].subscribed is False
 
@@ -586,7 +587,7 @@ def test_stop_releases_every_model_and_unsubscribes():
     ai.stop()
 
     assert sorted(c[1] for c in robot.calls if c[0] == "stop") == [
-        "hand_tracking_mp", "yolo26n_coco_512x288"]
+        "hand_tracking_fast", "yolo26n_coco_512x288"]
     assert all(not s.subscribed for s in robot.subscriptions.values())
     assert ai.models == () and ai.model is None
 
@@ -616,8 +617,8 @@ def test_set_ai_model_on_the_backend_is_robot_ai_set_model(robot):
 
     assert [(c[0], c[2]["model_id"]) for c in FakeService.calls
             if c[0] != "/list_models"] == [
-        ("/start_model", "hand_tracking_mp"),
-        ("/stop_model", "hand_tracking_mp"),
+        ("/start_model", "hand_tracking_fast"),
+        ("/stop_model", "hand_tracking_fast"),
         ("/start_model", "yolo26s_coco_512x288"),
     ]
 
@@ -691,14 +692,14 @@ def test_a_random_stand_in_for_the_card_is_left_out_of_the_owner(monkeypatch):
 
 def test_set_model_releases_a_model_a_crashed_run_left_running():
     robot = FakeRobot(offered={
-        "hand_tracking_mp": {"available": True, "active": True},     # stale hold
+        "hand_tracking_fast": {"available": True, "active": True},   # stale hold
         "yolo26s_coco_512x288": {"available": True, "active": False},
     })
     ai = AISubsystem(robot)
 
     assert ai.set_model(AIModel.YOLO26S)
 
-    assert robot.calls == [("stop", "hand_tracking_mp"), ("start", "yolo26s_coco_512x288")]
+    assert robot.calls == [("stop", "hand_tracking_fast"), ("start", "yolo26s_coco_512x288")]
     assert ai.models == ("yolo26s_coco_512x288",)
 
 
@@ -718,7 +719,7 @@ def test_stopping_a_named_model_asks_the_robot_even_if_not_started_here():
     assert ai.stop_model(AIModel.HAND)
     assert ai.stop_model() is True                       # nothing named, nothing current
 
-    assert robot.calls == [("stop", "hand_tracking_mp")]
+    assert robot.calls == [("stop", "hand_tracking_fast")]
 
 
 def test_a_failed_restart_keeps_the_model_this_client_holds():

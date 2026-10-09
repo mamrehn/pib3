@@ -723,6 +723,7 @@ def test_robot_models_run_yolo26_in_sim():
     assert SIM_MODEL_ALIASES[AIModel.POSE_YOLO.value] == "yolo26s-pose.pt"
     assert SIM_MODEL_ALIASES[AIModel.POSE_YOLO26N.value] == "yolo26n-pose.pt"
     assert SIM_MODEL_ALIASES[AIModel.HAND.value] == "hand"
+    assert SIM_MODEL_ALIASES["hand_tracking_mp"] == "hand"     # AIModel.HAND before PR-1961
     assert SIM_MODEL_ALIASES["segmentation"] == "yolo26n-seg.pt"
 
 

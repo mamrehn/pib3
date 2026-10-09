@@ -42,8 +42,9 @@ HAND_KEYPOINT_NAMES: Tuple[str, ...] = (
     "pinky_mcp", "pinky_pip", "pinky_dip", "pinky_tip",
 )
 
-#: Models whose results do not arrive on ``detections/<model_id>``: both hand
-#: chains publish on one shared topic and tell themselves apart by ``model_id``.
+#: Models whose results do not arrive on ``detections/<model_id>``: the two
+#: older hand chains publish on one shared topic and tell themselves apart by
+#: ``model_id``. ``hand_tracking_fast`` (``AIModel.HAND``) has its own topic.
 MODEL_TOPICS: Dict[str, str] = {
     "hand_tracking": "detections/hand_tracking",
     "hand_tracking_mp": "detections/hand_tracking",
