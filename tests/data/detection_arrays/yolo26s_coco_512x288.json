@@ -1,0 +1,89 @@
+{
+ "header": {
+  "stamp": {
+   "sec": 1790000000,
+   "nanosec": 123000000
+  },
+  "frame_id": ""
+ },
+ "model_id": "yolo26s_coco_512x288",
+ "frame_width": 1280,
+ "frame_height": 720,
+ "detections": [
+  {
+   "label": "bus",
+   "score": 0.90380859375,
+   "x_min": 15,
+   "y_min": 151,
+   "x_max": 1265,
+   "y_max": 493,
+   "keypoint_names": [],
+   "keypoint_x": [],
+   "keypoint_y": [],
+   "keypoint_z": [],
+   "scalar_names": [],
+   "scalar_values": [],
+   "keypoint_score": []
+  },
+  {
+   "label": "person",
+   "score": 0.88818359375,
+   "x_min": 80,
+   "y_min": 255,
+   "x_max": 378,
+   "y_max": 602,
+   "keypoint_names": [],
+   "keypoint_x": [],
+   "keypoint_y": [],
+   "keypoint_z": [],
+   "scalar_names": [],
+   "scalar_values": [],
+   "keypoint_score": []
+  },
+  {
+   "label": "person",
+   "score": 0.88330078125,
+   "x_min": 1057,
+   "y_min": 271,
+   "x_max": 1279,
+   "y_max": 580,
+   "keypoint_names": [],
+   "keypoint_x": [],
+   "keypoint_y": [],
+   "keypoint_z": [],
+   "scalar_names": [],
+   "scalar_values": [],
+   "keypoint_score": []
+  },
+  {
+   "label": "person",
+   "score": 0.84765625,
+   "x_min": 355,
+   "y_min": 269,
+   "x_max": 543,
+   "y_max": 570,
+   "keypoint_names": [],
+   "keypoint_x": [],
+   "keypoint_y": [],
+   "keypoint_z": [],
+   "scalar_names": [],
+   "scalar_values": [],
+   "keypoint_score": []
+  },
+  {
+   "label": "person",
+   "score": 0.642578125,
+   "x_min": 0,
+   "y_min": 368,
+   "x_max": 122,
+   "y_max": 578,
+   "keypoint_names": [],
+   "keypoint_x": [],
+   "keypoint_y": [],
+   "keypoint_z": [],
+   "scalar_names": [],
+   "scalar_values": [],
+   "keypoint_score": []
+  }
+ ]
+}

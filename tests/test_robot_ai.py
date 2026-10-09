@@ -7,11 +7,14 @@ it turns the messages into typed objects.
 
 Where the messages come from, since that decides what the tests prove:
 
-- ``tests/data/detection_arrays``: YOLO26n and YOLO26n-pose results from
-  ultralytics on one photo each, run through pib-backend's own
+- ``tests/data/detection_arrays/yolo26n_*``: YOLO26n and YOLO26n-pose results
+  from ultralytics on one photo each, run through pib-backend's own
   ``translate_detections`` (so field names, pixel mapping and keypoint naming
-  are the backend's code). They are not packets captured on the camera; the
-  same models were checked on the OAK-D separately.
+  are the backend's code). They are not packets captured on the camera.
+- ``tests/data/detection_arrays/yolo26s_*``: captured on an OAK-D Lite. The
+  photo went through the device's ImageManip and the YOLO26s blob, and the
+  packet through pib-backend ``b3-develop``'s ``translate_detections`` with
+  its keypoint-score correction: the messages a robot on that branch sends.
 - ``hand_message()`` below: built from reading the backend's hand code
   (``label "hand"``, 21 named keypoints, four scalars). No real hand message
   was captured, so how pib3 reads a hand from a robot is untested against one.
@@ -751,3 +754,21 @@ def test_a_message_without_keypoint_scores_reads_as_full_confidence():
     [pose] = parse_detection_message(message)
 
     assert {kp.confidence for kp in pose.keypoints} == {1.0}
+
+
+def test_a_pose_from_the_camera_tells_visible_from_hidden_keypoints():
+    """yolo26s-pose on the OAK-D: the photo shows the upper body only."""
+    [pose] = parse_detection_message(load("yolo26s_pose_coco_512x288"))
+
+    assert pose.nose.confidence > 0.9
+    assert pose.get_keypoint(10).confidence > 0.9          # right wrist
+    assert all(pose.get_keypoint(i).confidence < 0.05 for i in (13, 14, 15, 16))
+
+
+def test_a_detection_from_the_camera_has_no_keypoint_scores():
+    message = load("yolo26s_coco_512x288")
+
+    detections = parse_detection_message(message)
+
+    assert {d.label for d in detections} == {"bus", "person"}
+    assert all(d["keypoint_score"] == [] for d in message["detections"])
