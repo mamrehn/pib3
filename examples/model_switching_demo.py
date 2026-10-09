@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """
-AI Model Switching Demo
+AI Model Demo
 
-This script demonstrates switching between different AI models on the OAK-D Lite:
-1. Listing available models
-2. Switching between detection models (YOLO, MobileNet-SSD)
-3. Switching to pose estimation
-4. Switching to segmentation
-5. Comparing inference results
+Runs AI models on the OAK-D Lite of the robot (or on the simulated camera in
+Webots):
+1. Listing the models the robot offers
+2. Object detection (YOLO26n)
+3. Body pose (YOLO26n-pose)
+4. Hand landmarks
+5. Two models at once
+6. Timing a model switch
 
-The set_ai_model() method is synchronous - it waits for the robot to confirm
-the model has loaded before returning.
+A model runs on the robot while any client holds it. ``robot.ai.set_model``
+asks the robot to run one model and waits until it reports it running; every
+start or stop rebuilds the camera pipeline, which takes a few seconds.
 
 Requirements:
     pip install "pib3 @ git+https://github.com/mamrehn/pib3.git"
@@ -19,307 +22,117 @@ Usage:
     python model_switching_demo.py --host 172.26.34.149
     python model_switching_demo.py --demo list
     python model_switching_demo.py --demo detection
-    python model_switching_demo.py --demo pose
-    python model_switching_demo.py --demo segmentation
+    python model_switching_demo.py --demo together
 
 Note:
-    This example requires the physical robot with OAK-D Lite camera.
-    Camera/AI features are not available in Webots simulation.
+    The robot's model store must contain the models (the YOLO26 ones are not
+    in the stock store yet); `--demo list` shows what it offers.
 """
 
 import argparse
 import time
 
 try:
-    from pib3 import Robot
+    from pib3 import AIModel, Robot
     HAS_PIB3 = True
 except ImportError:
     HAS_PIB3 = False
 
 
 def demo_list_models(robot):
-    """List all available AI models on the robot."""
-    print("\n=== Available AI Models ===")
+    """List the models in the robot's model store."""
+    print("\n=== Models of the robot ===")
 
-    models = robot.get_available_ai_models(timeout=5.0)
-
+    models = robot.ai.available_models()
     if not models:
-        print("No model information received (timeout)")
+        print("No answer from /list_models")
         return
 
-    # Group by type
-    by_type = {}
-    for name, info in models.items():
-        model_type = info.get('type', 'unknown')
-        if model_type not in by_type:
-            by_type[model_type] = []
-        by_type[model_type].append((name, info))
-
-    for model_type, model_list in sorted(by_type.items()):
-        print(f"\n{model_type.upper()} models:")
-        for name, info in model_list:
-            desc = info.get('description', '')
-            print(f"  - {name}: {desc}")
-
-    print(f"\nTotal: {len(models)} models available")
+    print(f"{'model':36s} {'task':22s} {'cores':>5s}  state")
+    for info in models:
+        state = "running" if info.active else ("ready" if info.available else "not installed")
+        print(f"{info.name:36s} {info.task:22s} {info.shaves:5d}  {state}")
 
 
-def demo_detection_models(robot, duration: float = 5.0):
-    """Compare different detection models."""
-
-    # First, check available AI models
-    print("🤖 Querying available AI models...")
-    models = robot.get_available_ai_models(timeout=5.0)
-
-    if models:
-        print("Available AI models:")
-        for name, info in models.items():
-            print(f"  • {name}: {info.get('type', 'unknown')} - {info.get('description', '')}")
-    else:
-        print("  (No model info received - using default model)")
-
-    print("\n=== Detection Model Comparison ===")
-
-    detection_models = ["yolo26n", "person", "face"]
-
-    for model_name in detection_models:
-        print(f"\n--- Testing {model_name} ---")
-
-        # Switch model (synchronous)
-        print(f"Switching to {model_name}...")
-        ok, message = robot.switch_ai_model(model_name, timeout=15.0)
-        if ok:
-            print(f"Model ready!")
-        else:
-            print(f"Skipping: {message}")
-            continue
-
-        # Collect detection stats
-        results = []
-        latencies = []
-
-        def on_detection(data):
-            if data.get('type') == 'detection':
-                results.append(data)
-                latencies.append(data.get('latency_ms', 0))
-
-                # Print first detection
-                if len(results) == 1:
-                    detections = data.get('result', {}).get('detections', [])
-                    print(f"  First frame: {len(detections)} objects detected")
-                    for det in detections[:3]:
-                        label = det.get('label', '?')
-                        conf = det.get('confidence', 0)
-                        print(f"    - Class {label} (confidence: {conf:.2f})")
-
-        # Subscribe and collect
-        print(f"Running inference for {duration}s...")
-        sub = robot.subscribe_ai_detections(on_detection)
-        time.sleep(duration)
-        sub.unsubscribe()
-
-        # Print stats
-        if results:
-            avg_latency = sum(latencies) / len(latencies)
-            fps = len(results) / duration
-            total_objects = sum(
-                len(r.get('result', {}).get('detections', []))
-                for r in results
-            )
-            print(f"  Frames: {len(results)}, FPS: {fps:.1f}")
-            print(f"  Avg latency: {avg_latency:.1f}ms")
-            print(f"  Total objects: {total_objects}")
-        else:
-            print("  No results received")
+def describe_detection(det):
+    cx, cy = det.bbox.center
+    return f"{det.label} ({det.confidence:.2f}), box center ({cx:.2f}, {cy:.2f})"
 
 
-def demo_pose_estimation(robot, duration: float = 5.0):
-    """Demonstrate pose estimation models."""
-    print("\n=== Pose Estimation Demo ===")
-
-    pose_models = ["pose_yolo", "pose_hrnet"]
-
-    for model_name in pose_models:
-        print(f"\n--- Testing {model_name} ---")
-
-        # Switch model
-        print(f"Switching to {model_name}...")
-        if robot.set_ai_model(model_name, timeout=5.0):
-            print(f"Model ready!")
-        else:
-            print(f"Model switch timed out, skipping...")
-            continue
-
-        # Collect pose stats
-        results = []
-        keypoint_counts = []
-
-        def on_pose(data):
-            results.append(data)
-
-            result = data.get('result', {})
-            keypoints = result.get('keypoints', [])
-            detected = result.get('detected_count', len(keypoints))
-            keypoint_counts.append(detected)
-
-            # Print first few results
-            if len(results) <= 2:
-                latency = data.get('latency_ms', 0)
-                print(f"  Frame {len(results)}: {detected} keypoints, latency: {latency:.1f}ms")
-
-                # Show some keypoints
-                for kp in keypoints[:5]:
-                    kp_id = kp.get('id', '?')
-                    x = kp.get('x', 0)
-                    y = kp.get('y', 0)
-                    conf = kp.get('confidence', 0)
-                    print(f"    Keypoint {kp_id}: ({x:.2f}, {y:.2f}) conf={conf:.2f}")
-
-        # Subscribe and collect
-        print(f"Running pose estimation for {duration}s...")
-        sub = robot.subscribe_ai_detections(on_pose)
-        time.sleep(duration)
-        sub.unsubscribe()
-
-        # Print stats
-        if results:
-            fps = len(results) / duration
-            avg_keypoints = sum(keypoint_counts) / len(keypoint_counts) if keypoint_counts else 0
-            print(f"  Frames: {len(results)}, FPS: {fps:.1f}")
-            print(f"  Avg keypoints detected: {avg_keypoints:.1f}")
-        else:
-            print("  No results received")
+def describe_pose(pose):
+    return (f"person, nose at ({pose.nose.x:.2f}, {pose.nose.y:.2f}), "
+            f"left shoulder at ({pose.left_shoulder.x:.2f}, {pose.left_shoulder.y:.2f})")
 
 
-def demo_segmentation(robot, duration: float = 5.0):
-    """Demonstrate segmentation models."""
-    print("\n=== Segmentation Demo ===")
+def describe_hand(hand):
+    return (f"{hand.handedness.value} hand, index {hand.finger_angles.index:.0f}°, "
+            f"middle {hand.finger_angles.middle:.0f}°")
 
-    # Switch to segmentation model
-    model_name = "segmentation"
-    print(f"Switching to {model_name}...")
 
-    if robot.set_ai_model(model_name, timeout=5.0):
-        print("Model ready!")
-    else:
-        print("Model switch timed out")
+def demo_model(robot, model, read, describe, title, duration):
+    """Run ``model``, then print what ``read`` finds in the newest frame twice a second."""
+    print(f"\n=== {title} ===")
+    started = time.time()
+    if not robot.ai.set_model(model):
+        print("  The robot did not start the model (see the warning above).")
         return
+    print(f"  Running after {time.time() - started:.1f} s")
 
-    # Test bbox mode (lightweight)
-    print("\n--- BBox Mode (lightweight) ---")
-    robot.set_ai_config(segmentation_mode="bbox")
+    polls = 0
+    end = time.time() + duration
+    while time.time() < end:
+        items = read(timeout=1.0, latest_only=True)   # the newest frame only
+        if items:
+            polls += 1
+            for item in items:
+                print(f"  {describe(item)}")
+        time.sleep(0.5)
+    print(f"  {polls} polls with results, {robot.ai.fps:.1f} results/s")
 
-    results = []
 
-    def on_seg_bbox(data):
-        if data.get('type') == 'segmentation':
-            results.append(data)
-            if len(results) <= 2:
-                result = data.get('result', {})
-                classes = result.get('classes_detected', [])
-                bboxes = result.get('bboxes', [])
-                latency = data.get('latency_ms', 0)
-                print(f"  Frame {len(results)}: {len(classes)} classes, "
-                      f"{len(bboxes)} bboxes, latency: {latency:.1f}ms")
-
-    sub = robot.subscribe_ai_detections(on_seg_bbox)
+def demo_together(robot, duration):
+    """Run two models at once; the camera has 16 cores to share."""
+    print("\n=== YOLO26n and pose together ===")
+    robot.ai.set_model(AIModel.YOLO26N)
+    if not robot.ai.start_model(AIModel.POSE_YOLO):      # keeps YOLO26n running
+        print("  The robot did not start the second model.")
+        return
     time.sleep(duration)
-    sub.unsubscribe()
-
-    if results:
-        print(f"  Total frames: {len(results)}")
-
-    # Test mask mode (detailed) - target person class
-    print("\n--- Mask Mode (detailed, person class) ---")
-    robot.set_ai_config(
-        segmentation_mode="mask",
-        segmentation_target_class=15  # Person class in COCO
-    )
-
-    results = []
-
-    def on_seg_mask(data):
-        if data.get('type') == 'segmentation':
-            results.append(data)
-            if len(results) <= 2:
-                result = data.get('result', {})
-                mode = result.get('mode', 'unknown')
-                latency = data.get('latency_ms', 0)
-
-                if mode == 'mask' and 'mask_rle' in result:
-                    rle = result['mask_rle']
-                    size = rle.get('size', [0, 0])
-                    print(f"  Frame {len(results)}: mask {size[0]}x{size[1]}, "
-                          f"latency: {latency:.1f}ms")
-                else:
-                    print(f"  Frame {len(results)}: mode={mode}, latency: {latency:.1f}ms")
-
-    sub = robot.subscribe_ai_detections(on_seg_mask)
-    time.sleep(duration)
-    sub.unsubscribe()
-
-    if results:
-        print(f"  Total frames: {len(results)}")
+    for model in (AIModel.YOLO26N, AIModel.POSE_YOLO):
+        dets = robot.ai.get_detections(timeout=1.0, latest_only=True, model=model)
+        print(f"  {model.value}: {len(dets)} detection(s) in the newest frame")
+    robot.ai.stop_model(AIModel.POSE_YOLO)
 
 
-def demo_quick_switch(robot):
-    """Demonstrate rapid model switching."""
-    print("\n=== Quick Switch Demo ===")
-    print("Switching between models rapidly...")
-
-    models = ["yolo26n", "pose_yolo", "hand", "yolo26n"]
-
-    for model_name in models:
-        start = time.time()
-
-        if robot.set_ai_model(model_name, timeout=5.0):
-            elapsed = (time.time() - start) * 1000
-            print(f"  {model_name}: switched in {elapsed:.0f}ms")
-        else:
-            print(f"  {model_name}: timeout")
-
-    print("\nModel switching complete!")
+def demo_switch_timing(robot):
+    """Time a switch. Each one is a stop and a start of the camera pipeline."""
+    print("\n=== Switch timing ===")
+    for model in (AIModel.YOLO26N, AIModel.POSE_YOLO, AIModel.HAND, AIModel.YOLO26N):
+        started = time.time()
+        ok = robot.ai.set_model(model)
+        print(f"  {model.value:30s} {'ok' if ok else 'FAILED':6s} {time.time() - started:5.1f} s")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="AI Model Switching Demo",
+        description="AI Model Demo",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   python model_switching_demo.py --host 172.26.34.149
   python model_switching_demo.py --demo list
   python model_switching_demo.py --demo detection --duration 10
-  python model_switching_demo.py --demo pose
-  python model_switching_demo.py --demo segmentation
-
-Note: This example requires the physical robot with OAK-D Lite camera.
-      Camera/AI features are not available in Webots simulation.
         """
     )
-    parser.add_argument(
-        "--host",
-        default="172.26.34.149",
-        help="Robot IP address (default: 172.26.34.149)"
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=9090,
-        help="Rosbridge port (default: 9090)"
-    )
-    parser.add_argument(
-        "--demo",
-        choices=["list", "detection", "pose", "segmentation", "switch", "all"],
-        default="all",
-        help="Which demo to run (default: all)"
-    )
-    parser.add_argument(
-        "--duration",
-        type=float,
-        default=5.0,
-        help="Duration for each model test in seconds (default: 5)"
-    )
+    parser.add_argument("--host", default="172.26.34.149",
+                        help="Robot IP address (default: 172.26.34.149)")
+    parser.add_argument("--port", type=int, default=9090,
+                        help="Rosbridge port (default: 9090)")
+    parser.add_argument("--demo",
+                        choices=["list", "detection", "pose", "hand", "together", "switch", "all"],
+                        default="all", help="Which demo to run (default: all)")
+    parser.add_argument("--duration", type=float, default=5.0,
+                        help="Duration for each model test in seconds (default: 5)")
     args = parser.parse_args()
 
     if not HAS_PIB3:
@@ -328,37 +141,27 @@ Note: This example requires the physical robot with OAK-D Lite camera.
         return
 
     print(f"Connecting to robot at {args.host}:{args.port}...")
-
-    try:
-        with Robot(host=args.host, port=args.port) as robot:
-            print(f"Connected: {robot.is_connected}")
-
+    with Robot(host=args.host, port=args.port) as robot:
+        print("Connected.")
+        try:
             if args.demo in ("list", "all"):
                 demo_list_models(robot)
-
             if args.demo in ("detection", "all"):
-                demo_detection_models(robot, args.duration)
-
+                demo_model(robot, AIModel.YOLO26N, robot.ai.get_detections,
+                           describe_detection, "Object detection", args.duration)
             if args.demo in ("pose", "all"):
-                demo_pose_estimation(robot, args.duration)
-
-            if args.demo in ("segmentation", "all"):
-                demo_segmentation(robot, args.duration)
-
+                demo_model(robot, AIModel.POSE_YOLO, robot.ai.get_poses,
+                           describe_pose, "Body pose", args.duration)
+            if args.demo in ("hand", "all"):
+                demo_model(robot, AIModel.HAND, robot.ai.get_hand_landmarks,
+                           describe_hand, "Hand landmarks", args.duration)
+            if args.demo in ("together", "all"):
+                demo_together(robot, args.duration)
             if args.demo in ("switch", "all"):
-                demo_quick_switch(robot)
-
-            print("\n=== All demos complete ===")
-
-    except ConnectionError as e:
-        print(f"Connection failed: {e}")
-        print("\nTroubleshooting:")
-        print("1. Check robot is powered on and connected to network")
-        print("2. Verify rosbridge_server is running on the robot")
-        print(f"3. Confirm IP address is correct: {args.host}")
-        print("\nNote: This example requires the physical robot with OAK-D Lite camera.")
-    except KeyboardInterrupt:
-        print("\nInterrupted by user")
+                demo_switch_timing(robot)
+        finally:
+            robot.ai.stop()          # release every model this script started
+    print("\nDone.")
 
 
 if __name__ == "__main__":

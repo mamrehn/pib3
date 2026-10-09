@@ -14,15 +14,22 @@ from .camera import (
     AIModelInfo,
     CameraFrame,
     # Enums
-    AiModelType,
     Handedness,
     # Receivers
     CameraFrameReceiver,
     AIDetectionReceiver,
+    AISubsystem,
     # Utilities
-    parse_ai_result,
+    parse_detection_message,
     # Constants
     COCO_LABELS,
+)
+from .detection_messages import (
+    COCO_KEYPOINT_NAMES,
+    HAND_KEYPOINT_NAMES,
+    detection_topic,
+    make_detection,
+    make_detection_array,
 )
 from .webots_camera import (
     WebotsCameraSubsystem,
@@ -32,7 +39,6 @@ from .webots_camera import (
 from .sim_ai import (
     rle_encode,
     build_runner,
-    build_payload,
     SimInference,
     SIM_MODEL_ALIASES,
 )
@@ -83,21 +89,25 @@ __all__ = [
     "AIModelInfo",
     "CameraFrame",
     # Camera/AI enums
-    "AiModelType",
     "Handedness",
     # Camera/AI receivers
     "CameraFrameReceiver",
     "AIDetectionReceiver",
+    "AISubsystem",
     # Camera/AI utilities
-    "parse_ai_result",
+    "parse_detection_message",
     "COCO_LABELS",
+    "COCO_KEYPOINT_NAMES",
+    "HAND_KEYPOINT_NAMES",
+    "detection_topic",
+    "make_detection",
+    "make_detection_array",
     # Simulated perception (Webots)
     "WebotsCameraSubsystem",
     "WebotsAISubsystem",
     "RECOGNITION_MODEL",
     "rle_encode",
     "build_runner",
-    "build_payload",
     "SimInference",
     "SIM_MODEL_ALIASES",
     # Unified audio system - enums

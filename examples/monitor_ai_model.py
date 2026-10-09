@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-Example: Monitor Current AI Model
+Example: Monitor the AI models of the robot
 
-This script demonstrates how to subscribe to the 'current AI model' topic
-to receive real-time updates when the active AI model changes on the OAK-D Lite camera.
+Prints a line whenever a model of the OAK-D Lite camera changes state
+(``idle``, ``starting``, ``running``, ``failed``), with its results per second.
+Start or stop models from another terminal, script or cerebra to see updates.
+A model that does not come up shows ``failed`` with the reason.
 
 Usage:
     python monitor_ai_model.py --host <robot_ip>
@@ -11,44 +13,44 @@ Usage:
 
 import argparse
 import time
-import json
+
 from pib3 import Robot
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Monitor Current AI Model")
+    parser = argparse.ArgumentParser(description="Monitor the AI models of the robot")
     parser.add_argument("--host", default="172.26.34.149", help="Robot IP address")
+    parser.add_argument("--seconds", type=float, default=30.0, help="How long to watch")
     args = parser.parse_args()
 
     print(f"Connecting to robot at {args.host}...")
-    
+
     with Robot(host=args.host) as robot:
         print("Connected.")
+        last = {}
 
-        def on_model_change(info):
-            print("\n[EVENT] AI Model Changed!")
-            print(f"  Name: {info.get('name', 'unknown')}")
-            print(f"  Type: {info.get('type', 'unknown')}")
-            print(f"  Input Size: {info.get('input_size', '?')}")
-            print(f"  Full Info: {json.dumps(info, indent=2)}")
+        def on_status(message):
+            # /models_status lists every model, about once a second
+            for model in message.get("models", []):
+                state = (model["state"], model["message"])
+                if last.get(model["model_id"]) == state:
+                    continue
+                last[model["model_id"]] = state
+                if model["state"] == "idle" and not model["active"]:
+                    continue
+                extra = f" - {model['message']}" if model["message"] else ""
+                print(f"  {model['model_id']:36s} {model['state']:9s} "
+                      f"{model['fps']:6.1f} results/s{extra}")
 
-        print("\nSubscribing to model updates...")
-        sub = robot.subscribe_current_ai_model(on_model_change)
-
-        print("\nMonitoring for 30 seconds. Try changing the model in another terminal/script to see updates!")
-        print("Press Ctrl+C to exit early.")
-
+        sub = robot.subscribe_ai_status(on_status)
+        print(f"\nWatching for {args.seconds:.0f} seconds. Press Ctrl+C to exit early.")
         try:
-            # We just wait here. The callback will execute in a background thread whenever an update arrives.
-            # You should see an initial update shortly after subscribing if the camera is active.
-            for i in range(30):
-                time.sleep(1)
-                if i % 10 == 0:
-                    print(f"  (Monitoring... {30-i}s remaining)")
+            time.sleep(args.seconds)
         except KeyboardInterrupt:
             print("\nStopped by user.")
         finally:
             sub.unsubscribe()
-            print("Unsubscribed.")
+
 
 if __name__ == "__main__":
     main()

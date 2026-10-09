@@ -45,7 +45,7 @@ except ImportError:
 
 # Import pib3 - will fail gracefully if not installed
 try:
-    from pib3 import Robot, Joint
+    from pib3 import AIModel, Robot, Joint
     HAS_PIB3 = True
 except ImportError:
     HAS_PIB3 = False
@@ -106,58 +106,37 @@ def demo_ai_detection(robot, duration: float = 15.0):
     print("\n=== AI Detection Demo ===")
     print("Running AI detection for", duration, "seconds...")
 
-    # First, check available models
+    # First, check which models the robot offers
     print("\nQuerying available models...")
-    models = robot.get_available_ai_models(timeout=5.0)
+    models = robot.ai.available_models()
     if models:
         print("Available models:")
-        for name, info in models.items():
-            print(f"  - {name}: {info.get('type', 'unknown')}")
+        for info in models:
+            state = "running" if info.active else ("ready" if info.available else "not installed")
+            print(f"  - {info.name}: {info.task} ({state})")
     else:
-        print("  (No model info received, using default)")
+        print("  (No answer from /list_models)")
 
-    detection_count = 0
+    # Start YOLO26n; this returns when the robot reports it running (a few s).
+    if not robot.ai.set_model(AIModel.YOLO26N):
+        print("The robot did not start the model; see the warning above.")
+        return
 
-    def on_detection(data):
-        nonlocal detection_count
-        detection_count += 1
+    seen = 0
+    end = time.time() + duration
+    while time.time() < end:
+        # latest_only: what the camera sees now, not every frame since the last call
+        detections = robot.ai.get_detections(timeout=1.0, latest_only=True)
+        if detections:
+            seen += 1
+            print(f"\nFPS {robot.ai.fps:.1f}, {len(detections)} object(s):")
+            for det in detections:
+                x1, y1, x2, y2 = det.bbox.to_pixels(1280, 720)
+                print(f"  → {det.label} ({det.confidence:.2f}) at ({x1},{y1})-({x2},{y2})")
+        time.sleep(0.5)
 
-        model = data.get('model', 'unknown')
-        det_type = data.get('type', 'unknown')
-        latency = data.get('latency_ms', 0)
-
-        if det_type == 'detection':
-            result = data.get('result', {})
-            detections = result.get('detections', [])
-            if detections:
-                print(f"\n[Frame {data.get('frame_id', '?')}] "
-                      f"Model: {model}, Latency: {latency:.1f}ms")
-                for det in detections:
-                    label = det.get('label', '?')
-                    conf = det.get('confidence', 0)
-                    bbox = det.get('bbox', {})
-                    print(f"  → Class {label} ({conf:.2f}): "
-                          f"x=[{bbox.get('xmin', 0):.2f}-{bbox.get('xmax', 0):.2f}], "
-                          f"y=[{bbox.get('ymin', 0):.2f}-{bbox.get('ymax', 0):.2f}]")
-
-        elif det_type == 'classification':
-            result = data.get('result', {})
-            classifications = result.get('classifications', [])
-            if classifications and detection_count % 10 == 0:
-                top = classifications[0]
-                print(f"[Frame {data.get('frame_id', '?')}] "
-                      f"Top class: {top.get('class_id')} ({top.get('confidence', 0):.2f})")
-
-    # Subscribe to AI detections (inference starts automatically)
-    sub = robot.subscribe_ai_detections(on_detection)
-
-    try:
-        time.sleep(duration)
-    finally:
-        # Unsubscribe (inference stops automatically)
-        sub.unsubscribe()
-
-    print(f"\nProcessed {detection_count} inference results")
+    robot.ai.stop()   # releases the model; depth comes back
+    print(f"\nSaw objects in {seen} polls")
 
 
 def demo_imu_data(robot, duration: float = 5.0):
@@ -165,9 +144,7 @@ def demo_imu_data(robot, duration: float = 5.0):
     print("\n=== IMU Data Demo ===")
     print("Reading IMU data for", duration, "seconds...")
 
-    # Set a reasonable frequency
-    robot.set_imu_frequency(50)  # 50 Hz
-
+    # The camera publishes the IMU at a fixed 100 Hz; there is nothing to set.
     sample_count = 0
 
     def on_imu(data):
@@ -178,7 +155,7 @@ def demo_imu_data(robot, duration: float = 5.0):
         accel = data.get('linear_acceleration', {})
         gyro = data.get('angular_velocity', {})
 
-        if sample_count % 25 == 0:  # Print every 0.5 seconds at 50Hz
+        if sample_count % 50 == 0:  # Print every 0.5 seconds at 100Hz
             print(f"Sample {sample_count}:")
             print(f"  Accel: x={accel.get('x', 0):7.3f}, "
                   f"y={accel.get('y', 0):7.3f}, "
@@ -204,65 +181,32 @@ def demo_person_tracking(robot, duration: float = 30.0):
     print("Tracking persons for", duration, "seconds...")
     print("The robot will turn its head to follow detected persons.")
 
-    # YOLO26n detects the 80 COCO classes (class 0 = person)
-    print("Switching to yolo26n model...")
-    if robot.set_ai_model("yolo26n", timeout=10.0):
-        print("Model ready!")
-    else:
-        print("Model switch timed out, using current model")
-
-    # Set confidence threshold
-    robot.set_ai_config(confidence=0.5)
-
-    last_update = 0
-    update_interval = 0.1  # Update head position every 100ms
-
-    def on_detection(data):
-        nonlocal last_update
-
-        if data.get('type') != 'detection':
-            return
-
-        now = time.time()
-        if now - last_update < update_interval:
-            return
-
-        result = data.get('result', {})
-        detections = result.get('detections', [])
-
-        # Find highest confidence person (class 0 in COCO)
-        best_person = None
-        best_conf = 0
-        for det in detections:
-            if det.get('label') == 0 and det.get('confidence', 0) > best_conf:
-                best_person = det
-                best_conf = det.get('confidence', 0)
-
-        if best_person and best_conf > 0.5:
-            bbox = best_person.get('bbox', {})
-            center_x = (bbox.get('xmin', 0) + bbox.get('xmax', 1)) / 2
-
-            # Map center_x (0-1) to head position (0-100%)
-            # Invert: person on left → head turns left (higher %)
-            head_pos = (1.0 - center_x) * 40 + 30  # Range: 30-70%
-
-            try:
-                robot.set_joint(Joint.TURN_HEAD, head_pos)
-                print(f"Person at x={center_x:.2f} → head at {head_pos:.0f}%")
-            except Exception as e:
-                print(f"Failed to move head: {e}")
-
-            last_update = now
-
-    # Subscribe to AI detections
-    sub = robot.subscribe_ai_detections(on_detection)
+    # YOLO26n detects the 80 COCO classes, "person" among them
+    print("Starting the YOLO26n model...")
+    if not robot.ai.set_model(AIModel.YOLO26N):
+        print("The robot did not start the model; see the warning above.")
+        return
 
     try:
         # Center head initially
         robot.set_joint(Joint.TURN_HEAD, 50)
-        time.sleep(duration)
+        end = time.time() + duration
+        while time.time() < end:
+            # Only the newest frame: an older one would point the head at
+            # where the person was.
+            people = [d for d in robot.ai.get_detections(timeout=1.0, latest_only=True)
+                      if d.label == "person" and d.confidence > 0.5]
+            if people:
+                center_x = max(people, key=lambda d: d.confidence).bbox.center[0]
+
+                # Map center_x (0-1) to head position (0-100%)
+                # Invert: person on left → head turns left (higher %)
+                head_pos = (1.0 - center_x) * 40 + 30  # Range: 30-70%
+                robot.set_joint(Joint.TURN_HEAD, head_pos)
+                print(f"Person at x={center_x:.2f} → head at {head_pos:.0f}%")
+            time.sleep(0.1)
     finally:
-        sub.unsubscribe()
+        robot.ai.stop()
         # Return head to center
         robot.set_joint(Joint.TURN_HEAD, 50)
 

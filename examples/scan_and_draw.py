@@ -27,7 +27,7 @@ import PIL.ImageDraw
 import PIL.ImageFont
 
 import pib3
-from pib3 import Robot, Joint, generate_trajectory, TrajectoryConfig, PaperConfig
+from pib3 import AIModel, Robot, Joint, generate_trajectory, TrajectoryConfig, PaperConfig
 
 
 def ensure_icons_exist(output_dir: Path):
@@ -98,53 +98,49 @@ def ensure_icons_exist(output_dir: Path):
 
 
 class SceneScanner:
+    """Remembers where the head pointed when each object was seen best."""
+
     def __init__(self, robot):
         self.robot = robot
         # Label -> info dict
-        self.detected_objects: Dict[str, dict] = {} 
+        self.detected_objects: Dict[str, dict] = {}
         self.lock = threading.Lock()
         self.is_scanning = False
-        
+        self._thread = None
+
     def start(self):
         self.is_scanning = True
-        self.sub = self.robot.subscribe_ai_detections(self._on_detection)
-        
+        self._thread = threading.Thread(target=self._scan, daemon=True)
+        self._thread.start()
+
     def stop(self):
         self.is_scanning = False
-        if hasattr(self, 'sub'):
-            self.sub.unsubscribe()
-            
-    def _on_detection(self, data):
-        if not self.is_scanning:
-            return
-            
-        detections = data.get('result', {}).get('detections', [])
-        for det in detections:
-            label = det.get('label')
-            conf = det.get('confidence', 0.0)
-            
-            # Filter low confidence
-            if conf < 0.5:
-                continue
-                
-            # Translate numeric labels if needed (though pib3 often returns strings now if configured)
-            # Assuming string labels or COCO mapping. 
-            # For this PoC, we'll store whatever we get.
-            
-            with self.lock:
-                # Store if new or better confidence
-                if label not in self.detected_objects or conf > self.detected_objects[label]['confidence']:
-                    # Get current head position in percent (0-100)
-                    try:
-                        head_pos = self.robot.get_joint(Joint.TURN_HEAD, unit="percent")
-                    except Exception:
-                        head_pos = None
-                        
-                    self.detected_objects[label] = {
-                        'confidence': conf,
-                        'head_position': head_pos,
-                        'timestamp': time.time()
-                    }
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+
+    def _scan(self):
+        while self.is_scanning:
+            # Only the newest frame: older ones would be filed under a head
+            # position the head has already left.
+            for det in self.robot.ai.get_detections(timeout=0.5, latest_only=True):
+                if det.confidence >= 0.5:
+                    self._remember(det.label, det.confidence)
+
+    def _remember(self, label, conf):
+        with self.lock:
+            # Store if new or better confidence
+            if label not in self.detected_objects or conf > self.detected_objects[label]['confidence']:
+                # Get current head position in percent (0-100)
+                try:
+                    head_pos = self.robot.get_joint(Joint.TURN_HEAD, unit="percent")
+                except Exception:
+                    head_pos = None
+
+                self.detected_objects[label] = {
+                    'confidence': conf,
+                    'head_position': head_pos,
+                    'timestamp': time.time()
+                }
 
 
 def main():
@@ -174,14 +170,11 @@ def main():
             print("Connected.")
             
             # 2. Configure AI Model
-            # yolo26n is the backend's default: general detection, 80 COCO classes
-            model_name = "yolo26n"
-            print(f"Setting AI model to {model_name}...")
-            ok, message = robot.switch_ai_model(model_name, timeout=10.0)
-            if ok:
-                print(f"Model switched to {model_name}")
-            else:
-                print(f"Warning: {message}; continuing with the current model")
+            # YOLO26n: general detection, 80 COCO classes (a few seconds to start)
+            print("Starting the YOLO26n model...")
+            if not robot.ai.set_model(AIModel.YOLO26N):
+                print("The robot did not start the model; see the warning above.")
+                return
             
             # 3. Start Scanning Routine
             scanner = SceneScanner(robot)

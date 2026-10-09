@@ -11,9 +11,13 @@ Key Components:
 - HandLandmarks: Hand tracking with 21 landmarks and finger angles
 - PoseKeypoints: Body pose with 17 COCO keypoints
 - CameraFrame: Frame data with timestamp
-- AIModelInfo: Model metadata
+- AIModelInfo: Model metadata from the robot's model store
 - CameraFrameReceiver: Frame buffering helper
 - AIDetectionReceiver: Detection buffering with FPS tracking
+- AISubsystem: ``robot.ai`` — start/stop models, typed results
+
+The robot's results are ``datatypes/DetectionArray`` messages (pixels, named
+keypoints and scalars); see :mod:`pib3.backends.detection_messages`.
 
 Hand Landmark Indices (MediaPipe convention):
     0: WRIST
@@ -33,7 +37,7 @@ Usage:
     >>> from pib3.backends.camera import AIDetectionReceiver, Detection
     >>>
     >>> receiver = AIDetectionReceiver()
-    >>> sub = robot.subscribe_ai_detections(receiver.on_detection)
+    >>> sub = robot.subscribe_ai_detections(AIModel.YOLO26N, receiver.on_detection)
     >>> time.sleep(5)
     >>> sub.unsubscribe()
     >>>
@@ -56,6 +60,12 @@ from typing import Callable, Deque, Dict, List, Optional, Tuple, Union, TYPE_CHE
 
 import numpy as np
 
+from .detection_messages import (
+    COCO_KEYPOINT_NAMES,
+    HAND_KEYPOINT_NAMES,
+    detection_topic,
+)
+
 if TYPE_CHECKING:
     from .robot import RealRobotBackend
     from ..types import AIModel
@@ -64,11 +74,6 @@ logger = logging.getLogger(__name__)
 
 
 # ==================== CONSTANTS ====================
-
-#: Payload ``type`` values whose results are object detections (boxes).
-#: The robot publishes segmentation as ``"instance-segmentation"``: each
-#: object is a box plus an optional mask, so get_detections() returns them too.
-DETECTION_TYPES = frozenset({"detection", "instance-segmentation", "segmentation"})
 
 # COCO class labels (80 classes)
 COCO_LABELS = [
@@ -130,16 +135,6 @@ POSE_RIGHT_ANKLE = 16
 
 
 # ==================== ENUMS ====================
-
-
-class AiModelType(str, Enum):
-    """Types of AI models available on the robot."""
-    DETECTION = "detection"
-    POSE = "pose"
-    HAND = "hand"
-    SEGMENTATION = "instance-segmentation"
-    GAZE = "gaze"
-    LINES = "lines"
 
 
 class Handedness(str, Enum):
@@ -210,20 +205,27 @@ class BoundingBox:
 @dataclass
 class Detection:
     """
-    Single object detection result.
+    Single detection result: a box, and for some models more.
 
     Attributes:
-        label_id: Numeric class ID (e.g., 0 for person in COCO)
+        label_id: Numeric COCO class id, or -1 for labels outside COCO
         confidence: Detection confidence (0.0 to 1.0)
         bbox: Bounding box in normalized coordinates
-        label: Human-readable class name (auto-resolved from COCO if possible)
-        mask_rle: Optional RLE-encoded segmentation mask
+        label: Class name, for example ``"person"`` or ``"hand"``
+        mask_rle: Optional RLE-encoded segmentation mask (simulation only)
+        keypoints: Named landmarks the model attaches, in normalized
+            coordinates: 17 for body pose, 21 for a hand, 68 or 468 for faces
+        scalars: Named values the model attaches: ``yaw``/``pitch``/``roll``
+            for head pose, one probability per emotion, ``handedness`` for a
+            hand, and so on
     """
     label_id: int
     confidence: float
     bbox: BoundingBox
     label: str = ""
     mask_rle: Optional[Dict] = None
+    keypoints: List["Keypoint"] = field(default_factory=list)
+    scalars: Dict[str, float] = field(default_factory=dict)
 
     def __post_init__(self):
         """Auto-resolve label from COCO classes if not provided."""
@@ -231,22 +233,44 @@ class Detection:
             self.label = COCO_LABELS[self.label_id]
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Detection":
-        """Create Detection from robot's JSON format."""
-        bbox_data = data.get("bbox", {})
-        bbox = BoundingBox(
-            xmin=bbox_data.get("xmin", 0),
-            ymin=bbox_data.get("ymin", 0),
-            xmax=bbox_data.get("xmax", 0),
-            ymax=bbox_data.get("ymax", 0),
-        )
+    def from_message(cls, data: dict, frame_width: int, frame_height: int) -> "Detection":
+        """Create from one ``Detection`` of a ``DetectionArray`` message.
+
+        The robot sends pixels; this normalizes them by the frame size the
+        message carries.
+        """
+        label = str(data.get("label", ""))
+        names = list(data.get("keypoint_names", []))
+        keypoints = [
+            Keypoint(
+                x=float(x) / frame_width,
+                y=float(y) / frame_height,
+                name=names[i] if i < len(names) else "",
+            )
+            for i, (x, y) in enumerate(
+                zip(data.get("keypoint_x", []), data.get("keypoint_y", []))
+            )
+        ]
+        scalars = dict(zip(data.get("scalar_names", []), data.get("scalar_values", [])))
         return cls(
-            label_id=data.get("label", 0),
-            confidence=data.get("confidence", 0.0),
-            bbox=bbox,
-            label=data.get("label_name", ""),
+            label_id=COCO_LABELS.index(label) if label in COCO_LABELS else -1,
+            confidence=float(data.get("score", 0.0)),
+            bbox=BoundingBox(
+                xmin=_unit(data.get("x_min", 0) / frame_width),
+                ymin=_unit(data.get("y_min", 0) / frame_height),
+                xmax=_unit(data.get("x_max", 0) / frame_width),
+                ymax=_unit(data.get("y_max", 0) / frame_height),
+            ),
+            label=label,
             mask_rle=data.get("mask_rle"),
+            keypoints=keypoints,
+            scalars={str(k): float(v) for k, v in scalars.items()},
         )
+
+
+def _unit(value: float) -> float:
+    """Clamp a normalized coordinate into [0, 1]."""
+    return min(1.0, max(0.0, float(value)))
 
 
 @dataclass
@@ -255,6 +279,7 @@ class Keypoint:
     x: float  # Normalized [0, 1]
     y: float  # Normalized [0, 1]
     confidence: float = 1.0
+    name: str = ""  # e.g. "left_shoulder", "index_finger_tip"; "" if unnamed
 
     def to_pixels(self, img_width: int, img_height: int) -> Tuple[int, int]:
         """Convert to pixel coordinates."""
@@ -327,12 +352,16 @@ class HandLandmarks:
         confidence: Overall detection confidence
         wrist_position: (x, y) position of wrist in normalized coords
         finger_angles: Calculated finger bend angles
+        aspect_ratio: Image width / height the normalized landmarks come
+            from. Finger angles are measured in pixel space, so a 16:9 frame
+            does not skew them.
     """
     landmarks: np.ndarray  # Shape (21, 2) or (21, 3)
     keypoints: List[Keypoint] = field(default_factory=list)
     handedness: Handedness = Handedness.UNKNOWN
     confidence: float = 1.0
     finger_angles: Optional[FingerAngles] = None
+    aspect_ratio: float = 1.0
 
     def __post_init__(self):
         """Calculate finger angles if not provided."""
@@ -358,7 +387,9 @@ class HandLandmarks:
         if len(self.landmarks) < 21:
             return FingerAngles()
 
-        lm = self.landmarks
+        # Normalized x spans the width, y the height; scale x so that both
+        # axes have the same unit and an angle is the angle seen in the image.
+        lm = np.asarray(self.landmarks)[:, :2] * np.array([self.aspect_ratio, 1.0])
 
         def angle_between_vectors(v1: np.ndarray, v2: np.ndarray) -> float:
             """Calculate angle in degrees between two vectors."""
@@ -449,6 +480,23 @@ class HandLandmarks:
             handedness=cls._normalize_handedness(handedness),
         )
 
+    @classmethod
+    def from_message(cls, data: dict, frame_width: int, frame_height: int) -> "HandLandmarks":
+        """Create from one hand ``Detection`` of a ``DetectionArray`` message.
+
+        Uses the ``handedness`` scalar (``> 0.5`` = right, MediaPipe's label
+        from the image's point of view) and ``landmark_score`` when present.
+        """
+        detection = Detection.from_message(data, frame_width, frame_height)
+        scalars = detection.scalars
+        return cls(
+            landmarks=np.array([[kp.x, kp.y] for kp in detection.keypoints]),
+            keypoints=detection.keypoints,
+            handedness=cls._normalize_handedness(scalars.get("handedness")),
+            confidence=scalars.get("landmark_score", detection.confidence),
+            aspect_ratio=frame_width / frame_height,
+        )
+
     @staticmethod
     def _normalize_handedness(value) -> Handedness:
         """Normalize a robot-provided handedness value to a Handedness enum.
@@ -523,6 +571,25 @@ class PoseKeypoints:
 
         return cls(keypoints=kp_objects, bbox=bbox_obj)
 
+    @classmethod
+    def from_message(cls, data: dict, frame_width: int, frame_height: int) -> "PoseKeypoints":
+        """Create from one person ``Detection`` of a ``DetectionArray`` message.
+
+        Keypoints are ordered by COCO index whatever order the message lists
+        them in; names the model does not report stay out of the list.
+        """
+        detection = Detection.from_message(data, frame_width, frame_height)
+        by_name = {kp.name: kp for kp in detection.keypoints if kp.name}
+        if all(name in by_name for name in COCO_KEYPOINT_NAMES):
+            keypoints = [by_name[name] for name in COCO_KEYPOINT_NAMES]
+        else:
+            keypoints = detection.keypoints
+        return cls(
+            keypoints=keypoints,
+            confidence=detection.confidence,
+            bbox=detection.bbox,
+        )
+
     def get_keypoint(self, index: int) -> Optional[Keypoint]:
         """Get keypoint by COCO index (0-16)."""
         if 0 <= index < len(self.keypoints):
@@ -545,34 +612,38 @@ class PoseKeypoints:
 @dataclass
 class AIModelInfo:
     """
-    Information about an AI model available on the robot.
+    A model in the robot's model store, as ``/list_models`` reports it.
 
     Attributes:
-        name: Model identifier (e.g., "yolo26n")
-        type: Model type (detection, pose, hand, etc.)
-        description: Human-readable description
-        classes: Number of classes (for detection models)
-        slug: Luxonis Model Hub slug, or the archive file name for models
-            the backend ships itself (``yolo26n``)
-        active: Whether this model is currently loaded
+        name: Model id (e.g., "yolo26n_coco_512x288"), the value of the
+            matching :class:`~pib3.types.AIModel`
+        task: What the model does ("object_detection", "pose_estimation",
+            "hand_tracking", "face_detection", "facial_landmarks", ...)
+        licence: Licence of the weights; may be "unknown - see source"
+        shaves: Camera cores the model uses; the camera has 16 in total
+        size_bytes: Size of the compiled model
+        available: Whether the model's file is in the store
+        active: Whether the model is running now
     """
     name: str
-    type: AiModelType
-    description: str = ""
-    classes: int = 0
-    slug: str = ""
+    task: str = ""
+    licence: str = ""
+    shaves: int = 0
+    size_bytes: int = 0
+    available: bool = False
     active: bool = False
 
     @classmethod
     def from_dict(cls, name: str, data: dict) -> "AIModelInfo":
-        """Create from robot's model info dict."""
+        """Create from one entry of :meth:`RealRobotBackend.get_available_ai_models`."""
         return cls(
             name=name,
-            type=AiModelType(data.get("type", "detection")),
-            description=data.get("description", ""),
-            classes=data.get("classes", 0),
-            slug=data.get("slug", ""),
-            active=data.get("active", False),
+            task=data.get("task", ""),
+            licence=data.get("licence", ""),
+            shaves=int(data.get("shaves", 0)),
+            size_bytes=int(data.get("size_bytes", 0)),
+            available=bool(data.get("available", False)),
+            active=bool(data.get("active", False)),
         )
 
 
@@ -762,124 +833,108 @@ class CameraFrameReceiver:
 
 class AIDetectionReceiver:
     """
-    Buffers AI detection results with FPS and latency tracking.
+    Buffers a model's detection messages with FPS and latency tracking.
 
-    This class processes raw detection dicts from the robot and
-    converts them to typed Detection/HandLandmarks/PoseKeypoints objects.
+    Feed it the ``datatypes/DetectionArray`` messages of one model (rosbridge
+    delivers them as dicts, see :mod:`pib3.backends.detection_messages`); the
+    getters turn them into typed Detection/HandLandmarks/PoseKeypoints objects.
 
     Usage:
         >>> from pib3 import Robot, AIModel, AIDetectionReceiver
         >>> with Robot(host="...") as robot:
-        ...     robot.set_ai_model(AIModel.HAND)
+        ...     robot.start_ai_model(AIModel.HAND)
         ...     receiver = AIDetectionReceiver()
-        ...     sub = robot.subscribe_ai_detections(receiver.on_detection)
+        ...     sub = robot.subscribe_ai_detections(AIModel.HAND, receiver.on_detection)
         ...
-        ...     # Just works - waits automatically for results
+        ...     # Waits automatically for results
         ...     for hand in receiver.get_hand_landmarks():
         ...         print(f"{hand.handedness}: index={hand.finger_angles.index:.0f}°")
         ...         servos = hand.finger_angles.to_servo_values()
         ...         robot.set_joints({"index_left_stretch": servos["index"]})
         ...
-        ...     print(f"FPS: {receiver.fps:.1f}, Latency: {receiver.avg_latency_ms:.1f}ms")
+        ...     print(f"FPS: {receiver.fps:.1f}")
         ...     sub.unsubscribe()
+        ...     robot.stop_ai_model(AIModel.HAND)
+
+    Most code uses ``robot.ai`` instead, which manages receivers itself.
     """
+
+    #: Latency samples outside this many milliseconds are ignored: they say the
+    #: robot's clock and this computer's clock are not synchronised.
+    LATENCY_PLAUSIBLE_MS = (0.0, 10_000.0)
 
     def __init__(self, max_buffer: int = 100):
         """
         Initialize detection receiver.
 
         Args:
-            max_buffer: Maximum number of detection results to buffer.
+            max_buffer: Maximum number of detection messages to buffer.
         """
         self.max_buffer = max_buffer
-        self._results: List[dict] = []  # Raw results
+        self._results: List[dict] = []  # Raw DetectionArray messages
         self._lock = threading.Lock()
         self._new_data = threading.Event()
-
-        # Model filter (see expect_model): results from other models are dropped
         self._expected_model: Optional[str] = None
-        self._expected_seen = threading.Event()
-        self._warned_models: set = set()
 
         # FPS tracking
         self._frame_times: List[float] = []
         self._latencies: List[float] = []
         self._fps_window = 30  # Calculate FPS over last N frames
 
-    def expect_model(self, model: Optional[str]) -> None:
+    def expect_model(self, model_id: Optional[str]) -> None:
         """
-        Accept only results of ``model`` from now on, and clear the buffers.
+        Accept only messages of ``model_id`` from now on, and clear the buffers.
 
-        The model belongs to the camera, not to one script. Results of any
-        other model are dropped: silently until the first result of
-        ``model`` arrives (frames still in flight from before a switch), and
-        with one warning per model after that, because then another client
-        has switched the camera. ``None`` accepts every model again.
+        Both hand chains publish on one shared topic, and a message names its
+        model in ``model_id``; this keeps one chain's results out of the other's
+        receiver. A message without a ``model_id`` is kept. ``None`` accepts
+        every model again.
         """
         with self._lock:
-            self._expected_model = model
-            self._warned_models = set()
-            self._expected_seen.clear()
-            self._results.clear()
-            self._frame_times.clear()
-            self._latencies.clear()
-        self._new_data.clear()
+            self._expected_model = model_id
+        self.clear()
 
-    def wait_for_expected_model(self, timeout: float) -> bool:
-        """Wait until the first result of the expected model arrives."""
-        return self._expected_seen.wait(timeout=max(0.0, timeout))
-
-    def on_detection(self, data: dict) -> None:
+    def on_detection(self, message: dict) -> None:
         """
-        Callback for incoming detection data.
+        Callback for an incoming DetectionArray message.
 
-        Pass this method to robot.subscribe_ai_detections().
+        Pass this method to ``robot.subscribe_ai_detections()``.
         """
         now = time.time()
-        model = data.get("model")
-
         with self._lock:
             expected = self._expected_model
-            mismatch = expected is not None and model is not None and model != expected
-            # Before the expected model's first result, a mismatch is a frame
-            # still in flight from the previous model; after it, another
-            # client has switched the camera.
-            warn = (mismatch and self._expected_seen.is_set()
-                    and model not in self._warned_models)
-            if warn:
-                self._warned_models.add(model)
-            if not mismatch:
-                if expected is not None:
-                    self._expected_seen.set()
+            sender = message.get("model_id")
+            if expected is not None and sender is not None and sender != expected:
+                return
 
-                # Store raw result
-                self._results.append(data)
-                if len(self._results) > self.max_buffer:
-                    self._results.pop(0)
+            self._results.append(message)
+            if len(self._results) > self.max_buffer:
+                self._results.pop(0)
 
-                # Track timing
-                self._frame_times.append(now)
-                if len(self._frame_times) > self._fps_window:
-                    self._frame_times.pop(0)
+            self._frame_times.append(now)
+            if len(self._frame_times) > self._fps_window:
+                self._frame_times.pop(0)
 
-                # Track latency
-                latency_ms = data.get("latency_ms", 0)
-                if latency_ms > 0:
-                    self._latencies.append(latency_ms)
-                    if len(self._latencies) > self._fps_window:
-                        self._latencies.pop(0)
+            latency_ms = self._latency_ms(message, now)
+            low, high = self.LATENCY_PLAUSIBLE_MS
+            if latency_ms is not None and low <= latency_ms <= high:
+                self._latencies.append(latency_ms)
+                if len(self._latencies) > self._fps_window:
+                    self._latencies.pop(0)
 
-        if warn:
-            logger.warning(
-                "The camera now runs AI model %r, not %r: another client "
-                "switched it (the model belongs to the camera, not to this "
-                "script). Its results are ignored; call "
-                "robot.ai.set_model(%r) to switch back.",
-                model, expected, expected,
-            )
-        if not mismatch:
-            # Signal that new data is available
-            self._new_data.set()
+        # Signal that new data is available
+        self._new_data.set()
+
+    @staticmethod
+    def _latency_ms(message: dict, now: float) -> Optional[float]:
+        """Milliseconds from the message's creation to now, if it says."""
+        if "latency_ms" in message:  # the simulation measures it directly
+            return float(message["latency_ms"])
+        stamp = message.get("header", {}).get("stamp")
+        if not stamp:
+            return None
+        created = float(stamp.get("sec", 0)) + float(stamp.get("nanosec", 0)) * 1e-9
+        return (now - created) * 1000.0 if created > 0 else None
 
     def _wait_for_data(self, timeout: float) -> None:
         """Wait until data is available or timeout."""
@@ -897,7 +952,7 @@ class AIDetectionReceiver:
 
     @property
     def fps(self) -> float:
-        """Calculate current frames per second."""
+        """Messages per second over the last 30 messages."""
         with self._lock:
             if len(self._frame_times) < 2:
                 return 0.0
@@ -908,14 +963,20 @@ class AIDetectionReceiver:
 
     @property
     def avg_latency_ms(self) -> float:
-        """Average inference latency in milliseconds."""
+        """Average age of a message when it arrives, in milliseconds.
+
+        On the robot this is the time since the camera stamped the message and
+        includes the network; it is only meaningful when the robot's clock and
+        this computer's are synchronised (NTP). Samples that are negative or
+        absurdly large are ignored. In the simulation it is the inference time.
+        """
         with self._lock:
             if not self._latencies:
                 return 0.0
             return sum(self._latencies) / len(self._latencies)
 
     def get_latest_raw(self) -> Optional[dict]:
-        """Get the most recent raw detection result."""
+        """Get the most recent raw DetectionArray message."""
         with self._lock:
             if self._results:
                 return self._results[-1]
@@ -933,15 +994,32 @@ class AIDetectionReceiver:
                 return [self._results[-1]]
             return list(self._results)
 
+    def _detections_of(self, latest_only: bool, keep=None):
+        """``(detection dict, frame_width, frame_height)`` for buffered results.
+
+        Messages without a frame size (the robot sends 0 when it has no frame
+        yet) cannot be normalized and are skipped.
+        """
+        for message in self._results_snapshot(latest_only):
+            width = int(message.get("frame_width", 0))
+            height = int(message.get("frame_height", 0))
+            if width <= 0 or height <= 0:
+                continue
+            for det in message.get("detections", []):
+                if keep is None or keep(det):
+                    yield det, width, height
+
     def get_detections(
         self,
         timeout: float = 5.0,
         latest_only: bool = False,
     ) -> List[Detection]:
         """
-        Get buffered object detections.
+        Get buffered detections: every box of every buffered message.
 
-        Waits automatically if no results are available yet.
+        Waits automatically if no results are available yet. Pose, hand and
+        face models report their persons, hands and faces here too, with
+        ``det.keypoints`` and ``det.scalars`` filled in.
 
         Warning:
             By default this returns detections from **every buffered frame**
@@ -961,12 +1039,10 @@ class AIDetectionReceiver:
             List of Detection objects (may be empty if timeout=0 and no data).
         """
         self._wait_for_data(timeout)
-        detections = []
-        for result in self._results_snapshot(latest_only):
-            if result.get("type") in DETECTION_TYPES:
-                for det_dict in result.get("result", {}).get("detections", []):
-                    detections.append(Detection.from_dict(det_dict))
-        return detections
+        return [
+            Detection.from_message(det, width, height)
+            for det, width, height in self._detections_of(latest_only)
+        ]
 
     def get_hand_landmarks(
         self,
@@ -991,16 +1067,10 @@ class AIDetectionReceiver:
             List of HandLandmarks objects with finger angles.
         """
         self._wait_for_data(timeout)
-        hands = []
-        for result in self._results_snapshot(latest_only):
-            if result.get("type") == "hand":
-                res = result.get("result", {})
-                keypoints = res.get("keypoints", [])
-                if keypoints:
-                    hands.append(HandLandmarks.from_keypoints_list(
-                        keypoints, handedness=res.get("handedness")
-                    ))
-        return hands
+        return [
+            HandLandmarks.from_message(det, width, height)
+            for det, width, height in self._detections_of(latest_only, _is_hand)
+        ]
 
     def get_poses(
         self,
@@ -1025,22 +1095,10 @@ class AIDetectionReceiver:
             List of PoseKeypoints objects.
         """
         self._wait_for_data(timeout)
-        poses = []
-        for result in self._results_snapshot(latest_only):
-            if result.get("type") == "pose":
-                # Handle both formats: keypoints list or detections with keypoints
-                res = result.get("result", {})
-
-                if "keypoints" in res:
-                    poses.append(PoseKeypoints.from_keypoints_list(res["keypoints"]))
-                elif "detections" in res:
-                    for det in res["detections"]:
-                        if "keypoints" in det:
-                            poses.append(PoseKeypoints.from_keypoints_list(
-                                det["keypoints"],
-                                bbox=det.get("bbox")
-                            ))
-        return poses
+        return [
+            PoseKeypoints.from_message(det, width, height)
+            for det, width, height in self._detections_of(latest_only, _is_pose)
+        ]
 
     def clear(self) -> None:
         """Clear all buffers."""
@@ -1057,19 +1115,71 @@ class AIDetectionReceiver:
             return len(self._results)
 
 
+def _is_hand(det: dict) -> bool:
+    """Whether a Detection of a message is a hand with its 21 landmarks."""
+    names = det.get("keypoint_names") or []
+    if names:
+        return list(names) == list(HAND_KEYPOINT_NAMES)
+    return det.get("label") == "hand" and len(det.get("keypoint_x", [])) == 21
+
+
+def _is_pose(det: dict) -> bool:
+    """Whether a Detection of a message is a person with the COCO keypoints."""
+    names = det.get("keypoint_names") or []
+    if names:
+        return set(COCO_KEYPOINT_NAMES) <= set(names)
+    return det.get("label") == "person" and len(det.get("keypoint_x", [])) == 17
+
+
+def parse_detection_message(message: dict) -> List[Union[Detection, HandLandmarks, PoseKeypoints]]:
+    """
+    Turn one DetectionArray message into typed objects.
+
+    A hand becomes :class:`HandLandmarks`, a person with the COCO keypoints
+    :class:`PoseKeypoints`, everything else :class:`Detection`.
+
+    Args:
+        message: A ``datatypes/DetectionArray`` as a dict.
+
+    Returns:
+        One object per detection; empty if the message has no frame size.
+    """
+    width = int(message.get("frame_width", 0))
+    height = int(message.get("frame_height", 0))
+    if width <= 0 or height <= 0:
+        return []
+    typed = []
+    for det in message.get("detections", []):
+        if _is_hand(det):
+            typed.append(HandLandmarks.from_message(det, width, height))
+        elif _is_pose(det):
+            typed.append(PoseKeypoints.from_message(det, width, height))
+        else:
+            typed.append(Detection.from_message(det, width, height))
+    return typed
+
+
 # ==================== SUBSYSTEM CLASSES ====================
 
 
 class AISubsystem:
     """
-    AI inference subsystem for the robot's OAK-D Lite camera.
+    AI inference of the robot's OAK-D Lite camera, as ``robot.ai``.
 
-    Provides simple access to AI model results without manual subscription management.
-    The subsystem automatically handles subscription lifecycle.
+    The camera runs the models of pib-backend's model store. A client asks for
+    a model with ``/start_model`` and gives an *owner* name; the model runs as
+    long as any owner holds it, so scripts, cerebra and the web programs do
+    not switch each other's models away. This class starts and stops models
+    under this client's owner name and keeps one receiver per model.
 
-    Accessed via `robot.ai`:
+    Starting or stopping a model rebuilds the camera pipeline: video and IMU
+    pause for a few seconds, unless another owner already runs the model.
+    If a start fails, the camera falls back to colour only, which also stops
+    the models that ran before; :meth:`start_model` warns when that may have
+    happened.
+
         >>> robot.ai.set_model(AIModel.HAND)
-        >>> for hand in robot.ai.get_hand_landmarks():
+        >>> for hand in robot.ai.get_hand_landmarks(latest_only=True):
         ...     print(f"{hand.handedness}: {hand.finger_angles.index:.0f}°")
         >>> print(f"FPS: {robot.ai.fps:.1f}")
     """
@@ -1082,84 +1192,185 @@ class AISubsystem:
             robot: Parent robot backend instance.
         """
         self._robot = robot
-        self._receiver = AIDetectionReceiver()
-        self._subscription = None
+        self._receivers: Dict[str, AIDetectionReceiver] = {}
+        self._subscriptions: Dict[str, object] = {}
         self._current_model: Optional[str] = None
 
-    def _ensure_subscribed(self) -> None:
-        """Ensure we're subscribed to AI detections."""
-        if self._subscription is None and self._robot.is_connected:
-            self._subscription = self._robot.subscribe_ai_detections(
-                self._receiver.on_detection
-            )
+    # --- model lifecycle ------------------------------------------------
 
-    def set_model(self, model: "Union[AIModel, str]", timeout: float = 15.0) -> bool:
+    def start_model(self, model: "Union[AIModel, str]", timeout: float = 30.0) -> bool:
         """
-        Switch AI model on the OAK-D Lite camera and wait for its first result.
+        Start a model without stopping others, and make it the current one.
 
-        A switch restarts the camera (about 4 s), so this returns only once
-        results of the new model actually arrive. From then on, results of
-        any other model are ignored: frames still in flight from the old one,
-        and those of another client that switches the shared camera (logged
-        once as a warning).
+        The camera can run several models at once as long as their cores
+        (``AIModelInfo.shaves``) fit into the camera's 16.
 
         Args:
-            model: AI model to load (AIModel enum or string name).
-            timeout: Max time for the switch and the first result together.
-                A model the robot has not cached is fetched from the Luxonis
-                Model Hub on first use, so allow generous time.
+            model: AI model to start (AIModel enum or model id).
+            timeout: Max seconds for the robot's answer. The call returns
+                after the camera pipeline has been rebuilt and delivers
+                frames again.
 
         Returns:
-            True once the first result of the new model has arrived; False
-            if the backend refused the switch or no result came in time.
+            True if the model is running; False if the robot refused (the
+            reason is logged together with the models it offers).
+        """
+        model_id = self._robot.resolve_ai_model_name(model)
+        receiver = self._receivers.get(model_id)
+        if receiver is None:
+            receiver = self._receivers[model_id] = AIDetectionReceiver()
+        receiver.expect_model(model_id)
+        self._subscribe(model_id)  # before the start, so no result is missed
+
+        others = [m for m in self._receivers if m != model_id]
+        try:
+            ok, message = self._robot.start_ai_model(model_id, timeout=timeout)
+        except BaseException:      # e.g. the connection dropped: leave no half-started model
+            self._release(model_id)
+            raise
+        if not ok:
+            logger.warning("%s%s", message, self._offered_models_hint())
+            if others:
+                logger.warning(
+                    "A failed start can drop the camera back to colour only, "
+                    "which stops the models started before (%s). Check "
+                    "robot.available_models() and start them again if needed.",
+                    ", ".join(others),
+                )
+            self._release(model_id)
+            return False
+        self._current_model = model_id
+        return True
+
+    def stop_model(
+        self, model: "Union[AIModel, str, None]" = None, timeout: float = 30.0
+    ) -> bool:
+        """
+        Release this client's hold on a model (the current one by default).
+
+        The model stops running once no other client holds it either.
+
+        Returns:
+            True if the robot confirmed. A model that was not started here
+            counts as stopped.
+        """
+        model_id = self._robot.resolve_ai_model_name(model) if model else self._current_model
+        if model_id is None or model_id not in self._receivers:
+            return True
+        ok, message = self._robot.stop_ai_model(model_id, timeout=timeout)
+        if not ok:
+            logger.warning("Stopping %s failed: %s", model_id, message)
+        self._release(model_id)
+        return ok
+
+    def set_model(self, model: "Union[AIModel, str]", timeout: float = 30.0) -> bool:
+        """
+        Run this model and none of the other models started here.
+
+        Stops the models this client started earlier, then starts ``model``.
+        Each stop and start rebuilds the camera pipeline (a few seconds
+        each), so a switch is two rebuilds; a model that is already running
+        costs nothing. The call returns once the robot reports the new model
+        running. Stopping first keeps the two models from needing the
+        camera's cores at the same time; use :meth:`start_model` to run
+        several models on purpose.
+
+        Args:
+            model: AI model to run (AIModel enum or model id).
+            timeout: Max seconds for each of the robot's answers.
+
+        Returns:
+            True if the model is running; False if the robot refused.
 
         Example:
             >>> robot.ai.set_model(AIModel.HAND)
             >>> robot.ai.set_model(AIModel.YOLO26N)
         """
-        # Resolve deprecated aliases so the expected name matches what the
-        # robot actually loads and reports, not what the caller asked for.
-        model_name = self._robot.resolve_ai_model_name(model)
-        deadline = time.monotonic() + timeout
-        # Expect the new model before switching: whatever the old one still
-        # sends during the restart is dropped, not buffered.
-        self._receiver.expect_model(model_name)
-        if not self._robot.set_ai_model(model_name, timeout):
-            self._receiver.expect_model(self._current_model)
-            return False
-        self._current_model = model_name
-        self._ensure_subscribed()  # a first subscription starts the pipeline
-        if self._receiver.wait_for_expected_model(deadline - time.monotonic()):
-            return True
-        logger.warning(
-            "AI model %r was switched but sent no result within %.0f s. "
-            "robot.subscribe_ai_status() shows load errors.", model_name, timeout,
-        )
-        return False
+        model_id = self._robot.resolve_ai_model_name(model)
+        for other in [m for m in self._receivers if m != model_id]:
+            self.stop_model(other, timeout=timeout)
+        return self.start_model(model_id, timeout=timeout)
+
+    def _subscribe(self, model_id: str) -> None:
+        if model_id not in self._subscriptions and self._robot.is_connected:
+            self._subscriptions[model_id] = self._robot.subscribe_ai_detections(
+                model_id, self._receivers[model_id].on_detection
+            )
+
+    def _release(self, model_id: str) -> None:
+        """Forget a model: unsubscribe and drop its receiver."""
+        subscription = self._subscriptions.pop(model_id, None)
+        if subscription is not None:
+            try:
+                subscription.unsubscribe()
+            except Exception:
+                pass
+        self._receivers.pop(model_id, None)
+        if self._current_model == model_id:
+            self._current_model = next(reversed(self._receivers), None)
+
+    def _offered_models_hint(self) -> str:
+        """The models the robot can start, for an error message."""
+        try:
+            offered = sorted(
+                name for name, info in self._robot.get_available_ai_models().items()
+                if info.get("available")
+            )
+        except Exception:
+            return ""
+        return f". The robot offers: {', '.join(offered)}" if offered else ""
+
+    # --- state ----------------------------------------------------------
 
     @property
     def model(self) -> Optional[str]:
-        """The AI model this script set; only its results are returned."""
+        """Id of the current model: the one the getters read by default."""
         return self._current_model
 
     @property
+    def models(self) -> Tuple[str, ...]:
+        """Ids of all models this client started."""
+        return tuple(self._receivers)
+
+    def available_models(self) -> List[AIModelInfo]:
+        """The models the robot offers, with their state."""
+        return [
+            AIModelInfo.from_dict(name, info)
+            for name, info in self._robot.get_available_ai_models().items()
+        ]
+
+    def _receiver(self, model: "Union[AIModel, str, None]") -> AIDetectionReceiver:
+        model_id = self._robot.resolve_ai_model_name(model) if model else self._current_model
+        if model_id is None or model_id not in self._receivers:
+            raise RuntimeError(
+                "No AI model started. Call robot.ai.set_model(AIModel.YOLO26N) "
+                "(or another model) first."
+            )
+        return self._receivers[model_id]
+
+    @property
     def fps(self) -> float:
-        """Current inference frames per second."""
-        return self._receiver.fps
+        """Results per second of the current model."""
+        receiver = self._receivers.get(self._current_model)
+        return receiver.fps if receiver else 0.0
 
     @property
     def avg_latency_ms(self) -> float:
-        """Average inference latency in milliseconds."""
-        return self._receiver.avg_latency_ms
+        """Average age of the current model's results on arrival (see
+        :attr:`AIDetectionReceiver.avg_latency_ms` for its limits)."""
+        receiver = self._receivers.get(self._current_model)
+        return receiver.avg_latency_ms if receiver else 0.0
+
+    # --- results --------------------------------------------------------
 
     def get_detections(
         self,
         timeout: float = 5.0,
         latest_only: bool = False,
+        model: "Union[AIModel, str, None]" = None,
     ) -> List[Detection]:
         """
-        Get object detections (YOLO26n, person, face; segmentation models
-        return their objects as detections with ``mask_rle``).
+        Get detections of a model (the current one by default).
 
         Waits automatically for results if buffer is empty.
 
@@ -1172,9 +1383,13 @@ class AISubsystem:
         Args:
             timeout: How long to wait for results. Use 0 for non-blocking.
             latest_only: Return results from the newest frame only.
+            model: Read this model instead of the current one.
 
         Returns:
             List of Detection objects.
+
+        Raises:
+            RuntimeError: if no model has been started.
 
         Example:
             >>> robot.ai.set_model(AIModel.YOLO26N)
@@ -1182,13 +1397,13 @@ class AISubsystem:
             ...     for det in robot.ai.get_detections(timeout=0, latest_only=True):
             ...         print(f"{det.label}: {det.confidence:.0%}")
         """
-        self._ensure_subscribed()
-        return self._receiver.get_detections(timeout, latest_only=latest_only)
+        return self._receiver(model).get_detections(timeout, latest_only=latest_only)
 
     def get_hand_landmarks(
         self,
         timeout: float = 5.0,
         latest_only: bool = False,
+        model: "Union[AIModel, str, None]" = None,
     ) -> List[HandLandmarks]:
         """
         Get hand tracking results with finger angles.
@@ -1201,9 +1416,11 @@ class AISubsystem:
         Args:
             timeout: How long to wait for results. Use 0 for non-blocking.
             latest_only: Return results from the newest frame only.
+            model: Read this model instead of the current one.
 
         Returns:
-            List of HandLandmarks objects with finger angles.
+            List of HandLandmarks objects with finger angles; empty while no
+            hand is in view.
 
         Example:
             >>> robot.ai.set_model(AIModel.HAND)
@@ -1212,13 +1429,13 @@ class AISubsystem:
             ...     servos = hand.finger_angles.to_servo_values()
             ...     robot.set_joints({"index_left_stretch": servos["index"]})
         """
-        self._ensure_subscribed()
-        return self._receiver.get_hand_landmarks(timeout, latest_only=latest_only)
+        return self._receiver(model).get_hand_landmarks(timeout, latest_only=latest_only)
 
     def get_poses(
         self,
         timeout: float = 5.0,
         latest_only: bool = False,
+        model: "Union[AIModel, str, None]" = None,
     ) -> List[PoseKeypoints]:
         """
         Get body pose estimation results.
@@ -1231,25 +1448,29 @@ class AISubsystem:
         Args:
             timeout: How long to wait for results. Use 0 for non-blocking.
             latest_only: Return results from the newest frame only.
+            model: Read this model instead of the current one.
 
         Returns:
             List of PoseKeypoints objects.
         """
-        self._ensure_subscribed()
-        return self._receiver.get_poses(timeout, latest_only=latest_only)
+        return self._receiver(model).get_poses(timeout, latest_only=latest_only)
 
     def clear(self) -> None:
-        """Clear buffered results."""
-        self._receiver.clear()
+        """Clear buffered results of every started model."""
+        for receiver in self._receivers.values():
+            receiver.clear()
 
     def stop(self) -> None:
-        """Stop AI inference (unsubscribe from detections)."""
-        if self._subscription is not None:
+        """Release every model this client started and unsubscribe.
+
+        Called on disconnect. A model that other clients hold keeps running.
+        """
+        for model_id in list(self._receivers):
             try:
-                self._subscription.unsubscribe()
-            except Exception:
-                pass
-            self._subscription = None
+                self.stop_model(model_id, timeout=10.0)
+            except Exception as exc:  # the connection may already be gone
+                logger.debug("Releasing %s failed: %s", model_id, exc)
+                self._release(model_id)
 
 
 class CameraSubsystem:
@@ -1333,9 +1554,8 @@ class CameraSubsystem:
         Current metric depth frame as a uint16 array of millimetres.
 
         0 marks an invalid or unknown pixel. Returns None when the robot has
-        no depth frame cached -- the depth branch only runs while something
-        subscribes to the depth stream, so call
-        :meth:`start_depth_stream` first if you get None.
+        no depth right now: depth runs while no AI model does, so stop the
+        models (``robot.ai.stop()``) first if you get None.
         """
         return self._robot.get_depth_frame(timeout=timeout)
 
@@ -1357,11 +1577,11 @@ class CameraSubsystem:
 
     def start_depth_stream(self) -> None:
         """
-        Switch the camera's depth branch on and keep it on.
+        Have the camera publish its colourised depth preview.
 
-        Depth is computed on demand, so the depth services return nothing
-        until something subscribes. This holds a subscription open and
-        discards the colourised frames; use
+        The depth the services read exists whenever no AI model runs; only the
+        colourised preview needs a subscriber. This holds a subscription open
+        and discards the frames; use
         :meth:`RealRobotBackend.subscribe_depth_visualization` directly if you
         want to display them.
         """
@@ -1388,50 +1608,3 @@ class CameraSubsystem:
             except Exception:
                 pass
             self._subscription = None
-
-
-
-
-def parse_ai_result(data: dict) -> Union[List[Detection], List[HandLandmarks], List[PoseKeypoints], dict]:
-    """
-    Parse AI detection result into typed objects based on model type.
-
-    Args:
-        data: Raw detection result from robot.
-
-    Returns:
-        List of appropriate typed objects, or raw dict if type unknown.
-    """
-    model_type = data.get("type", "")
-    result = data.get("result", {})
-
-    if model_type in DETECTION_TYPES:
-        detections = []
-        for det_dict in result.get("detections", []):
-            detections.append(Detection.from_dict(det_dict))
-        return detections
-
-    elif model_type == "hand":
-        keypoints = result.get("keypoints", [])
-        if keypoints:
-            return [HandLandmarks.from_keypoints_list(
-                keypoints, handedness=result.get("handedness")
-            )]
-        return []
-
-    elif model_type == "pose":
-        poses = []
-        if "keypoints" in result:
-            poses.append(PoseKeypoints.from_keypoints_list(result["keypoints"]))
-
-        elif "detections" in result:
-            for det in result["detections"]:
-                if "keypoints" in det:
-                    poses.append(PoseKeypoints.from_keypoints_list(
-                        det["keypoints"],
-                        bbox=det.get("bbox")
-                    ))
-        return poses
-
-    # Unknown type - return raw
-    return result

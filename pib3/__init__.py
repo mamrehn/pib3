@@ -57,6 +57,7 @@ from .backends import (
     BoundingBox,
     CameraFrameReceiver,
     AIDetectionReceiver,
+    parse_detection_message,
     COCO_LABELS,
     # Audio enums
     AudioOutput,
@@ -119,6 +120,7 @@ __all__ = [
     "BoundingBox",
     "CameraFrameReceiver",
     "AIDetectionReceiver",
+    "parse_detection_message",
     "COCO_LABELS",
     # Audio enums
     "AudioOutput",

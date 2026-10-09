@@ -16,69 +16,66 @@ class ImuType(str, Enum):
 
 
 class AIModel(str, Enum):
-    """AI models the pib camera node can load on the OAK-D Lite.
+    """AI models of the robot's OAK-D Lite camera (pib-backend model store).
 
-    These mirror the ``AVAILABLE_MODELS`` registry in the backend's
-    ``ros_packages/camera/oak_d_lite/stereo.py``. That registry is a hard
-    allowlist: the ``switch_ai_model`` service rejects any other name, and the
-    ``camera/ai/config`` topic logs an error and ignores it. Adding a model
-    therefore requires a backend change, not just a new entry here.
-
-    The weights themselves are pulled from the Luxonis Model Hub on demand
-    (``dai.NNModelDescription(slug)``) and cached on the robot, so a name in
-    this enum may still take a few seconds to load the first time. The
-    exception is ``yolo26n``: the backend ships its own RVC2 build
-    (``ros_packages/camera/models``), which runs about twice as fast on the
-    OAK-D Lite as the Hub's ``luxonis/yolo26-nano``.
+    The values are the model ids the backend lists in ``/list_models`` and
+    that cerebra shows, so ``robot.ai.model`` and the web interface name the
+    same thing. Start one with ``robot.ai.set_model(AIModel.YOLO26N)``; the
+    robot answers with ``/start_model`` and publishes the results on
+    ``detections/<model_id>``.
 
     Use the enum rather than a bare string for IDE completion:
-        >>> robot.set_ai_model(AIModel.HAND)
-        >>> robot.set_ai_model(AIModel.YOLO26N)
+        >>> robot.ai.set_model(AIModel.HAND)
+        >>> robot.ai.set_model(AIModel.YOLO26N)
 
-    Strings still work:
-        >>> robot.set_ai_model("hand")  # Also valid
+    Any other model id the robot lists (``robot.get_available_ai_models()``)
+    works as a plain string, for example ``"yolov6n_coco_640x640"``.
+
+    ``YOLO26N`` and ``POSE_YOLO`` are YOLO26 builds (Ultralytics, AGPL-3.0) at
+    512x288, the camera's 16:9. The robot's model store must contain them;
+    the stock store does not yet (see ``models/README.md`` of the pib-backend
+    branch that adds them). ``set_model`` then reports that the robot does not
+    list the model.
     """
 
-    # Object detection
-    YOLO26N = "yolo26n"          # YOLO26 Nano 512x288, 80 COCO classes (archive shipped with the backend)
-    PERSON = "person"            # luxonis/scrfd-person-detection:25g-640x640
-    FACE = "face"                # luxonis/yunet:640x480
-
-    # Pose estimation (17 keypoints)
-    POSE_YOLO = "pose_yolo"      # luxonis/yolo26-nano-pose-estimation:coco-512x288
-    POSE_HRNET = "pose_hrnet"    # luxonis/lite-hrnet:18-coco-288x384
-
-    # Hand tracking
-    HAND = "hand"                # luxonis/mediapipe-hand-landmarker:224x224
-
-    # Instance segmentation
-    SEGMENTATION = "segmentation"  # luxonis/yolov8-instance-segmentation-nano:coco-512x288
-
-    # Gaze estimation (slow on RVC2: ~4 inf/s)
-    GAZE = "gaze"                # luxonis/l2cs-net:448x448
-
-    # Line detection
-    LINES = "lines"              # luxonis/m-lsd:512x512
+    # Object detection, 80 COCO classes
+    YOLO26N = "yolo26n_coco_512x288"
+    # Body pose, 17 COCO keypoints
+    POSE_YOLO = "yolo26n_pose_coco_512x288"
+    # Hand landmarks, 21 points per hand (MediaPipe landmarker)
+    HAND = "hand_tracking_mp"
+    # Faces: boxes, 468-point mesh, 68 landmarks, emotion, head pose
+    FACE = "face_detection_yunet_160x120"
+    FACE_MESH = "facemesh_crop"
+    FACE_LANDMARKS = "facial_landmarks_68_crop"
+    EMOTION = "emotion_recognition_crop"
+    HEAD_POSE = "head_pose_estimation_crop"
+    # QR codes
+    QR_CODE = "qr_code_detection_384x384"
 
 
-#: Model names pib3 no longer uses, mapped to their replacement. ``set_model``
-#: on the robot and in the simulation remaps these and emits a
-#: DeprecationWarning instead of failing with an opaque timeout.
+#: Names pib3 used before the robot switched to pib-backend's model store,
+#: mapped to the model that replaces them. ``set_model`` on the robot and in
+#: the simulation remaps these and emits a DeprecationWarning, so old scripts
+#: keep working.
 #:
-#: Older YOLO detectors all give way to YOLO26n, a drop-in replacement (same
-#: 512x288 input, same COCO class ids). The backend still lists ``yolov6n`` and
-#: ``yolov10n``; pib3 just no longer loads them. The other names were never in
-#: the backend registry. Some of them (``deeplabv3`` -> ``deeplab-v3-plus``,
-#: ``fastsam`` -> ``fastsam-s``) do exist on the Luxonis Model Hub; recovering
-#: them means adding a slug to ``AVAILABLE_MODELS`` on the robot.
+#: All older YOLO detectors give way to YOLO26n, a drop-in replacement (same
+#: COCO class ids). ``"segmentation"`` stays a simulation-only name: the robot
+#: has no segmentation model, and the simulation runs YOLO26n-seg for it.
 DEPRECATED_MODEL_ALIASES = MappingProxyType({
-    "yolov6n": "yolo26n",
-    "yolov10n": "yolo26n",
-    "mobilenet-ssd": "yolo26n",
-    "yolov8n": "yolo26n",
-    "yolo11n": "yolo26n",
-    "yolo11s": "yolo26n",
-    "pose": "pose_yolo",
+    "yolo26n": AIModel.YOLO26N.value,
+    "yolov6n": AIModel.YOLO26N.value,
+    "yolov10n": AIModel.YOLO26N.value,
+    "mobilenet-ssd": AIModel.YOLO26N.value,
+    "yolov8n": AIModel.YOLO26N.value,
+    "yolo11n": AIModel.YOLO26N.value,
+    "yolo11s": AIModel.YOLO26N.value,
+    "pose_yolo": AIModel.POSE_YOLO.value,
+    "pose_yolov8": AIModel.POSE_YOLO.value,
+    "pose_hrnet": AIModel.POSE_YOLO.value,
+    "pose": AIModel.POSE_YOLO.value,
+    "hand": AIModel.HAND.value,
+    "face": AIModel.FACE.value,
     "deeplabv3": "segmentation",
     "yolov8n-seg": "segmentation",
     "fastsam": "segmentation",
@@ -87,7 +84,7 @@ DEPRECATED_MODEL_ALIASES = MappingProxyType({
 
 def resolve_model_name(model: Union["AIModel", str], stacklevel: int = 2) -> str:
     """
-    Normalise a model argument to a name pib3 loads.
+    Normalise a model argument to the model id pib3 uses.
 
     Deprecated names are remapped via :data:`DEPRECATED_MODEL_ALIASES` with a
     DeprecationWarning; anything else passes through unchanged. Shared by the
@@ -103,9 +100,9 @@ def resolve_model_name(model: Union["AIModel", str], stacklevel: int = 2) -> str
     if replacement is None:
         return name
     warnings.warn(
-        f"pib3 no longer uses AI model {name!r}; loading {replacement!r} "
-        f"instead. Update your code to one of: "
-        f"{', '.join(m.value for m in AIModel)}.",
+        f"AI model name {name!r} is deprecated; using {replacement!r}. "
+        f"Use AIModel (for example AIModel.YOLO26N) or a model id from "
+        f"robot.get_available_ai_models().",
         DeprecationWarning,
         stacklevel=stacklevel + 1,
     )

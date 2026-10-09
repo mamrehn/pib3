@@ -9,7 +9,7 @@ The subsystem APIs (`robot.ai` and `robot.camera`) provide a simpler alternative
 | Approach | When to Use |
 |----------|-------------|
 | **Subsystem API** (`robot.ai`, `robot.camera`) | Most use cases—simple, auto-managed |
-| **Raw subscriptions** (`subscribe_ai_detections()`) | Custom buffering, multiple callbacks, advanced scenarios |
+| **Raw subscriptions** (`subscribe_ai_detections(model, callback)`) | Custom buffering, multiple callbacks, advanced scenarios |
 
 ```python
 from pib3 import Robot, AIModel
@@ -25,7 +25,12 @@ with Robot(host="172.26.34.149") as robot:
 
 ## AISubsystem (`robot.ai`)
 
-Access AI inference results from the OAK-D Lite camera with automatic subscription management.
+Run AI models on the OAK-D Lite and read their results as typed objects.
+
+The camera runs the models of the robot's **model store** (pib-backend). A client asks for a model with `/start_model` and names itself as an *owner*; the model runs as long as any owner holds it. That is why a script, cerebra and a neighbouring group do not switch each other's models away. `robot.ai` starts and stops models under this client's owner name (`pib3-<user>@<computer>`, or `Robot(ai_owner="group-3")`) and keeps one receiver per model.
+
+!!! note "Starting or stopping a model restarts the camera pipeline"
+    Video and the IMU pause for a few seconds, unless another owner already runs the model. Depth is gone while any model runs (see [Depth](#depth)).
 
 ### Quick Start
 
@@ -33,75 +38,88 @@ Access AI inference results from the OAK-D Lite camera with automatic subscripti
 from pib3 import Robot, AIModel
 
 with Robot(host="172.26.34.149") as robot:
-    # Set model (waits for confirmation)
+    # Run a model (returns when the robot reports it running)
     robot.ai.set_model(AIModel.YOLO26N)
-    
+
     # Get detections (waits automatically for results)
-    for det in robot.ai.get_detections():
+    for det in robot.ai.get_detections(latest_only=True):
         print(f"{det.label}: {det.confidence:.0%} at {det.bbox}")
-    
+
     # Check performance
-    print(f"FPS: {robot.ai.fps:.1f}, Latency: {robot.ai.avg_latency_ms:.1f}ms")
+    print(f"FPS: {robot.ai.fps:.1f}")
 ```
 
 ### Methods
 
 #### `set_model()`
 
-Switch AI model on the OAK-D Lite camera.
+Run one model and none of the others this client started.
 
 ```python
 def set_model(
     model: Union[AIModel, str],
-    timeout: float = 15.0
+    timeout: float = 30.0
 ) -> bool
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `model` | `AIModel` or `str` | *required* | Model to load (prefer enum for IDE support) |
-| `timeout` | `float` | `15.0` | Max time for the switch and the model's first result together |
+| `model` | `AIModel` or `str` | *required* | Model to run (enum, or any model id the robot lists) |
+| `timeout` | `float` | `30.0` | Max seconds for each answer of the robot |
 
-**Returns:** `True` once the first result of the new model has arrived;
-`False` if the backend refused the switch or no result came in time (a
-warning names `robot.subscribe_ai_status()` for load errors).
+**Returns:** `True` if the robot reports the model running; `False` if it refused. The reason is logged together with the models the robot offers.
 
-A switch restarts the camera, so this takes about 4 s. The model belongs to
-the camera, not to your script: from the switch on, `robot.ai` returns only
-results of the model you set. Frames still in flight from the old model are
-dropped silently. If another client (a second script, the pib web app)
-switches the shared camera later, its results are ignored too, and pib3
-logs one warning naming the model it now runs.
+`set_model` stops the models this client started earlier, then starts the new one. Each start and stop rebuilds the camera pipeline and takes a few seconds, except when another owner already runs that model. A model that is already running costs nothing.
 
 ```python
 from pib3 import AIModel
 
-# Using enum (recommended - IDE autocomplete)
 robot.ai.set_model(AIModel.HAND)
-robot.ai.set_model(AIModel.YOLO26N)
-robot.ai.set_model(AIModel.POSE_YOLO)
-
-# String also works
-robot.ai.set_model("yolo26n")
+robot.ai.set_model(AIModel.YOLO26N)       # stops the hand model first
+robot.ai.set_model("yolov6n_coco_640x640")  # any id from get_available_ai_models()
 ```
+
+#### `start_model()` / `stop_model()`
+
+Run several models at once. The camera has 16 processing cores; each model uses a fixed number (`AIModelInfo.shaves`, 4 for the YOLO models, 8 for the hand chain), so two or three models fit together.
+
+```python
+robot.ai.start_model(AIModel.YOLO26N)
+robot.ai.start_model(AIModel.HAND)      # both run; HAND is now the current model
+
+dets = robot.ai.get_detections(latest_only=True, model=AIModel.YOLO26N)
+hands = robot.ai.get_hand_landmarks(latest_only=True)   # the current model
+
+robot.ai.stop_model(AIModel.HAND)
+```
+
+`stop_model()` only releases *this client's* hold; the model keeps running while another owner holds it.
 
 ---
 
 #### `get_detections()`
 
-Get object detections from detection models (YOLO, MobileNet-SSD, etc.).
+Get every box a model reports (objects, but also the persons of a pose model, hands, faces, QR codes).
 
 ```python
-def get_detections(timeout: float = 5.0) -> List[Detection]
+def get_detections(timeout: float = 5.0, latest_only: bool = False, model=None) -> List[Detection]
 ```
 
-Waits automatically for results if buffer is empty.
+Waits automatically for results if buffer is empty. Raises `RuntimeError` if no model has been started.
 
 ```python
 robot.ai.set_model(AIModel.YOLO26N)
-for det in robot.ai.get_detections():
+for det in robot.ai.get_detections(latest_only=True):
     print(f"Found {det.label} ({det.confidence:.0%})")
     print(f"  BBox: {det.bbox.center}")
+```
+
+Models of the face family attach more to `det.keypoints` and `det.scalars`:
+
+```python
+robot.ai.set_model(AIModel.HEAD_POSE)
+for det in robot.ai.get_detections(latest_only=True):
+    print(det.scalars)        # {"yaw": -12.0, "pitch": 3.5, "roll": 0.8}
 ```
 
 ---
@@ -111,14 +129,14 @@ for det in robot.ai.get_detections():
 Get hand tracking results with finger angles.
 
 ```python
-def get_hand_landmarks(timeout: float = 5.0) -> List[HandLandmarks]
+def get_hand_landmarks(timeout: float = 5.0, latest_only: bool = False, model=None) -> List[HandLandmarks]
 ```
 
 ```python
 robot.ai.set_model(AIModel.HAND)
-for hand in robot.ai.get_hand_landmarks():
+for hand in robot.ai.get_hand_landmarks(latest_only=True):
     print(f"{hand.handedness}: index={hand.finger_angles.index:.0f}°")
-    
+
     # Convert to servo values for robot hand control
     servos = hand.finger_angles.to_servo_values()
     robot.set_joints({
@@ -127,6 +145,8 @@ for hand in robot.ai.get_hand_landmarks():
     })
 ```
 
+The list is empty while no hand is in view. Finger angles are measured in pixel space, so the 16:9 frame does not skew them.
+
 ---
 
 #### `get_poses()`
@@ -134,12 +154,12 @@ for hand in robot.ai.get_hand_landmarks():
 Get body pose estimation results.
 
 ```python
-def get_poses(timeout: float = 5.0) -> List[PoseKeypoints]
+def get_poses(timeout: float = 5.0, latest_only: bool = False, model=None) -> List[PoseKeypoints]
 ```
 
 ```python
 robot.ai.set_model(AIModel.POSE_YOLO)
-for pose in robot.ai.get_poses():
+for pose in robot.ai.get_poses(latest_only=True):
     if pose.nose:
         print(f"Nose at: ({pose.nose.x:.2f}, {pose.nose.y:.2f})")
 ```
@@ -150,16 +170,20 @@ for pose in robot.ai.get_poses():
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `model` | `Optional[str]` | Currently active model name |
-| `fps` | `float` | Current inference frames per second |
-| `avg_latency_ms` | `float` | Average inference latency in milliseconds |
+| `model` | `Optional[str]` | Id of the current model: the one the getters read by default |
+| `models` | `Tuple[str, ...]` | Ids of all models this client started |
+| `fps` | `float` | Results per second of the current model |
+| `avg_latency_ms` | `float` | Average age of a result on arrival, in milliseconds |
+
+`avg_latency_ms` compares the robot's timestamp with this computer's clock, so it includes the network and is only meaningful when both clocks are synchronised (NTP). Implausible values are ignored. In the simulation it is the inference time.
 
 ### Other Methods
 
 | Method | Description |
 |--------|-------------|
+| `available_models()` | The models the robot offers, as `AIModelInfo` (`available`, `active`, `shaves`, `task`, ...) |
 | `clear()` | Clear buffered results |
-| `stop()` | Stop AI inference (unsubscribe) |
+| `stop()` | Release every model this client started and unsubscribe (also runs on disconnect) |
 
 ---
 
@@ -234,11 +258,11 @@ def configure(
 | `resolution` | `tuple` | (width, height) e.g., (1280, 720) |
 
 ```python
-robot.camera.configure(fps=30, quality=80, resolution=(1280, 720))
+robot.camera.configure(fps=10, quality=80, resolution=(1280, 720))
 ```
 
-!!! warning "Brief Interruption"
-    Changing settings causes ~100-200ms stream interruption.
+!!! warning "Keep the frame 16:9"
+    The camera publishes 1280×720 by default. AI models read the same frame, and the camera refuses to feed them one of another aspect, so use 16:9 sizes such as 1280×720 or 640×360. Changing the resolution restarts the camera pipeline; quality and frame rate do not.
 
 ---
 
@@ -254,87 +278,61 @@ robot.camera.configure(fps=30, quality=80, resolution=(1280, 720))
 |--------|-------------|
 | `stop()` | Stop camera streaming (unsubscribe) |
 
+### Depth
+
+`robot.camera.get_depth_frame()` and `get_distance_at_px()` read the camera's stereo depth. Depth is the camera's resting state: it runs while **no AI model runs** and is gone while one does, because the stereo pair and a model share the camera's cores. After `robot.ai.stop()` it returns within a few seconds. So a script cannot look up the distance of a detected object while the detector runs; measure first, or stop the model.
+
+The OAK-D Lite has no time-of-flight sensor; depth comes from comparing the two black-and-white cameras (about 0.8 m to 12 m).
+
 ---
 
 ## AIModel Enum
 
-Type-safe enum for available AI models on the OAK-D Lite.
+Type-safe names for the models of the robot's model store (pib-backend, `models/manifest.yaml`). The enum value is the model id that `/list_models` reports and that cerebra shows.
 
 ```python
 from pib3 import AIModel
 ```
 
-### Detection Models
+| Enum value | Model id | Task | Cores |
+|------------|----------|------|-------|
+| `AIModel.YOLO26N` | `yolo26n_coco_512x288` | Object detection, 80 COCO classes | 4 |
+| `AIModel.POSE_YOLO` | `yolo26n_pose_coco_512x288` | Body pose, 17 COCO keypoints | 4 |
+| `AIModel.HAND` | `hand_tracking_mp` | Hand landmarks, 21 points per hand | 8 |
+| `AIModel.FACE` | `face_detection_yunet_160x120` | Face boxes | 4 |
+| `AIModel.FACE_MESH` | `facemesh_crop` | 468-point face mesh | 8 |
+| `AIModel.FACE_LANDMARKS` | `facial_landmarks_68_crop` | 68 facial landmarks | 8 |
+| `AIModel.EMOTION` | `emotion_recognition_crop` | Emotion (one probability per emotion in `det.scalars`) | 8 |
+| `AIModel.HEAD_POSE` | `head_pose_estimation_crop` | Head `yaw`, `pitch`, `roll` in `det.scalars` | 8 |
+| `AIModel.QR_CODE` | `qr_code_detection_384x384` | QR code boxes | 4 |
 
-| Enum Value | String | Luxonis slug | Description |
-|------------|--------|--------------|-------------|
-| `AIModel.YOLO26N` | `"yolo26n"` | none -- archive shipped with the backend | Default. YOLO26 Nano at 512×288, 80 COCO classes |
-| `AIModel.PERSON` | `"person"` | `luxonis/scrfd-person-detection:25g-640x640` | People only |
-| `AIModel.FACE` | `"face"` | `luxonis/yunet:640x480` | Faces only |
+!!! warning "Hand tracking speed is unknown"
+    `AIModel.HAND` is `hand_tracking_mp`, the newer of the backend's two hand chains. pib-backend measured its older chain, `hand_tracking`, at **1.0 result/s** on a robot. Nobody has published a measurement of `hand_tracking_mp`. A hand-mirroring program needs several results per second: check `robot.ai.fps` on your robot before relying on it. `AIModel` has no member for the older chain; `"hand_tracking"` works as a string.
 
-### Hand Tracking
+Any other model id works as a plain string; `robot.ai.available_models()` lists what the robot has. The model ids and core counts come from the backend's manifest and were not all measured by pib3; `available_models()` reports the numbers the robot itself uses.
 
-| Enum Value | String | Luxonis slug | Description |
-|------------|--------|--------------|-------------|
-| `AIModel.HAND` | `"hand"` | `luxonis/mediapipe-hand-landmarker:224x224` | Hand landmarks with finger angles |
+!!! warning "The YOLO26 models are not in the stock model store yet"
+    `YOLO26N` and `POSE_YOLO` are YOLO26 builds (Ultralytics, AGPL-3.0) at 512×288, the camera's 16:9. They exist in the pib-backend branch that adds them, and a robot only offers them after that branch's model archive is installed (`setup/setup-pib.sh --models`). On a robot without them, `set_model` returns `False` and logs the models the robot does offer, for example `yolov6n_coco_640x640` (the stock detector, 640×640, same COCO classes). There is no body pose or segmentation model in the stock store.
 
-### Pose Estimation
-
-| Enum Value | String | Luxonis slug | Description |
-|------------|--------|--------------|-------------|
-| `AIModel.POSE_YOLO` | `"pose_yolo"` | `luxonis/yolo26-nano-pose-estimation:coco-512x288` | 17-keypoint body pose (YOLO26) |
-| `AIModel.POSE_HRNET` | `"pose_hrnet"` | `luxonis/lite-hrnet:18-coco-288x384` | 17-keypoint pose, higher resolution |
-
-### Segmentation
-
-| Enum Value | String | Luxonis slug | Description |
-|------------|--------|--------------|-------------|
-| `AIModel.SEGMENTATION` | `"segmentation"` | `luxonis/yolov8-instance-segmentation-nano:coco-512x288` | Instance segmentation, 80 COCO classes |
-
-### Other Models
-
-| Enum Value | String | Luxonis slug | Description |
-|------------|--------|--------------|-------------|
-| `AIModel.GAZE` | `"gaze"` | `luxonis/l2cs-net:448x448` | Gaze estimation. Slow on the OAK-D Lite (~4 inf/s) |
-| `AIModel.LINES` | `"lines"` | `luxonis/m-lsd:512x512` | Line segment detection |
-
-!!! note "YOLO26n on the OAK-D Lite"
-    The backend ships its own RVC2 build (`ros_packages/camera/models`, recipe
-    in its README). It is a drop-in for YOLOv6-nano: same 512×288 input, same
-    output layout, same COCO class ids, decoded and NMS-filtered on the camera.
-    It uses YOLO26's one-to-many head, so its confidences differ slightly from
-    the end-to-end head the simulation runs; boxes and classes agree. The
-    Hub's `luxonis/yolo26-nano` uses the end-to-end head and managed only
-    11-13 inferences/s in a camera pipeline on an OAK-D Lite, against 27 for
-    this build and 30 (the camera's rate) for YOLOv6-nano. The OAK-D Lite has no time-of-flight sensor,
-    and the network only sees the RGB image -- the stereo pair is not used.
+!!! note "Speed on the OAK-D Lite"
+    Measured on a laptop over USB 3: YOLO26n 25.7 results/s, YOLO26n-pose 22.5, stock YOLOv6n 21.5. The same stock YOLOv6n runs at 11 results/s on the robot (pib-backend's measurement), about half of the laptop figure; the robot's Raspberry Pi parses the results, which is the likely cause. Expect lower figures there for the YOLO26 models too; they were not measured on a robot.
 
 ### Retired names
 
-These were exposed by earlier versions of this SDK. `set_ai_model()` remaps
-them with a `DeprecationWarning`, on the robot and in the simulation:
+These were exposed by earlier versions of this SDK. `set_model()` remaps them with a `DeprecationWarning`, on the robot and in the simulation:
 
-| Old name | Now uses | Note |
-|----------|----------|------|
-| `"yolov6n"`, `"yolov10n"` | `"yolo26n"` | Older YOLO generations; the backend still lists them, pib3 no longer loads them |
-| `"mobilenet-ssd"`, `"yolov8n"`, `"yolo11n"`, `"yolo11s"` | `"yolo26n"` | No such backend entry |
-| `"pose"` | `"pose_yolo"` | Renamed |
-| `"yolov8n-seg"`, `"deeplabv3"`, `"fastsam"` | `"segmentation"` | `deeplab-v3-plus` and `fastsam-s` exist on the Model Hub but not in the backend registry |
+| Old name | Now uses |
+|----------|----------|
+| `"yolo26n"`, `"yolov6n"`, `"yolov10n"`, `"mobilenet-ssd"`, `"yolov8n"`, `"yolo11n"`, `"yolo11s"` | `AIModel.YOLO26N` |
+| `"pose_yolo"`, `"pose_yolov8"`, `"pose_hrnet"`, `"pose"` | `AIModel.POSE_YOLO` |
+| `"hand"` | `AIModel.HAND` |
+| `"face"` | `AIModel.FACE` |
+| `"yolov8n-seg"`, `"deeplabv3"`, `"fastsam"` | `"segmentation"` (simulation only) |
 
-!!! note "The model set is fixed by the robot, not by this SDK"
-    The camera node validates every request against its own `AVAILABLE_MODELS`
-    registry and rejects anything else. Weights are pulled from the Luxonis
-    Model Hub on demand and cached on the robot, so a *listed* model may still
-    take a few seconds to load the first time -- but an *unlisted* one cannot
-    be loaded at all without a backend change. Call
-    `robot.get_available_ai_models()` to see what a given robot offers.
+The robot never had segmentation, gaze, line or person-only models in this store; they were part of an earlier backend branch.
 
 !!! note "Simulation"
-    The Webots backend (`sim.ai.set_model(...)`) accepts the same names and
-    runs ultralytics weights on your laptop instead of the OAK-D: `"yolo26n"`
-    → `yolo26n.pt`, `"pose_yolo"` / `"pose_hrnet"` → `yolo26n-pose.pt`,
-    `"segmentation"` → `yolo26n-seg.pt`. It also takes a weights file name
-    directly (`"yolo26s.pt"`) and `"recognition"` for Webots ground truth.
+    The Webots backend (`sim.ai`) has the same methods and runs ultralytics or MediaPipe on your laptop instead of the OAK-D: `YOLO26N` → `yolo26n.pt`, `POSE_YOLO` → `yolo26n-pose.pt`, `HAND` → MediaPipe, `"segmentation"` → `yolo26n-seg.pt` (simulation only, with `det.mask_rle`). It also takes a weights file name directly (`"yolo26s.pt"`) and `"recognition"` for Webots ground truth. Faces, emotion, head pose and QR codes have no simulated equivalent. Models run together, each inferring on every rendered frame.
 
 ---
 
@@ -342,17 +340,21 @@ them with a `DeprecationWarning`, on the robot and in the simulation:
 
 ### Detection
 
-Object detection result from detection models.
+One box a model reports.
 
 ```python
 @dataclass
 class Detection:
-    label_id: int           # Numeric class ID (e.g., 0 for person in COCO)
-    confidence: float       # Detection confidence (0.0 to 1.0)
-    bbox: BoundingBox       # Bounding box in normalized coordinates
-    label: str              # Human-readable class name (auto-resolved from COCO)
-    mask_rle: Optional[Dict] # Optional RLE-encoded segmentation mask
+    label_id: int                     # COCO class id, or -1 for labels outside COCO
+    confidence: float                 # 0.0 to 1.0
+    bbox: BoundingBox                 # normalized coordinates
+    label: str                        # class name, e.g. "person", "hand"
+    mask_rle: Optional[Dict]          # RLE mask (simulation only)
+    keypoints: List[Keypoint]         # named landmarks, in normalized coordinates
+    scalars: Dict[str, float]         # named values: yaw, pitch, handedness, ...
 ```
+
+The robot sends pixel coordinates together with the frame size (`DetectionArray`); pib3 normalizes them, so `bbox` and `keypoints` are in [0, 1] whatever the camera's resolution.
 
 **Properties:**
 
@@ -363,6 +365,8 @@ det.bbox.center    # (0.5, 0.3) - center point
 det.bbox.width     # 0.2
 det.bbox.height    # 0.4
 det.bbox.to_pixels(640, 480)  # (x1, y1, x2, y2) in pixels
+det.keypoints[0].name         # "nose" (pose and face models)
+det.scalars["yaw"]            # head pose, in degrees
 ```
 
 ---
@@ -375,11 +379,14 @@ Hand tracking result with 21 landmarks and calculated finger angles.
 @dataclass
 class HandLandmarks:
     landmarks: np.ndarray          # Shape (21, 2) normalized coordinates
-    keypoints: List[Keypoint]      # 21 Keypoint objects with confidence
+    keypoints: List[Keypoint]      # 21 named Keypoint objects
     handedness: Handedness         # LEFT, RIGHT, or UNKNOWN
-    confidence: float              # Overall detection confidence
+    confidence: float              # Landmark score of the hand
     finger_angles: FingerAngles    # Calculated finger bend angles
+    aspect_ratio: float            # Frame width / height the landmarks come from
 ```
+
+`handedness` is the model's probability of "right" (above 0.5) as MediaPipe labels it, from the camera's point of view.
 
 **Properties:**
 
@@ -431,8 +438,8 @@ Body pose estimation with 17 COCO keypoints.
 ```python
 @dataclass
 class PoseKeypoints:
-    keypoints: List[Keypoint]       # 17 keypoints
-    confidence: float               # Overall pose confidence
+    keypoints: List[Keypoint]       # 17 keypoints, in COCO order
+    confidence: float               # Confidence of the person detection
     bbox: Optional[BoundingBox]     # Bounding box around person
 ```
 
@@ -486,8 +493,8 @@ with Robot(host="172.26.34.149") as robot:
     
     try:
         while True:
-            # Get hand landmarks (waits automatically)
-            hands = robot.ai.get_hand_landmarks(timeout=1.0)
+            # Newest frame only (waits automatically)
+            hands = robot.ai.get_hand_landmarks(timeout=1.0, latest_only=True)
             
             for hand in hands:
                 print(f"\n{hand.handedness}:")
@@ -505,12 +512,12 @@ with Robot(host="172.26.34.149") as robot:
                     })
             
             # Show stats
-            print(f"FPS: {robot.ai.fps:.1f}, Latency: {robot.ai.avg_latency_ms:.1f}ms")
+            print(f"FPS: {robot.ai.fps:.1f}")
             
     except KeyboardInterrupt:
         print("\nStopping...")
     finally:
-        robot.ai.stop()
+        robot.ai.stop()   # release the model; depth comes back
 ```
 
 ---

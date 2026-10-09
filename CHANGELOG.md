@@ -1,5 +1,64 @@
 # Changelog
 
+## Unreleased
+
+### Robot AI, camera and IMU follow pib-backend `develop` (breaking)
+
+The camera node of pib-rocks' `pib-backend` `develop` has its own model
+interface (a model store, `/start_model` with an owner, one `DetectionArray`
+topic per model). pib3 used the interface of an older backend branch
+(`ai_cam_topics`); it now speaks the upstream one. Nothing here is released.
+
+- **`robot.ai` runs models by id.** `AIModel` values are the model ids of the
+  store: `YOLO26N`, `POSE_YOLO`, `HAND`, `FACE`, `FACE_MESH`, `FACE_LANDMARKS`,
+  `EMOTION`, `HEAD_POSE`, `QR_CODE`; any other id works as a string.
+  `set_model()` stops this client's other models and starts the new one;
+  `start_model()` / `stop_model()` run several at once; `models`,
+  `available_models()` and a `model=` argument on the getters are new. Each
+  start or stop rebuilds the camera pipeline (seconds).
+- **Models are shared by owner.** A model runs while any client holds it, so
+  scripts, cerebra and the web programs no longer switch each other's models.
+  The owner is `pib3-<user>@<computer>` (`Robot(ai_owner=...)`), stable on
+  purpose so a crashed script's model is released by its next run.
+  `disconnect()` releases every model.
+- **A start that outlasts rosbridge's service timeout** (about 5 s, a rebuild
+  takes longer) is no longer reported as failed: pib3 asks `/list_models`.
+- **`Detection` carries keypoints and scalars** (`det.keypoints[i].name`,
+  `det.scalars["yaw"]`), so face, emotion, head-pose and QR models come back as
+  detections. Coordinates are normalized from the pixels the robot sends.
+- **Finger angles are measured in pixel space.** On a 16:9 frame a 90° bend
+  read 121° from normalized coordinates.
+- **Simulation parity.** `sim.ai` has the same methods and runs models
+  together. A failed `set_model` no longer leaves the old model selected with
+  nothing behind it.
+- **Removed**, with the replacement: `switch_ai_model()` →
+  `start_ai_model()`; `set_ai_config()` (confidence and segmentation mode are
+  baked into the model archive; the robot has no segmentation);
+  `subscribe_current_ai_model()` → `subscribe_ai_status()`;
+  `subscribe_camera_legacy()` / `subscribe_camera_errors()` (the topics are
+  gone); `parse_ai_result()` → `parse_detection_message()`; `AiModelType`;
+  `set_imu_frequency()` raises (the IMU streams at a fixed 100 Hz).
+  `subscribe_ai_detections(callback)` is now
+  `subscribe_ai_detections(model, callback)` and delivers `DetectionArray`
+  messages. Old model names (`"yolov6n"`, `"yolo26n"`, `"pose"`, `"hand"`, ...)
+  are remapped with a `DeprecationWarning`.
+- **Camera and IMU topics** are the node's own: `/camera_topic`, `/imu`,
+  `/quality_factor_topic`, `/timer_period_topic`, `/size_topic`. `"full"` IMU
+  data is the whole `sensor_msgs/Imu` message. The frame is 1280×720; keep any
+  resolution 16:9.
+- **Depth** now exists only while no model runs; the docs say so.
+
+What this needs and what is not verified:
+
+- The robot must run pib-backend `develop`. The YOLO26 models are not in its
+  model store; a branch that adds them is prepared, and a robot without them
+  answers `set_model(AIModel.YOLO26N)` with `False` and a list of what it has.
+- Nothing here was run against a robot's camera node. Tested: the parsers with
+  messages built by the backend's own code, the service and topic calls with a
+  fake rosbridge, the models on an OAK-D Lite on a laptop. The hand chain
+  `hand_tracking_mp` (`AIModel.HAND`) has no published speed; its older
+  sibling `hand_tracking` measured 1.0 result/s on a robot.
+
 ## 0.2.0 (2026-10-05)
 
 ### Emergency stop that works on every laptop

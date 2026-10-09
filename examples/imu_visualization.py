@@ -46,12 +46,13 @@ except ImportError:
     print("Install with: pip install matplotlib")
 
 
-def demo_accelerometer(robot, duration: float = 5.0, frequency: int = 100):
+#: The camera node publishes the IMU at a fixed 100 Hz.
+IMU_RATE_HZ = 100
+
+
+def demo_accelerometer(robot, duration: float = 5.0):
     """Demonstrate accelerometer data streaming."""
     print("\n=== Accelerometer Demo ===")
-
-    robot.set_imu_frequency(frequency)
-    print(f"Set IMU frequency to {frequency} Hz")
 
     samples = []
     start_time = None
@@ -102,12 +103,10 @@ def demo_accelerometer(robot, duration: float = 5.0, frequency: int = 100):
     return samples
 
 
-def demo_gyroscope(robot, duration: float = 5.0, frequency: int = 100):
+def demo_gyroscope(robot, duration: float = 5.0):
     """Demonstrate gyroscope data streaming."""
     print("\n=== Gyroscope Demo ===")
     print("Try rotating the robot to see angular velocity changes!")
-
-    robot.set_imu_frequency(frequency)
 
     samples = []
     start_time = None
@@ -151,11 +150,9 @@ def demo_gyroscope(robot, duration: float = 5.0, frequency: int = 100):
     return samples
 
 
-def demo_full_imu(robot, duration: float = 5.0, frequency: int = 100):
+def demo_full_imu(robot, duration: float = 5.0):
     """Demonstrate full IMU data streaming."""
     print("\n=== Full IMU Demo ===")
-
-    robot.set_imu_frequency(frequency)
 
     samples = []
     start_time = None
@@ -193,7 +190,7 @@ def demo_full_imu(robot, duration: float = 5.0, frequency: int = 100):
     return samples
 
 
-def demo_realtime_plot(robot, duration: float = 30.0, frequency: int = 50):
+def demo_realtime_plot(robot, duration: float = 30.0):
     """Real-time plotting of IMU data."""
     if not HAS_MATPLOTLIB:
         print("Error: matplotlib required for plotting")
@@ -203,10 +200,8 @@ def demo_realtime_plot(robot, duration: float = 30.0, frequency: int = 50):
     print("\n=== Real-time IMU Plot ===")
     print(f"Plotting for {duration}s (close window to stop early)")
 
-    robot.set_imu_frequency(frequency)
-
     # Data buffers (keep last 5 seconds)
-    buffer_size = frequency * 5
+    buffer_size = IMU_RATE_HZ * 5
     times = deque(maxlen=buffer_size)
     accel_x = deque(maxlen=buffer_size)
     accel_y = deque(maxlen=buffer_size)
@@ -386,12 +381,6 @@ Note: This example requires the physical robot with OAK-D Lite camera.
         default=5.0,
         help="Duration for data collection in seconds (default: 5)"
     )
-    parser.add_argument(
-        "--frequency",
-        type=int,
-        default=100,
-        help="IMU sampling frequency in Hz (default: 100)"
-    )
     args = parser.parse_args()
 
     if not HAS_PIB3:
@@ -406,22 +395,22 @@ Note: This example requires the physical robot with OAK-D Lite camera.
             print(f"Connected: {robot.is_connected}")
 
             if args.demo in ("accel", "all"):
-                samples = demo_accelerometer(robot, args.duration, args.frequency)
+                samples = demo_accelerometer(robot, args.duration)
                 if args.demo == "accel" and HAS_MATPLOTLIB:
                     demo_static_plot(samples, "Accelerometer Data")
 
             if args.demo in ("gyro", "all"):
-                samples = demo_gyroscope(robot, args.duration, args.frequency)
+                samples = demo_gyroscope(robot, args.duration)
                 if args.demo == "gyro" and HAS_MATPLOTLIB:
                     demo_static_plot(samples, "Gyroscope Data")
 
             if args.demo in ("full", "all"):
-                samples = demo_full_imu(robot, args.duration, args.frequency)
+                samples = demo_full_imu(robot, args.duration)
                 if args.demo == "full" and HAS_MATPLOTLIB:
                     demo_static_plot(samples, "Full IMU Data")
 
             if args.demo == "plot":
-                demo_realtime_plot(robot, args.duration, args.frequency)
+                demo_realtime_plot(robot, args.duration)
 
             print("\n=== Demo complete ===")
 

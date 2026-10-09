@@ -702,7 +702,7 @@ def test_latest_only_reads_stay_silent():
 # ==================== sim model names ====================
 
 
-def test_every_robot_model_name_resolves_in_sim():
+def test_every_robot_model_id_resolves_in_sim():
     """Each AIModel either maps to host weights or fails with a clear error."""
     from pib3.backends.sim_ai import SIM_MODEL_ALIASES, UNSUPPORTED_IN_SIM
     from pib3.types import AIModel
@@ -714,47 +714,71 @@ def test_every_robot_model_name_resolves_in_sim():
     assert unresolved == []
 
 
-def test_robot_detection_names_run_yolo26_in_sim():
+def test_robot_models_run_yolo26_in_sim():
     from pib3.backends.sim_ai import SIM_MODEL_ALIASES
+    from pib3.types import AIModel
 
-    assert SIM_MODEL_ALIASES["yolo26n"] == "yolo26n.pt"
-    assert SIM_MODEL_ALIASES["pose_yolo"] == "yolo26n-pose.pt"
+    assert SIM_MODEL_ALIASES[AIModel.YOLO26N.value] == "yolo26n.pt"
+    assert SIM_MODEL_ALIASES[AIModel.POSE_YOLO.value] == "yolo26n-pose.pt"
+    assert SIM_MODEL_ALIASES[AIModel.HAND.value] == "hand"
     assert SIM_MODEL_ALIASES["segmentation"] == "yolo26n-seg.pt"
+
+
+@pytest.mark.parametrize("name", [m for m in
+                                  ["face_detection_yunet_160x120", "facemesh_crop",
+                                   "emotion_recognition_crop", "qr_code_detection_384x384",
+                                   "person", "gaze"]])
+def test_models_without_a_simulated_equivalent_say_so(name):
+    from pib3.backends.sim_ai import build_runner
+
+    with pytest.raises(ValueError, match="no simulated equivalent"):
+        build_runner(name)
 
 
 def test_deprecated_names_point_at_current_models():
     from pib3.types import AIModel, DEPRECATED_MODEL_ALIASES
 
     current = {m.value for m in AIModel}
-    assert set(DEPRECATED_MODEL_ALIASES.values()) <= current
+    # "segmentation" is the one simulation-only name the aliases may produce.
+    assert set(DEPRECATED_MODEL_ALIASES.values()) <= current | {"segmentation"}
     assert not set(DEPRECATED_MODEL_ALIASES) & current
 
 
-@pytest.mark.parametrize("old", ["yolov6n", "yolov10n", "yolo11n", "yolov8n"])
+@pytest.mark.parametrize("old", ["yolov6n", "yolov10n", "yolo11n", "yolov8n", "yolo26n"])
 def test_old_yolo_names_resolve_to_yolo26n_with_a_warning(old):
-    from pib3.types import resolve_model_name
+    from pib3.types import AIModel, resolve_model_name
 
     with pytest.warns(DeprecationWarning, match=old):
-        assert resolve_model_name(old) == "yolo26n"
+        assert resolve_model_name(old) == AIModel.YOLO26N.value
+
+
+@pytest.mark.parametrize("old,new", [
+    ("pose_yolo", "POSE_YOLO"), ("pose", "POSE_YOLO"), ("hand", "HAND"), ("face", "FACE"),
+])
+def test_old_short_names_resolve_to_model_ids(old, new):
+    from pib3.types import AIModel, resolve_model_name
+
+    with pytest.warns(DeprecationWarning):
+        assert resolve_model_name(old) == AIModel[new].value
 
 
 def test_current_names_resolve_silently(recwarn):
     from pib3.types import AIModel, resolve_model_name
 
-    assert resolve_model_name(AIModel.YOLO26N) == "yolo26n"
+    assert resolve_model_name(AIModel.YOLO26N) == "yolo26n_coco_512x288"
+    assert resolve_model_name("yolov6n_coco_640x640") == "yolov6n_coco_640x640"
     assert resolve_model_name("recognition") == "recognition"
     assert not recwarn.list
 
 
 def test_sim_set_model_resolves_old_names(monkeypatch):
-    """sim.ai.set_model("yolov6n") loads YOLO26n and reports that name."""
+    """sim.ai.set_model("yolov6n") loads YOLO26n and reports that id."""
     import pib3.backends.sim_ai as sim_ai
+    from pib3.types import AIModel
 
     loaded = []
 
     class FakeRunner:
-        model_type = "detection"
-
         def close(self):
             pass
 
@@ -762,5 +786,104 @@ def test_sim_set_model_resolves_old_names(monkeypatch):
     ai = WebotsAISubsystem(FakeBackend())
     with pytest.warns(DeprecationWarning):
         assert ai.set_model("yolov6n") is True
-    assert loaded == ["yolo26n"]
-    assert ai.model == "yolo26n"
+    assert loaded == [AIModel.YOLO26N.value]
+    assert ai.model == AIModel.YOLO26N.value
+
+
+# ==================== sim.ai has robot.ai's surface ====================
+
+
+class _FakeRunner:
+    """A model that finds one 'cup' in every frame."""
+
+    def __init__(self, label="cup"):
+        self.label, self.closed, self.calls = label, False, 0
+
+    def infer(self, bgr):
+        from pib3.backends.detection_messages import make_detection
+        self.calls += 1
+        h, w = bgr.shape[:2]
+        return [make_detection(self.label, 0.9, (w * 0.1, h * 0.1, w * 0.3, h * 0.4))]
+
+    def close(self):
+        self.closed = True
+
+
+def _runner_ai(monkeypatch, runners):
+    """A sim AI whose build_runner hands out ``runners`` by model id."""
+    import pib3.backends.sim_ai as sim_ai
+    monkeypatch.setattr(sim_ai, "build_runner", lambda name: runners[name]
+                        if not isinstance(runners[name], Exception) else (_ for _ in ()).throw(runners[name]))
+    ai, device, backend = _ai_with([])
+    return ai, backend
+
+
+def test_sim_runs_several_models_at_once_and_reads_each_by_id(monkeypatch):
+    from pib3.types import AIModel
+    yolo, pose = _FakeRunner("cup"), _FakeRunner("person")
+    ai, backend = _runner_ai(monkeypatch, {AIModel.YOLO26N.value: yolo,
+                                           AIModel.POSE_YOLO.value: pose})
+
+    assert ai.start_model(AIModel.YOLO26N) and ai.start_model(AIModel.POSE_YOLO)
+
+    assert ai.models == ("recognition", AIModel.YOLO26N.value, AIModel.POSE_YOLO.value)
+    assert ai.model == AIModel.POSE_YOLO.value
+    assert [d.label for d in ai.get_detections(latest_only=True)] == ["person"]
+    assert [d.label for d in ai.get_detections(latest_only=True, model=AIModel.YOLO26N)] == ["cup"]
+    assert yolo.calls == 1 and pose.calls == 1     # one inference per model and frame
+
+
+def test_sim_set_model_leaves_only_that_model(monkeypatch):
+    from pib3.types import AIModel
+    yolo = _FakeRunner()
+    ai, _ = _runner_ai(monkeypatch, {AIModel.YOLO26N.value: yolo})
+
+    assert ai.set_model(AIModel.YOLO26N)
+
+    assert ai.models == (AIModel.YOLO26N.value,)
+
+
+def test_sim_failed_switch_keeps_the_running_model(monkeypatch, caplog):
+    """The old code closed the running model first and then failed to load."""
+    from pib3.types import AIModel
+    yolo = _FakeRunner()
+    ai, _ = _runner_ai(monkeypatch, {AIModel.YOLO26N.value: yolo,
+                                     AIModel.HAND.value: ImportError("no mediapipe")})
+    ai.set_model(AIModel.YOLO26N)
+
+    assert ai.set_model(AIModel.HAND) is False
+
+    assert ai.models == (AIModel.YOLO26N.value,) and not yolo.closed
+    assert ai.model == AIModel.YOLO26N.value
+    assert len(ai.get_detections(latest_only=True)) == 1
+
+
+def test_sim_stop_model_closes_it_and_hands_over_to_the_previous(monkeypatch):
+    from pib3.types import AIModel
+    yolo = _FakeRunner()
+    ai, _ = _runner_ai(monkeypatch, {AIModel.YOLO26N.value: yolo})
+    ai.start_model(AIModel.YOLO26N)
+
+    assert ai.stop_model() is True
+
+    assert yolo.closed and ai.model == RECOGNITION_MODEL
+    assert ai.stop_model("never-started") is True        # like the robot
+
+
+def test_sim_reading_with_no_model_is_an_error_like_on_the_robot():
+    ai, _, _ = _ai_with([])
+    ai.stop_model()
+
+    with pytest.raises(RuntimeError, match="No AI model started"):
+        ai.get_detections()
+
+
+def test_sim_lists_what_it_can_run():
+    from pib3.types import AIModel
+    ai, _, _ = _ai_with([])
+
+    models = {m.name: m for m in ai.available_models()}
+
+    assert models[RECOGNITION_MODEL].active
+    assert models[AIModel.YOLO26N.value].task == "object_detection" and not models[AIModel.YOLO26N.value].active
+    assert AIModel.FACE.value not in models                 # no simulated equivalent

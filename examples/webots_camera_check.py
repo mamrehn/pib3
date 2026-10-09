@@ -84,7 +84,7 @@ def summary():
 try:
     import numpy as np
     import pib3
-    from pib3 import Joint
+    from pib3 import AIModel, Joint
     record("1. pib3 imports inside Webots", True, f"pib3 {pib3.__version__}")
 except Exception as exc:
     print("[FAIL] 1. pib3 imports inside Webots")
@@ -348,7 +348,7 @@ def main():
             record("8. ultralytics path (optional)", True,
                    "ultralytics not installed — skipped.")
         else:
-            if sim.ai.set_model("yolo26n"):
+            if sim.ai.set_model(AIModel.YOLO26N):
                 settle(sim, 5)
                 yolo_dets = sim.ai.get_detections(latest_only=True)
                 record("8. ultralytics runs on simulated frames", True,
@@ -359,7 +359,7 @@ def main():
                           "Use 'recognition' for teaching, or texture the objects."))
             else:
                 record("8. ultralytics model load", False,
-                       "set_model('yolo26n') failed — weights not available offline?")
+                       "set_model(AIModel.YOLO26N) failed — weights not available offline?")
 
     return summary()
 

@@ -17,6 +17,7 @@ import pytest
 from pib3 import Joint, Trajectory
 from pib3.backends.base import normalize_unit
 from pib3.backends.camera import AIDetectionReceiver
+from pib3.backends.detection_messages import make_detection, make_detection_array
 from pib3.backends.hints import already_hinted, reset_hints
 from pib3.backends.robot import (
     RealRobotBackend,
@@ -447,13 +448,15 @@ def test_webots_stop_from_another_thread_is_applied_on_the_main_thread():
 
 def test_segmentation_results_are_detections():
     receiver = AIDetectionReceiver()
-    receiver.on_detection({
-        "model": "segmentation", "type": "instance-segmentation", "latency_ms": 5,
-        "result": {"detections": [{"label": 41, "confidence": 0.8,
-                                   "bbox": {"xmin": 0.1, "ymin": 0.1, "xmax": 0.3, "ymax": 0.4}}]},
-    })
+    mask = {"runs": [4, 2], "values": [0, 1], "shape": [2, 3]}
+    receiver.on_detection(make_detection_array(
+        "segmentation",
+        [make_detection("cup", 0.8, (128, 72, 384, 288), mask_rle=mask)],
+        1280, 720,
+    ))
     (det,) = receiver.get_detections(timeout=0)
     assert det.label == "cup"
+    assert det.mask_rle == mask
 
 
 def test_wide_images_keep_their_proportions():

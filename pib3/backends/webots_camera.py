@@ -28,15 +28,16 @@ Two sources of "AI" are available in simulation, chosen with
 
 import logging
 import time
-from typing import Any, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
 from ..types import resolve_model_name
 from .hints import hint
+from .detection_messages import make_detection, make_detection_array
 from .camera import (
-    COCO_LABELS,
     AIDetectionReceiver,
+    AIModelInfo,
     CameraFrame,
     Detection,
     HandLandmarks,
@@ -340,10 +341,14 @@ class WebotsCameraSubsystem:
 class WebotsAISubsystem:
     """AI perception for the simulated robot, mirroring ``AISubsystem``.
 
-    Accessed via ``robot.ai`` on :class:`~pib3.backends.WebotsBackend`.
+    Accessed via ``robot.ai`` on :class:`~pib3.backends.WebotsBackend`, with
+    the same methods as on the real robot: ``set_model``, ``start_model``,
+    ``stop_model``, ``models``, ``available_models`` and the getters with their
+    ``model=`` argument.
 
-    Defaults to Webots ground-truth ``Recognition``. Switch to a real network
-    with :meth:`set_model`.
+    Starts out with Webots ground-truth ``Recognition`` as the one running
+    model. Run a real network with :meth:`set_model` or :meth:`start_model`;
+    several can run together, each infers on every rendered frame.
 
     Example:
         >>> with pib3.Webots() as robot:
@@ -353,39 +358,69 @@ class WebotsAISubsystem:
 
     def __init__(self, backend: "Any") -> None:
         self._backend = backend
-        self._model_name: str = RECOGNITION_MODEL
-        self._runner = None              # SimInference, for real models
-        self._recognition_on = False
+        # Started models: id -> SimInference (None for ground-truth recognition).
+        self._runners: Dict[str, Optional[Any]] = {}
         # Results go through the SAME receiver the real robot feeds, so
         # buffering, fps and latency behave identically on both backends.
-        self._receiver = AIDetectionReceiver()
+        self._receivers: Dict[str, AIDetectionReceiver] = {}
+        self._current_model: Optional[str] = None
+        self._recognition_on = False
         self._last_inferred_frame = -1
+        self._add(RECOGNITION_MODEL, None)
 
     # --- model selection ------------------------------------------------
 
+    def _add(self, name: str, runner: Optional[Any]) -> None:
+        receiver = AIDetectionReceiver()
+        receiver.expect_model(name)
+        self._runners[name] = runner
+        self._receivers[name] = receiver
+        self._current_model = name
+        self._last_inferred_frame = -1
+
     @property
     def model(self) -> Optional[str]:
-        """Currently selected model name."""
-        return self._model_name
+        """Id of the current model: the one the getters read by default."""
+        return self._current_model
+
+    @property
+    def models(self) -> Tuple[str, ...]:
+        """Ids of all running models."""
+        return tuple(self._runners)
 
     @property
     def uses_recognition(self) -> bool:
-        """Whether ground-truth recognition is active (vs. a real network)."""
-        return self._model_name == RECOGNITION_MODEL
+        """Whether ground-truth recognition is the current model."""
+        return self._current_model == RECOGNITION_MODEL
 
-    def set_model(self, model: "Union[str, Any]", timeout: float = 5.0) -> bool:
+    def available_models(self) -> List[AIModelInfo]:
+        """The models the simulation can run, with their state.
+
+        Narrower than the robot's list: faces, emotion, head pose and QR codes
+        have no simulated equivalent.
         """
-        Choose the perception source for the simulation.
+        from .sim_ai import simulated_models
+
+        tasks = {RECOGNITION_MODEL: "ground_truth", **simulated_models()}
+        return [
+            AIModelInfo(name=name, task=task, available=True, active=name in self._runners)
+            for name, task in tasks.items()
+        ]
+
+    def start_model(self, model: "Union[str, Any]", timeout: float = 5.0) -> bool:
+        """
+        Start a model without stopping the others, and make it the current one.
 
         Args:
-            model: ``"recognition"`` for Webots ground truth (default), or any
-                ``AIModel`` / model name to run a real network on the
-                simulated frames. Detection, pose and segmentation need
-                ``ultralytics``; ``"hand"`` needs ``mediapipe``.
+            model: ``"recognition"`` for Webots ground truth, or any
+                ``AIModel`` / model id to run a real network on the simulated
+                frames. Detection, pose and segmentation need
+                ``ultralytics``; ``AIModel.HAND`` needs ``mediapipe``.
             timeout: Accepted for API compatibility; unused.
 
         Returns:
-            True if the source is ready.
+            True if the model is running. A model that cannot be loaded leaves
+            everything as it was.
 
         Note:
             COCO-trained detectors see very little in an untextured synthetic
@@ -394,20 +429,29 @@ class WebotsAISubsystem:
         """
         name = resolve_model_name(model, stacklevel=2)
 
-        if self._runner is not None:
-            self._runner.close()
-            self._runner = None
-
         if name == RECOGNITION_MODEL:
-            self._model_name = name
-            self._receiver.clear()
-            self._last_inferred_frame = -1
-            return self._enable_recognition()
+            # Recognition is the starting model, so it may already be listed;
+            # either way the node is (re-)enabled, which is idempotent. A world
+            # without a Recognition node keeps it listed: the getters then
+            # return nothing and the warning says why.
+            added = name not in self._runners
+            if added:
+                self._add(name, None)
+            self._current_model = name
+            if self._enable_recognition():
+                return True
+            if added:
+                self._remove(name)
+            return False
+
+        if name in self._runners:
+            self._current_model = name
+            return True
 
         from .sim_ai import build_runner
 
         try:
-            self._runner = build_runner(name)
+            runner = build_runner(name)
         except (ImportError, ValueError) as exc:
             logger.error("Cannot use %r in simulation: %s", name, exc)
             return False
@@ -415,13 +459,49 @@ class WebotsAISubsystem:
             logger.error("Could not load a simulated model for %r: %s", name, exc)
             return False
 
-        self._model_name = name
-        self._receiver.clear()
-        self._last_inferred_frame = -1
+        self._add(name, runner)
         logger.info(
             "Webots AI: %r simulated with %s on host hardware",
-            name, type(self._runner).__name__,
+            name, type(runner).__name__,
         )
+        return True
+
+    def _remove(self, name: str) -> None:
+        runner = self._runners.pop(name, None)
+        self._receivers.pop(name, None)
+        if runner is not None:
+            runner.close()
+        if name == RECOGNITION_MODEL:
+            self._disable_recognition()
+        if self._current_model == name:
+            self._current_model = next(reversed(self._runners), None)
+
+    def stop_model(
+        self, model: "Union[str, Any, None]" = None, timeout: float = 5.0
+    ) -> bool:
+        """Stop a model (the current one by default). Always succeeds."""
+        name = resolve_model_name(model, stacklevel=2) if model else self._current_model
+        if name in self._runners:
+            self._remove(name)
+        return True
+
+    def set_model(self, model: "Union[str, Any]", timeout: float = 5.0) -> bool:
+        """
+        Run this model and none of the others.
+
+        The new model is loaded before the old ones are stopped, so a model
+        that cannot be loaded (a missing package, a model the simulation does
+        not have) leaves the old ones running. On the robot a failed start can
+        stop them; code must not rely on either.
+
+        Returns:
+            True if the model is running.
+        """
+        name = resolve_model_name(model, stacklevel=2)
+        if not self.start_model(name, timeout):
+            return False
+        for other in [m for m in self._runners if m != name]:
+            self._remove(other)
         return True
 
     def _enable_recognition(self) -> bool:
@@ -444,10 +524,19 @@ class WebotsAISubsystem:
             self._recognition_on = True
         return True
 
+    def _disable_recognition(self) -> None:
+        camera = self._backend.camera
+        if self._recognition_on and camera.device is not None:
+            try:
+                camera.device.recognitionDisable()
+            except Exception:
+                pass
+        self._recognition_on = False
+
     # --- results --------------------------------------------------------
 
-    def _infer_current_frame(self) -> None:
-        """Produce one robot-shaped payload for the current simulation step.
+    def _infer_started_models(self) -> None:
+        """Produce one robot-shaped message per running model for this step.
 
         Runs at most once per rendered frame: Webots is synchronous, so
         polling three getters in one step must not pay for three inferences.
@@ -458,37 +547,38 @@ class WebotsAISubsystem:
             return
         self._last_inferred_frame = frame.frame_id
 
-        from .sim_ai import build_payload
+        image = None
+        for name, runner in list(self._runners.items()):
+            started = time.perf_counter()
+            if runner is None:                                # recognition
+                width, height = camera.width, camera.height
+                detections = self._recognition_detections()
+            else:
+                if image is None:
+                    image = frame.to_numpy()
+                    if image is None:
+                        return
+                height, width = image.shape[:2]
+                detections = runner.infer(image)
+            latency_ms = (time.perf_counter() - started) * 1000.0
 
-        started = time.perf_counter()
-        if self.uses_recognition:
-            result, model_type = self._recognition_result(), "detection"
-        elif self._runner is not None:
-            img = frame.to_numpy()
-            if img is None:
-                return
-            result, model_type = self._runner.infer(img), self._runner.model_type
-        else:
-            return
-        latency_ms = (time.perf_counter() - started) * 1000.0
+            # Feed the real receiver exactly as rosbridge would on the robot.
+            self._receivers[name].on_detection(make_detection_array(
+                model_id=name,
+                detections=detections,
+                frame_width=width,
+                frame_height=height,
+                latency_ms=latency_ms,
+            ))
 
-        # Feed the real receiver exactly as rosbridge would on the robot.
-        self._receiver.on_detection(build_payload(
-            result=result,
-            model=self._model_name,
-            model_type=model_type,
-            frame_id=frame.frame_id,
-            latency_ms=latency_ms,
-        ))
-
-    def _recognition_result(self) -> dict:
-        """Webots ground-truth objects in the robot's detection format."""
+    def _recognition_detections(self) -> List[dict]:
+        """Webots ground-truth objects as the robot's ``Detection`` dicts."""
         if not self._enable_recognition():
-            return {"detections": []}
+            return []
         camera = self._backend.camera
         device, w, h = camera.device, camera.width, camera.height
         if not w or not h:
-            return {"detections": []}
+            return []
 
         detections = []
         for obj in device.getRecognitionObjects():
@@ -501,22 +591,29 @@ class WebotsAISubsystem:
                 continue
 
             label = model.decode() if isinstance(model, bytes) else str(model)
-            # Webots gives centre + size in pixels; the wire format wants
-            # normalized corners, a numeric `label` and a `label_name`.
-            detections.append({
-                "label": COCO_LABELS.index(label) if label in COCO_LABELS else -1,
-                "label_name": label,
-                "confidence": 1.0,        # ground truth: the simulator knows
-                "bbox": {
-                    "xmin": max(0.0, (cx - bw / 2) / w),
-                    "ymin": max(0.0, (cy - bh / 2) / h),
-                    "xmax": min(1.0, (cx + bw / 2) / w),
-                    "ymax": min(1.0, (cy + bh / 2) / h),
-                },
-            })
-        return {"detections": detections}
+            # Webots gives centre + size in pixels; the message wants corners.
+            detections.append(make_detection(
+                label=label,
+                score=1.0,                # ground truth: the simulator knows
+                box=(
+                    max(0.0, cx - bw / 2), max(0.0, cy - bh / 2),
+                    min(float(w), cx + bw / 2), min(float(h), cy + bh / 2),
+                ),
+            ))
+        return detections
 
-    def _check_stale_buffer(self, latest_only: bool, what: str) -> None:
+    def _receiver(self, model: "Union[str, Any, None]") -> AIDetectionReceiver:
+        name = resolve_model_name(model, stacklevel=3) if model else self._current_model
+        if name is None or name not in self._receivers:
+            raise RuntimeError(
+                "No AI model started. Call robot.ai.set_model(AIModel.YOLO26N) "
+                "(or another model, or 'recognition') first."
+            )
+        return self._receivers[name]
+
+    def _check_stale_buffer(
+        self, receiver: AIDetectionReceiver, latest_only: bool, what: str
+    ) -> None:
         """Point out a multi-frame read that the caller almost certainly
         did not intend.
 
@@ -528,7 +625,7 @@ class WebotsAISubsystem:
         """
         if latest_only:
             return
-        buffered = len(self._receiver._results)
+        buffered = receiver.result_count
         if buffered > 1:
             hint(
                 "stale-buffer",
@@ -545,6 +642,7 @@ class WebotsAISubsystem:
         self,
         timeout: float = 5.0,
         latest_only: bool = False,
+        model: "Union[str, Any, None]" = None,
     ) -> List[Detection]:
         """
         Objects visible to the simulated camera.
@@ -556,77 +654,78 @@ class WebotsAISubsystem:
             List of :class:`Detection`. With ground-truth recognition,
             ``confidence`` is always 1.0.
         """
-        self._infer_current_frame()
-        self._check_stale_buffer(latest_only, "get_detections")
-        return self._receiver.get_detections(timeout=0.0, latest_only=latest_only)
+        receiver = self._receiver(model)
+        self._infer_started_models()
+        self._check_stale_buffer(receiver, latest_only, "get_detections")
+        return receiver.get_detections(timeout=0.0, latest_only=latest_only)
 
     def get_hand_landmarks(
         self,
         timeout: float = 5.0,
         latest_only: bool = False,
+        model: "Union[str, Any, None]" = None,
     ) -> List[HandLandmarks]:
         """
         Hand landmarks from the simulated camera — 21 points with finger angles.
 
-        Requires ``set_model("hand")`` and the ``mediapipe`` package; the
+        Requires ``set_model(AIModel.HAND)`` and the ``mediapipe`` package; the
         landmark topology matches the OAK-D's on-device hand model, so
         ``hand.finger_angles`` behaves the same on both backends.
 
         Returns an empty list under ``"recognition"``, which knows about
         objects but not about hands.
         """
-        self._infer_current_frame()
-        self._check_stale_buffer(latest_only, "get_hand_landmarks")
-        return self._receiver.get_hand_landmarks(timeout=0.0, latest_only=latest_only)
+        receiver = self._receiver(model)
+        self._infer_started_models()
+        self._check_stale_buffer(receiver, latest_only, "get_hand_landmarks")
+        return receiver.get_hand_landmarks(timeout=0.0, latest_only=latest_only)
 
     def get_poses(
         self,
         timeout: float = 5.0,
         latest_only: bool = False,
+        model: "Union[str, Any, None]" = None,
     ) -> List[PoseKeypoints]:
         """
         Body poses from the simulated camera — 17 COCO keypoints.
 
-        Requires ``set_model("pose_yolo")`` and the ``ultralytics`` package. The
-        keypoint order is the same COCO convention the robot publishes, so
-        ``pose.left_shoulder`` and friends work unchanged.
+        Requires ``set_model(AIModel.POSE_YOLO)`` and the ``ultralytics``
+        package. The keypoint order is the same COCO convention the robot
+        publishes, so ``pose.left_shoulder`` and friends work unchanged.
         """
-        self._infer_current_frame()
-        self._check_stale_buffer(latest_only, "get_poses")
-        return self._receiver.get_poses(timeout=0.0, latest_only=latest_only)
+        receiver = self._receiver(model)
+        self._infer_started_models()
+        self._check_stale_buffer(receiver, latest_only, "get_poses")
+        return receiver.get_poses(timeout=0.0, latest_only=latest_only)
 
     # --- metrics ---------------------------------------------------------
 
     @property
     def fps(self) -> float:
-        """Inference rate, measured the same way as on the real robot."""
-        return self._receiver.fps
+        """Inference rate of the current model, measured as on the robot."""
+        receiver = self._receivers.get(self._current_model)
+        return receiver.fps if receiver else 0.0
 
     @property
     def avg_latency_ms(self) -> float:
         """
-        Average inference latency in milliseconds.
+        Average inference latency of the current model in milliseconds.
 
         Honest host-hardware timing — usually *slower* than the OAK-D's
         dedicated accelerator. That gap is worth showing rather than hiding:
         it is the whole argument for edge AI.
         """
-        return self._receiver.avg_latency_ms
+        receiver = self._receivers.get(self._current_model)
+        return receiver.avg_latency_ms if receiver else 0.0
 
     def clear(self) -> None:
-        """Drop buffered results."""
-        self._receiver.clear()
+        """Drop buffered results of every running model."""
+        for receiver in self._receivers.values():
+            receiver.clear()
         self._last_inferred_frame = -1
 
     def stop(self) -> None:
-        """Disable recognition and release any loaded model."""
-        camera = self._backend.camera
-        if self._recognition_on and camera.device is not None:
-            try:
-                camera.device.recognitionDisable()
-            except Exception:
-                pass
-        self._recognition_on = False
-        if self._runner is not None:
-            self._runner.close()
-            self._runner = None
+        """Stop every model, disable recognition and release loaded models."""
+        for name in list(self._runners):
+            self._remove(name)
+        self._disable_recognition()

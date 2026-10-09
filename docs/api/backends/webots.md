@@ -298,31 +298,33 @@ There is no buffer: Webots renders synchronously, so `get_frame()` always descri
 
 ### ai
 
-Webots gives only RGB pixels, so `sim.ai` runs equivalent (or newer) models on the host and emits **the same payload dicts** the robot publishes on `/camera/ai/detections`. Those payloads go through the same `AIDetectionReceiver` and parser as real ones, so the typed results are identical — `Detection`, `HandLandmarks`, `PoseKeypoints`, buffering, `fps`, `avg_latency_ms`, `latest_only`.
+Webots gives only RGB pixels, so `sim.ai` runs equivalent (or newer) models on the host and emits **the same `DetectionArray` messages** the robot publishes on `detections/<model>`. Those messages go through the same `AIDetectionReceiver` and parser as real ones, so the typed results are identical — `Detection`, `HandLandmarks`, `PoseKeypoints`, buffering, `fps`, `latest_only`. `sim.ai` also has the robot's methods: `set_model`, `start_model`, `stop_model`, `models`, `available_models()` and the `model=` argument of the getters. Several models can run together; each infers on every rendered frame.
 
 The topologies match by construction, which is what makes this a substitution rather than an approximation:
 
 | pib3 type | Convention | Simulated with |
 |---|---|---|
-| `PoseKeypoints` | 17 COCO keypoints | ultralytics `*-pose` |
-| `HandLandmarks` | 21 MediaPipe hand landmarks | `mediapipe` Hands |
-| `Detection` | normalized xyxy + class id | ultralytics detect / seg |
+| `PoseKeypoints` | 17 COCO keypoints, named | ultralytics `*-pose` |
+| `HandLandmarks` | 21 MediaPipe hand landmarks, named | `mediapipe` Hands |
+| `Detection` | box + class name | ultralytics detect / seg |
 
 Install the optional backends with `pip install "pib3[sim] @ git+https://github.com/mamrehn/pib3.git"`.
 
 ```python
-sim.ai.set_model("pose_yolo")                  # -> yolo26n-pose.pt
+from pib3 import AIModel
+
+sim.ai.set_model(AIModel.POSE_YOLO)            # -> yolo26n-pose.pt
 for p in sim.ai.get_poses(latest_only=True):
     print(p.left_shoulder, p.nose)             # same code as on the robot
 
-sim.ai.set_model("hand")                       # -> MediaPipe Hands
+sim.ai.set_model(AIModel.HAND)                 # -> MediaPipe Hands
 for h in sim.ai.get_hand_landmarks(latest_only=True):
     print(h.handedness, h.finger_angles.index)
 
-sim.ai.set_model("segmentation")               # -> yolo26n-seg.pt, masks RLE-encoded like the robot
+sim.ai.set_model("segmentation")               # -> yolo26n-seg.pt, with det.mask_rle (simulation only)
 ```
 
-`AIModel` names are mapped onto available weights by `SIM_MODEL_ALIASES` — where the OAK-D blob has no host equivalent, the closest current model is substituted. Detection, pose and segmentation all run YOLO26 (`yolo26n` → `yolo26n.pt`, `pose_yolo` and `pose_hrnet` → `yolo26n-pose.pt`, `segmentation` → `yolo26n-seg.pt`), on its end-to-end head without NMS. Retired names such as `yolov6n` or `yolo11n` are remapped with a `DeprecationWarning`, as on the robot; a weights file name (`"yolo26s.pt"`) is loaded as given. `gaze`, `lines`, `person` and `face` have no simulated equivalent and raise a clear error.
+Models are mapped onto available weights by `SIM_MODEL_ALIASES` — where the OAK-D blob has no host equivalent, the closest current model is substituted: `AIModel.YOLO26N` → `yolo26n.pt`, `AIModel.POSE_YOLO` → `yolo26n-pose.pt`, `"segmentation"` → `yolo26n-seg.pt`, on YOLO26's end-to-end head without NMS. Retired names such as `yolov6n` or `yolo11n` are remapped with a `DeprecationWarning`, as on the robot; a weights file name (`"yolo26s.pt"`) is loaded as given. The robot's face, emotion, head pose and QR models have no simulated equivalent and raise a clear error. A switch that fails (a missing package, an unknown model) leaves the running models as they were; on the robot a failed start can drop the camera to colour only, so do not rely on either.
 
 `"recognition"` (the default) is the fourth source and needs no model at all: Webots ground truth via the `Recognition` node — exact boxes, `confidence` always `1.0`. Ideal for teaching downstream logic (debouncing, state machines, control) without perception noise in the way. Objects in the **world** must opt in:
 

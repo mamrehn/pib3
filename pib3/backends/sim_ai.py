@@ -1,13 +1,14 @@
 """Simulated AI inference: OAK-D-shaped results from ordinary RGB frames.
 
 The real robot runs its models on the OAK-D Lite's own accelerator and
-publishes results on ``/camera/ai/detections``. Webots gives us only RGB
-pixels — so this module runs equivalent (or newer) models on the host CPU/GPU
-and emits **the exact same payload dicts** the robot publishes.
+publishes ``datatypes/DetectionArray`` messages (pixel boxes, named keypoints
+and scalars; see :mod:`pib3.backends.detection_messages`). Webots gives us only
+RGB pixels — so this module runs equivalent (or newer) models on the host
+CPU/GPU and emits **the same message shape**.
 
-Because the payload shape is identical, simulated results flow through the
-same :class:`~pib3.backends.camera.AIDetectionReceiver` and come out as the
-same typed ``Detection`` / ``HandLandmarks`` / ``PoseKeypoints`` objects. Code
+Because the shape is identical, simulated results flow through the same
+:class:`~pib3.backends.camera.AIDetectionReceiver` and come out as the same
+typed ``Detection`` / ``HandLandmarks`` / ``PoseKeypoints`` objects. Code
 written against ``robot.ai`` runs unchanged against ``sim.ai``.
 
 The topologies match by construction, which is why this works at all:
@@ -17,13 +18,17 @@ pib3 type            Convention                      Simulated with
 ===================  ==============================  ========================
 ``PoseKeypoints``    17 COCO keypoints               ultralytics ``*-pose``
 ``HandLandmarks``    21 MediaPipe hand landmarks     ``mediapipe`` Hands
-``Detection``        normalized xyxy + class id      ultralytics detect/seg
+``Detection``        box + class name                ultralytics detect/seg
 ===================  ==============================  ========================
 
 Both backends are optional dependencies, imported lazily::
 
     pip install ultralytics      # detection, pose, segmentation
     pip install mediapipe        # hand landmarks
+
+The robot's other models (faces, emotion, head pose, QR codes) have no
+simulated equivalent; ``set_model`` says so and ``"recognition"`` (Webots
+ground truth) needs no model at all.
 
 .. note::
    Running MediaPipe *here* is not a contradiction of the course guidance to
@@ -33,12 +38,16 @@ Both backends are optional dependencies, imported lazily::
 """
 
 import logging
-import time
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import numpy as np
 
-from ..types import resolve_model_name
+from ..types import AIModel, resolve_model_name
+from .detection_messages import (
+    COCO_KEYPOINT_NAMES,
+    HAND_KEYPOINT_NAMES,
+    make_detection,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -78,40 +87,48 @@ def rle_encode(mask: np.ndarray) -> Dict[str, Any]:
 
 # ==================== MODEL NAME MAPPING ====================
 
-#: Maps the robot's AIModel names onto weights available off the shelf.
-#: Where no host-side equivalent of the OAK-D blob exists, the closest
-#: current model is substituted — that is the point of "or more up to date".
-#: Deprecated names (``yolov6n``, ``yolo11n``, ``pose`` …) are resolved through
+#: Maps the robot's model ids onto weights available off the shelf. Where no
+#: host-side equivalent of the OAK-D blob exists, the closest current model is
+#: substituted — that is the point of "or more up to date". Deprecated names
+#: (``yolov6n``, ``yolo11n``, ``pose`` …) are resolved through
 #: :data:`pib3.types.DEPRECATED_MODEL_ALIASES` first, as on the robot.
 SIM_MODEL_ALIASES: Dict[str, str] = {
-    # Detection — the robot runs YOLO26n as well, as a converted RVC2 archive.
-    "yolo26n": "yolo26n.pt",
-    # Pose — both sides are 17-keypoint COCO, so this is a true equivalent.
-    "pose_yolo": "yolo26n-pose.pt",
-    "pose_hrnet": "yolo26n-pose.pt",
-    # Segmentation — YOLO26 stands in for the robot's YOLOv8 segmenter.
-    "segmentation": "yolo26n-seg.pt",
+    # Detection — the robot runs YOLO26n as well (its own RVC2 build).
+    AIModel.YOLO26N.value: "yolo26n.pt",
+    # Pose — both sides are YOLO26 with 17 COCO keypoints.
+    AIModel.POSE_YOLO.value: "yolo26n-pose.pt",
     # Hand — handled by MediaPipe, not ultralytics (see MediaPipeHands).
-    "hand": "hand",
+    AIModel.HAND.value: "hand",
+    "hand_tracking": "hand",
+    # Simulation only: the robot has no segmentation model.
+    "segmentation": "yolo26n-seg.pt",
 }
 
-#: Model names with no simulated equivalent yet. ``person`` and ``face`` are
-#: single-class detectors on the robot; an 80-class stand-in would report
-#: other objects under their name.
-UNSUPPORTED_IN_SIM = {"gaze", "lines", "person", "face"}
+#: Model ids with no simulated equivalent: the robot's face, emotion, head
+#: pose and QR models, and names of models the robot no longer has.
+UNSUPPORTED_IN_SIM = (
+    {m.value for m in AIModel} - set(SIM_MODEL_ALIASES)
+) | {"gaze", "lines", "person"}
+
+
+def simulated_models() -> Dict[str, str]:
+    """Model ids the simulation can run, mapped to their task."""
+    return {
+        AIModel.YOLO26N.value: "object_detection",
+        AIModel.POSE_YOLO.value: "pose_estimation",
+        AIModel.HAND.value: "hand_tracking",
+        "segmentation": "instance_segmentation",   # simulation only
+    }
 
 
 # ==================== RUNNERS ====================
 
 
 class SimInference:
-    """Base class: turn one BGR frame into a robot-shaped ``result`` dict."""
+    """Base class: turn one BGR frame into the robot's detections."""
 
-    #: Value placed in the payload's ``type`` field.
-    model_type: str = "detection"
-
-    def infer(self, bgr: np.ndarray) -> dict:
-        """Run the model and return the ``result`` sub-dict of the payload."""
+    def infer(self, bgr: np.ndarray) -> List[dict]:
+        """Run the model; return ``Detection`` dicts in pixels of ``bgr``."""
         raise NotImplementedError
 
     def close(self) -> None:
@@ -150,50 +167,38 @@ class _UltralyticsBase(SimInference):
         return self._net(bgr, conf=self._conf, verbose=False, **self._extra)
 
     @staticmethod
-    def _box_dict(box, width: int, height: int, names: dict) -> dict:
-        """One ultralytics box -> the robot's detection dict.
-
-        Mirrors the wire format exactly: ``label`` is the numeric class id and
-        ``label_name`` carries the human-readable name, because that is what
-        ``Detection.from_dict`` expects.
-        """
+    def _detection(box, names: dict, keypoints=(), mask_rle=None) -> dict:
+        """One ultralytics box -> the robot's ``Detection`` dict (pixels)."""
         x1, y1, x2, y2 = (float(v) for v in box.xyxy[0].tolist())
-        cls_id = int(box.cls[0])
-        return {
-            "label": cls_id,
-            "label_name": str(names.get(cls_id, "")),
-            "confidence": float(box.conf[0]),
-            "bbox": {
-                "xmin": x1 / width,
-                "ymin": y1 / height,
-                "xmax": x2 / width,
-                "ymax": y2 / height,
-            },
-        }
+        return make_detection(
+            label=str(names.get(int(box.cls[0]), "")),
+            score=float(box.conf[0]),
+            box=(x1, y1, x2, y2),
+            keypoints=keypoints,
+            mask_rle=mask_rle,
+        )
 
 
 class UltralyticsDetector(_UltralyticsBase):
-    """Object detection — emits the robot's ``detection`` payload."""
+    """Object detection — one ``Detection`` per box."""
 
-    model_type = "detection"
-
-    def infer(self, bgr: np.ndarray) -> dict:
-        height, width = bgr.shape[:2]
+    def infer(self, bgr: np.ndarray) -> List[dict]:
         detections = []
         for res in self._predict(bgr):
             names = getattr(res, "names", {}) or {}
             for box in getattr(res, "boxes", None) or []:
-                detections.append(self._box_dict(box, width, height, names))
-        return {"detections": detections}
+                detections.append(self._detection(box, names))
+        return detections
 
 
 class UltralyticsSegmenter(_UltralyticsBase):
-    """Instance segmentation — detection payload plus ``mask_rle`` per object."""
+    """Instance segmentation — boxes plus a ``mask_rle`` per object.
 
-    model_type = "instance-segmentation"
+    The robot has no segmentation model, so ``mask_rle`` is an extension of
+    the simulation's detections.
+    """
 
-    def infer(self, bgr: np.ndarray) -> dict:
-        height, width = bgr.shape[:2]
+    def infer(self, bgr: np.ndarray) -> List[dict]:
         detections = []
         for res in self._predict(bgr):
             names = getattr(res, "names", {}) or {}
@@ -202,21 +207,18 @@ class UltralyticsSegmenter(_UltralyticsBase):
             mask_data = masks.data if masks is not None else None
 
             for i, box in enumerate(boxes):
-                det = self._box_dict(box, width, height, names)
+                mask_rle = None
                 if mask_data is not None and i < len(mask_data):
                     binary = (mask_data[i].cpu().numpy() > 0.5).astype(np.uint8)
-                    det["mask_rle"] = rle_encode(binary)
-                detections.append(det)
-        return {"detections": detections}
+                    mask_rle = rle_encode(binary)
+                detections.append(self._detection(box, names, mask_rle=mask_rle))
+        return detections
 
 
 class UltralyticsPose(_UltralyticsBase):
-    """Body pose — 17 COCO keypoints, the same convention pib3 already uses."""
+    """Body pose — a person box with the 17 COCO keypoints, named as the robot's."""
 
-    model_type = "pose"
-
-    def infer(self, bgr: np.ndarray) -> dict:
-        height, width = bgr.shape[:2]
+    def infer(self, bgr: np.ndarray) -> List[dict]:
         detections = []
         for res in self._predict(bgr):
             names = getattr(res, "names", {}) or {}
@@ -226,26 +228,13 @@ class UltralyticsPose(_UltralyticsBase):
                 continue
 
             xy = kps.xy.cpu().numpy()                      # (n, 17, 2) pixels
-            scores = kps.conf.cpu().numpy() if kps.conf is not None else None
-
-            for i in range(len(xy)):
-                person = {
-                    "keypoints": [
-                        {
-                            "x": float(x) / width,
-                            "y": float(y) / height,
-                            "confidence": (
-                                float(scores[i][j]) if scores is not None else 1.0
-                            ),
-                        }
-                        for j, (x, y) in enumerate(xy[i])
-                    ]
-                }
-                if i < len(boxes):
-                    person.update(self._box_dict(boxes[i], width, height, names))
-                detections.append(person)
-        # The robot publishes multi-person pose as detections-with-keypoints.
-        return {"detections": detections}
+            for i in range(min(len(xy), len(boxes))):
+                keypoints = [
+                    (name, float(x), float(y))
+                    for name, (x, y) in zip(COCO_KEYPOINT_NAMES, xy[i])
+                ]
+                detections.append(self._detection(boxes[i], names, keypoints))
+        return detections
 
 
 class MediaPipeHands(SimInference):
@@ -255,8 +244,6 @@ class MediaPipeHands(SimInference):
     MediaPipe on the host reproduces the same landmark topology rather than
     approximating it.
     """
-
-    model_type = "hand"
 
     def __init__(self, max_hands: int = 2, min_confidence: float = 0.5):
         try:
@@ -276,34 +263,43 @@ class MediaPipeHands(SimInference):
             min_tracking_confidence=min_confidence,
         )
 
-    def infer(self, bgr: np.ndarray) -> dict:
+    def infer(self, bgr: np.ndarray) -> List[dict]:
+        height, width = bgr.shape[:2]
         # MediaPipe wants RGB; OpenCV/Webots give BGR.
         rgb = bgr[:, :, ::-1]
         result = self._hands.process(np.ascontiguousarray(rgb))
 
         landmark_sets = result.multi_hand_landmarks or []
-        if not landmark_sets:
-            return {"keypoints": []}
-
         handedness_list = result.multi_handedness or []
-        # The robot publishes one hand per message, so emit the first and note
-        # the rest — matching parse_ai_result(), which reads a single set.
-        landmarks = landmark_sets[0]
-        keypoints = [
-            {"x": float(lm.x), "y": float(lm.y), "confidence": 1.0}
-            for lm in landmarks.landmark
-        ]
-
-        handedness = None
-        if handedness_list:
-            top = handedness_list[0].classification[0]
-            # NOTE: MediaPipe labels from the *image's* point of view, i.e. a
-            # non-mirrored camera reports the physical left hand as "Right".
-            # Kept as published so sim and robot agree; flip downstream if
-            # your world uses a mirrored view.
-            handedness = {"label": top.label.lower(), "score": float(top.score)}
-
-        return {"keypoints": keypoints, "handedness": handedness}
+        detections = []
+        for i, landmarks in enumerate(landmark_sets):
+            points = [
+                (name, lm.x * width, lm.y * height)
+                for name, lm in zip(HAND_KEYPOINT_NAMES, landmarks.landmark)
+            ]
+            xs = [x for _, x, _ in points]
+            ys = [y for _, _, y in points]
+            scalars = {}
+            score = 1.0
+            if i < len(handedness_list):
+                top = handedness_list[i].classification[0]
+                # The robot's ``handedness`` is the probability of "right".
+                # NOTE: MediaPipe labels from the *image's* point of view, i.e.
+                # a non-mirrored camera reports the physical left hand as
+                # "Right". Kept as published so sim and robot agree; flip
+                # downstream if your world uses a mirrored view.
+                is_right = top.label.lower() == "right"
+                scalars["handedness"] = top.score if is_right else 1.0 - top.score
+                score = float(top.score)
+            scalars["landmark_score"] = score
+            detections.append(make_detection(
+                label="hand",
+                score=score,
+                box=(min(xs), min(ys), max(xs), max(ys)),
+                keypoints=points,
+                scalars=scalars,
+            ))
+        return detections
 
     def close(self) -> None:
         try:
@@ -317,20 +313,21 @@ class MediaPipeHands(SimInference):
 
 def build_runner(model_name: str, **kwargs) -> SimInference:
     """
-    Create the simulated-inference runner for a robot model name.
+    Create the simulated-inference runner for a robot model id.
 
     Args:
-        model_name: An ``AIModel`` value (``"yolo26n"``, ``"hand"``,
-            ``"pose_yolo"``, …) or a direct weights filename
-            (``"yolo26s-pose.pt"``). Deprecated names are remapped with a
-            DeprecationWarning.
+        model_name: An ``AIModel`` value (``AIModel.YOLO26N``,
+            ``AIModel.HAND``, …), ``"segmentation"`` (simulation only) or a
+            direct weights filename (``"yolo26s-pose.pt"``). Deprecated names
+            are remapped with a DeprecationWarning.
         **kwargs: Forwarded to the runner (e.g. ``conf=0.4``).
 
     Returns:
         A :class:`SimInference` whose ``infer()`` yields robot-shaped results.
 
     Raises:
-        ValueError: for models with no simulated equivalent (``gaze``, ``lines``).
+        ValueError: for models with no simulated equivalent (faces, emotion,
+            head pose, QR codes).
         ImportError: if the needed optional backend is not installed.
     """
     name = resolve_model_name(model_name, stacklevel=2)
@@ -350,26 +347,3 @@ def build_runner(model_name: str, **kwargs) -> SimInference:
     if "-seg" in weights or weights.startswith("FastSAM"):
         return UltralyticsSegmenter(weights, **kwargs)
     return UltralyticsDetector(weights, **kwargs)
-
-
-def build_payload(
-    result: dict,
-    model: str,
-    model_type: str,
-    frame_id: int,
-    latency_ms: float,
-) -> dict:
-    """
-    Wrap a runner result in the robot's full ``/camera/ai/detections`` payload.
-
-    Producing the identical envelope is what lets simulated results go through
-    the same receiver and parser as real ones.
-    """
-    return {
-        "model": model,
-        "type": model_type,
-        "frame_id": frame_id,
-        "timestamp_ns": time.time_ns(),
-        "latency_ms": latency_ms,
-        "result": result,
-    }

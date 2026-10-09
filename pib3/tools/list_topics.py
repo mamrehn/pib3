@@ -113,10 +113,11 @@ Examples:
   python -m pib3.tools.list_topics --host 172.26.34.149 --filter imu --type sensor
 
 Common topics on PIB robot:
-  /camera/image/compressed - Camera stream (sensor_msgs/msg/CompressedImage)
-  /camera/ai/detections    - AI detection results (std_msgs/msg/String)
+  /camera_topic            - Camera stream, base64 JPEG (std_msgs/msg/String)
+  /detections/<model>      - AI results of one model (datatypes/msg/DetectionArray)
+  /models_status           - State of the AI models (datatypes/msg/ModelStatusArray)
   /joint_trajectory        - Motor positions (trajectory_msgs/msg/JointTrajectory)
-  /camera/imu              - IMU sensor data (sensor_msgs/msg/Imu)
+  /imu                     - IMU sensor data (sensor_msgs/msg/Imu)
         """,
     )
 
@@ -159,22 +160,6 @@ if __name__ == "__main__":
 TOPIC                         MESSAGE TYPE
 ---------------------------------------------------------------------
 /audio_stream                 std_msgs/msg/Int16MultiArray
-/camera/ai/available_models   std_msgs/msg/String
-/camera/ai/config             std_msgs/msg/String
-/camera/ai/current_model      std_msgs/msg/String
-/camera/ai/detections         std_msgs/msg/String
-/camera/ai/status             std_msgs/msg/String
-/camera/error                 std_msgs/msg/String
-/camera/image/compressed      sensor_msgs/msg/CompressedImage
-/camera/imu                   sensor_msgs/msg/Imu
-/camera/imu/accelerometer     geometry_msgs/msg/Vector3Stamped
-/camera/imu/config            std_msgs/msg/String
-/camera/imu/gyroscope         geometry_msgs/msg/Vector3Stamped
-/camera/preview_size          std_msgs/msg/Int32MultiArray
-/camera/quality_factor        std_msgs/msg/Int32
-/camera/rgb/image             std_msgs/msg/String
-/camera/timer_period          std_msgs/msg/Float64
-/camera/video/config          std_msgs/msg/String
 /camera_topic                 std_msgs/msg/String
 /chat_is_listening            datatypes/msg/ChatIsListening
 /chat_messages                datatypes/msg/ChatMessage

@@ -356,7 +356,7 @@ with Robot(host="172.26.34.149") as robot:
 
 ### subscribe_camera_image()
 
-Subscribe to camera images (raw JPEG bytes).
+Subscribe to camera images (raw JPEG bytes). The camera node publishes them as base64 text on `/camera_topic` and only encodes frames while someone is subscribed. The frame is 1280×720 by default.
 
 ```python
 def subscribe_camera_image(callback: Callable[[bytes], None]) -> roslibpy.Topic
@@ -388,77 +388,113 @@ def set_camera_config(
 ) -> None
 ```
 
+Each setting goes to its own topic of the camera node (`quality_factor_topic`, `timer_period_topic`, `size_topic`); there are matching `set_camera_quality()`, `set_camera_timer_period()` and `set_camera_preview_size()`.
+
 !!! note
-    Changing settings causes ~100-200ms stream interruption.
+    Changing the resolution restarts the camera pipeline. Keep it 16:9: the AI models read the same frame, and the camera refuses to feed them one of another aspect.
 
 ---
 
 ## AI Detection
 
-AI inference runs only while subscribers are active. Unsubscribe to stop and save resources.
+The camera runs the models of the robot's model store. A client asks for a model with `/start_model` and names itself as an *owner*; the model runs while any owner holds it. The robot publishes each model's results as `datatypes/DetectionArray` on `detections/<model>`. `robot.ai` wraps all of this; the methods below are the layer underneath.
 
-### subscribe_ai_detections()
+### ai_owner
 
-```python
-def subscribe_ai_detections(callback: Callable[[dict], None]) -> roslibpy.Topic
-```
-
-Callback receives:
-```python
-{"model": "yolo26n", "type": "detection", "frame_id": 42,
- "result": {"detections": [{"label": 15, "confidence": 0.92, "bbox": {...}}]}}
-```
-
-```python
-def on_detection(data):
-    for det in data['result']['detections']:
-        print(f"Class {det['label']} @ {det['confidence']:.0%}")
-
-sub = robot.subscribe_ai_detections(on_detection)
-time.sleep(10)
-sub.unsubscribe()
-```
-
-### set_ai_model()
-
-Switch AI model (synchronous, waits for confirmation).
-
-```python
-def set_ai_model(model_name: str, timeout: float = 5.0) -> bool
-```
-
-```python
-if robot.set_ai_model("yolo26n"):
-    print("Model ready!")
-```
-
-!!! note
-    Model switching restarts the camera: video, IMU and AI pause for about
-    4 s. The model is a property of the camera, so a switch affects every
-    client connected to that robot.
-
-### set_ai_config()
-
-```python
-def set_ai_config(
-    model: Optional[str] = None,
-    confidence: Optional[float] = None,           # 0.0-1.0
-    segmentation_mode: Optional[str] = None,      # "bbox" or "mask"
-    segmentation_target_class: Optional[int] = None,
-) -> None
-```
+The name this client uses for `/start_model` and `/stop_model`: `pib3-<user>@<computer>` unless set with `Robot(ai_owner="group-3")`. Clients with the same name share, and stop, each other's models. The default is stable on purpose: a script that crashed leaves its model held under that name, and the next run releases it.
 
 ### get_available_ai_models()
 
 ```python
-models = robot.get_available_ai_models()  # Returns dict of model info
+models = robot.get_available_ai_models()   # dict: model id -> info
+# {"yolo26n_coco_512x288": {"task": "object_detection", "licence": "...",
+#                           "shaves": 4, "size_bytes": 5472216,
+#                           "available": True, "active": False}, ...}
 ```
+
+Calls `/list_models`. Only models with `available: True` can be started. Empty if the service does not answer.
+
+### start_ai_model() / stop_ai_model()
+
+```python
+def start_ai_model(model, shaves: int = 0, timeout: float = 30.0) -> Tuple[bool, str]
+def stop_ai_model(model, timeout: float = 30.0) -> Tuple[bool, str]
+```
+
+Call `/start_model` and `/stop_model` as `ai_owner` and return `(success, message)`. The message says why a start failed ("Unknown model", "Model is unavailable", ...). `shaves=0` takes the number the model was compiled for.
+
+```python
+ok, message = robot.start_ai_model(AIModel.HAND)
+if not ok:
+    print(message)
+robot.stop_ai_model(AIModel.HAND)
+```
+
+!!! note
+    A start rebuilds the camera pipeline and can take longer than rosbridge waits for a service answer. When the call gets no answer, `start_ai_model` asks `/list_models` whether the model runs and counts it as started if it does. A stop that gets no answer is reported as failed although the robot may still stop the model; `/models_status` shows the truth.
+
+### set_ai_model()
+
+Same as `robot.ai.set_model(model)`: run this model and none of the others this client started. Each start or stop rebuilds the camera pipeline.
+
+```python
+if robot.set_ai_model(AIModel.YOLO26N):
+    print("Model ready!")
+```
+
+### subscribe_ai_detections()
+
+```python
+def subscribe_ai_detections(model, callback: Callable[[dict], None]) -> roslibpy.Topic
+```
+
+Subscribes to the model's topic. The model must be running; the topic is silent until then. The callback receives one `DetectionArray` per frame:
+
+```python
+{"header": {"stamp": {"sec": 1790000000, "nanosec": 123000000}},
+ "model_id": "yolo26n_coco_512x288",
+ "frame_width": 1280, "frame_height": 720,
+ "detections": [{"label": "person", "score": 0.92,
+                 "x_min": 353, "y_min": 257, "x_max": 547, "y_max": 570,   # pixels
+                 "keypoint_names": [], "keypoint_x": [], "keypoint_y": [], "keypoint_z": [],
+                 "scalar_names": [], "scalar_values": []}]}
+```
+
+Pixels refer to `frame_width` × `frame_height`. `keypoint_z` is millimetres, 0 meaning none. The hand models publish their hand-relative depth unitless instead (see `z_source` in `scalar_names`).
+
+```python
+def on_detection(message):
+    for det in message['detections']:
+        print(f"{det['label']} @ {det['score']:.0%}")
+
+sub = robot.subscribe_ai_detections(AIModel.YOLO26N, on_detection)
+time.sleep(10)
+sub.unsubscribe()
+```
+
+For typed results use `AIDetectionReceiver` or `parse_detection_message()` from `pib3.backends`.
+
+### get_ai_detections()
+
+```python
+message = robot.get_ai_detections(AIModel.YOLO26N)   # one DetectionArray, or None
+```
+
+Calls `/get_detections` once. `frame_width` is 0 while the camera has no frame yet.
+
+### subscribe_ai_status()
+
+```python
+sub = robot.subscribe_ai_status(callback)   # /models_status, about 1 Hz
+```
+
+The callback receives `{"models": [{"model_id", "state", "message", "active", "fps", "shaves"}, ...]}`; `state` is `idle`, `starting`, `running` or `failed`, and `message` says why a model failed. `fps` is averaged over at least ten seconds.
 
 ---
 
 ## IMU Sensor
 
-Access BMI270 IMU data from OAK-D Lite.
+The BMI270 IMU of the OAK-D Lite streams at a fixed 100 Hz on `/imu` (`sensor_msgs/Imu`) whenever the camera node runs. Axes follow ROS (REP-103): x forward, y left, z up, so a robot at rest reads about +9.8 m/s² on z. The BMI270 cannot fuse an orientation: `orientation` stays the identity and `orientation_covariance[0]` is -1.
 
 ### subscribe_imu()
 
@@ -471,9 +507,9 @@ def subscribe_imu(
 
 | `data_type` | Callback receives |
 |-------------|-------------------|
-| `"full"` | `{"linear_acceleration": {x,y,z}, "angular_velocity": {x,y,z}}` |
-| `"accelerometer"` | `{"vector": {x,y,z}}` |
-| `"gyroscope"` | `{"vector": {x,y,z}}` |
+| `"full"` | the whole message: `header`, `linear_acceleration`, `angular_velocity`, `orientation` (identity), covariances |
+| `"accelerometer"` | `{"header", "vector": {x,y,z}}` |
+| `"gyroscope"` | `{"header", "vector": {x,y,z}}` |
 
 ```python
 def on_imu(data):
@@ -485,11 +521,15 @@ time.sleep(5)
 sub.unsubscribe()
 ```
 
-### set_imu_frequency()
+### subscribe_imu_raw()
 
 ```python
-def set_imu_frequency(frequency: int) -> None  # 25, 50, 100, 200, or 250 Hz
+sub = robot.subscribe_imu_raw(callback)   # the whole sensor_msgs/Imu message as a dict
 ```
+
+### set_imu_frequency()
+
+Raises `NotImplementedError`: the camera node publishes at a fixed 100 Hz. Skip samples in your callback for a lower rate.
 
 ---
 
@@ -497,12 +537,12 @@ def set_imu_frequency(frequency: int) -> None  # 25, 50, 100, 200, or 250 Hz
 
 ### rle_decode()
 
-Decode RLE-encoded segmentation masks.
+Decode RLE-encoded segmentation masks (`det.mask_rle`). The robot has no segmentation model; the simulation produces them for `"segmentation"`.
 
 ```python
 from pib3.backends import rle_decode
 
-mask = rle_decode(result['mask_rle'])  # Returns np.ndarray (height, width)
+mask = rle_decode(det.mask_rle)  # Returns np.ndarray (height, width)
 ```
 
 ---
