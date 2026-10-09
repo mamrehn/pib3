@@ -118,7 +118,7 @@ def demo_ai_detection(robot, duration: float = 15.0):
         print("  (No answer from /list_models)")
 
     # Start YOLO26n; this returns when the robot reports it running (a few s).
-    if not robot.ai.set_model(AIModel.YOLO26N):
+    if not robot.ai.set_model(AIModel.YOLO26S):
         print("The robot did not start the model; see the warning above.")
         return
 
@@ -183,7 +183,7 @@ def demo_person_tracking(robot, duration: float = 30.0):
 
     # YOLO26n detects the 80 COCO classes, "person" among them
     print("Starting the YOLO26n model...")
-    if not robot.ai.set_model(AIModel.YOLO26N):
+    if not robot.ai.set_model(AIModel.YOLO26S):
         print("The robot did not start the model; see the warning above.")
         return
 

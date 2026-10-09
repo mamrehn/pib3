@@ -407,7 +407,7 @@ The name this client uses for `/start_model` and `/stop_model`: `pib3-<user>@<co
 
 ```python
 models = robot.get_available_ai_models()   # dict: model id -> info
-# {"yolo26n_coco_512x288": {"task": "object_detection", "licence": "...",
+# {"yolo26s_coco_512x288": {"task": "object_detection", "licence": "...",
 #                           "shaves": 4, "size_bytes": 5472216,
 #                           "available": True, "active": False}, ...}
 ```
@@ -438,7 +438,7 @@ robot.stop_ai_model(AIModel.HAND)
 Same as `robot.ai.set_model(model)`: run this model and none of the others this client started. Each start or stop rebuilds the camera pipeline.
 
 ```python
-if robot.set_ai_model(AIModel.YOLO26N):
+if robot.set_ai_model(AIModel.YOLO26S):
     print("Model ready!")
 ```
 
@@ -452,22 +452,22 @@ Subscribes to the model's topic. The model must be running; the topic is silent 
 
 ```python
 {"header": {"stamp": {"sec": 1790000000, "nanosec": 123000000}},
- "model_id": "yolo26n_coco_512x288",
+ "model_id": "yolo26s_coco_512x288",
  "frame_width": 1280, "frame_height": 720,
  "detections": [{"label": "person", "score": 0.92,
                  "x_min": 353, "y_min": 257, "x_max": 547, "y_max": 570,   # pixels
                  "keypoint_names": [], "keypoint_x": [], "keypoint_y": [], "keypoint_z": [],
-                 "scalar_names": [], "scalar_values": []}]}
+                 "keypoint_score": [], "scalar_names": [], "scalar_values": []}]}
 ```
 
-Pixels refer to `frame_width` × `frame_height`. `keypoint_z` is millimetres, 0 meaning none. The hand models publish their hand-relative depth unitless instead (see `z_source` in `scalar_names`).
+Pixels refer to `frame_width` × `frame_height`. `keypoint_z` is millimetres, 0 meaning none. `keypoint_score` is each keypoint's confidence 0..1, empty when the model reports none (and absent on backends without it). The hand models publish their hand-relative depth unitless instead (see `z_source` in `scalar_names`).
 
 ```python
 def on_detection(message):
     for det in message['detections']:
         print(f"{det['label']} @ {det['score']:.0%}")
 
-sub = robot.subscribe_ai_detections(AIModel.YOLO26N, on_detection)
+sub = robot.subscribe_ai_detections(AIModel.YOLO26S, on_detection)
 time.sleep(10)
 sub.unsubscribe()
 ```
@@ -477,7 +477,7 @@ For typed results use `AIDetectionReceiver` or `parse_detection_message()` from 
 ### get_ai_detections()
 
 ```python
-message = robot.get_ai_detections(AIModel.YOLO26N)   # one DetectionArray, or None
+message = robot.get_ai_detections(AIModel.YOLO26S)   # one DetectionArray, or None
 ```
 
 Calls `/get_detections` once. `frame_width` is 0 while the camera has no frame yet.

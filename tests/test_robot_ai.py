@@ -19,6 +19,7 @@ Where the messages come from, since that decides what the tests prove:
 
 import json
 import logging
+import socket
 import time
 import types
 from pathlib import Path
@@ -311,6 +312,7 @@ def test_default_owner_is_stable_and_named_after_user_and_computer(robot):
     other = RealRobotBackend(host="elsewhere", motor_mode="ros")
 
     assert robot.ai_owner.startswith("pib3-") and "@" in robot.ai_owner
+    assert socket.gethostname() in robot.ai_owner
     assert robot.ai_owner == other.ai_owner  # a rerun after a crash reuses it
     assert RealRobotBackend(ai_owner="group-3", motor_mode="ros").ai_owner == "group-3"
     with pytest.raises(ValueError):
@@ -339,13 +341,13 @@ def test_start_and_stop_send_the_model_id_and_the_owner(robot):
     FakeService.handlers["/stop_model"] = lambda r: {"success": True, "message": "stopped"}
 
     assert robot.start_ai_model(AIModel.POSE_YOLO, timeout=12) == (True, "started")
-    assert robot.stop_ai_model("yolo26n_pose_coco_512x288") == (True, "stopped")
+    assert robot.stop_ai_model("yolo26s_pose_coco_512x288") == (True, "stopped")
 
     start, stop = FakeService.calls
     assert start == ("/start_model", "datatypes/srv/StartModel",
-                     {"model_id": "yolo26n_pose_coco_512x288", "shaves": 0,
+                     {"model_id": "yolo26s_pose_coco_512x288", "shaves": 0,
                       "owner": robot.ai_owner}, 12)
-    assert stop[2] == {"model_id": "yolo26n_pose_coco_512x288", "owner": robot.ai_owner}
+    assert stop[2] == {"model_id": "yolo26s_pose_coco_512x288", "owner": robot.ai_owner}
 
 
 def test_start_reports_why_the_robot_refused(robot):
@@ -410,7 +412,9 @@ def test_old_names_are_resolved_before_they_reach_the_robot(robot):
 
 @pytest.mark.parametrize("model,topic", [
     (AIModel.YOLO26N, "/detections/yolo26n_coco_512x288"),
-    (AIModel.POSE_YOLO, "/detections/yolo26n_pose_coco_512x288"),
+    (AIModel.YOLO26S, "/detections/yolo26s_coco_512x288"),
+    (AIModel.POSE_YOLO, "/detections/yolo26s_pose_coco_512x288"),
+    (AIModel.POSE_YOLO26N, "/detections/yolo26n_pose_coco_512x288"),
     (AIModel.HAND, "/detections/hand_tracking"),          # shared hand topic
     (AIModel.FACE, "/detections/face_detection_yunet_160x120"),
     ("yolov6n_coco_640x640", "/detections/yolov6n_coco_640x640"),  # any model id
@@ -523,7 +527,7 @@ def test_results_reach_the_receiver_of_their_model():
     robot = FakeRobot()
     ai = AISubsystem(robot)
     ai.start_model(AIModel.YOLO26N)
-    ai.start_model(AIModel.POSE_YOLO)
+    ai.start_model(AIModel.POSE_YOLO26N)
 
     robot.subscriptions["yolo26n_coco_512x288"].callback(load("yolo26n_coco_512x288"))
     robot.subscriptions["yolo26n_pose_coco_512x288"].callback(load("yolo26n_pose_coco_512x288"))
@@ -602,13 +606,16 @@ def test_set_ai_model_on_the_backend_is_robot_ai_set_model(robot):
     FakeService.handlers["/start_model"] = lambda r: {"success": True, "message": ""}
     FakeService.handlers["/stop_model"] = lambda r: {"success": True, "message": ""}
 
-    assert robot.set_ai_model(AIModel.HAND)
-    assert robot.set_ai_model(AIModel.YOLO26N)
+    FakeService.handlers["/list_models"] = lambda r: {"models": []}
 
-    assert [(c[0], c[2]["model_id"]) for c in FakeService.calls] == [
+    assert robot.set_ai_model(AIModel.HAND)
+    assert robot.set_ai_model(AIModel.YOLO26S)
+
+    assert [(c[0], c[2]["model_id"]) for c in FakeService.calls
+            if c[0] != "/list_models"] == [
         ("/start_model", "hand_tracking_mp"),
         ("/stop_model", "hand_tracking_mp"),
-        ("/start_model", "yolo26n_coco_512x288"),
+        ("/start_model", "yolo26s_coco_512x288"),
     ]
 
 
@@ -659,3 +666,88 @@ def test_imu_comes_from_one_topic_at_the_fixed_rate(robot):
 def test_the_imu_rate_cannot_be_set(robot):
     with pytest.raises(NotImplementedError, match="100 Hz"):
         robot.set_imu_frequency(50)
+
+
+def test_cloned_machines_get_different_owner_names(monkeypatch):
+    """Two VMs from one image share user and computer name, not the card."""
+    monkeypatch.setattr(robot_module.uuid, "getnode", lambda: 0x0800_2700_0001)
+    first = robot_module._default_ai_owner()
+    monkeypatch.setattr(robot_module.uuid, "getnode", lambda: 0x0800_2700_0002)
+    second = robot_module._default_ai_owner()
+
+    assert first != second and first.rsplit("-", 1)[0] == second.rsplit("-", 1)[0]
+
+
+def test_a_random_stand_in_for_the_card_is_left_out_of_the_owner(monkeypatch):
+    # uuid.getnode() sets the multicast bit on a random number; that number
+    # changes every run, so it must not make the owner name unstable.
+    monkeypatch.setattr(robot_module.uuid, "getnode", lambda: (1 << 40) | 0x1234)
+
+    assert robot_module._default_ai_owner().endswith("@" + (socket.gethostname() or "computer"))
+
+
+def test_set_model_releases_a_model_a_crashed_run_left_running():
+    robot = FakeRobot(offered={
+        "hand_tracking_mp": {"available": True, "active": True},     # stale hold
+        "yolo26s_coco_512x288": {"available": True, "active": False},
+    })
+    ai = AISubsystem(robot)
+
+    assert ai.set_model(AIModel.YOLO26S)
+
+    assert robot.calls == [("stop", "hand_tracking_mp"), ("start", "yolo26s_coco_512x288")]
+    assert ai.models == ("yolo26s_coco_512x288",)
+
+
+def test_set_model_leaves_the_target_model_alone_when_it_already_runs():
+    robot = FakeRobot(offered={"yolo26s_coco_512x288": {"available": True, "active": True}})
+    ai = AISubsystem(robot)
+
+    ai.set_model(AIModel.YOLO26S)
+
+    assert robot.calls == [("start", "yolo26s_coco_512x288")]
+
+
+def test_stopping_a_named_model_asks_the_robot_even_if_not_started_here():
+    robot = FakeRobot()
+    ai = AISubsystem(robot)
+
+    assert ai.stop_model(AIModel.HAND)
+    assert ai.stop_model() is True                       # nothing named, nothing current
+
+    assert robot.calls == [("stop", "hand_tracking_mp")]
+
+
+def test_a_failed_restart_keeps_the_model_this_client_holds():
+    robot = FakeRobot()
+    ai = AISubsystem(robot)
+    ai.start_model(AIModel.YOLO26S)
+    robot.refuse.add("yolo26s_coco_512x288")    # e.g. the robot answered late
+
+    assert ai.start_model(AIModel.YOLO26S) is False
+
+    assert ai.models == ("yolo26s_coco_512x288",)
+    assert robot.subscriptions["yolo26s_coco_512x288"].subscribed is True
+
+
+def test_keypoint_scores_of_the_message_become_keypoint_confidences():
+    scores = [0.98] * 15 + [0.03, 0.0]
+    detection = make_detection(
+        label="person", score=0.9, box=(100, 100, 300, 700),
+        keypoints=[(name, 200.0, 400.0) for name in COCO_KEYPOINT_NAMES],
+        keypoint_scores=scores,
+    )
+
+    [pose] = parse_detection_message(make_detection_array("x", [detection], 1280, 720))
+
+    assert [kp.confidence for kp in pose.keypoints] == pytest.approx(scores)
+
+
+def test_a_message_without_keypoint_scores_reads_as_full_confidence():
+    message = load("yolo26n_pose_coco_512x288")
+    for detection in message["detections"]:
+        detection.pop("keypoint_score", None)          # an older backend
+
+    [pose] = parse_detection_message(message)
+
+    assert {kp.confidence for kp in pose.keypoints} == {1.0}

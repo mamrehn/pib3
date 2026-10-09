@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### pib-backend's b3 fork: YOLO26s by default, keypoint confidence
+
+pib3 now targets `mamrehn/pib-backend`, branch `b3-develop`: pib-rocks'
+`develop` plus the YOLO26 models, keypoint confidences, a latency fix for the
+YOLO detectors and the `/audio_playback` topic. Its model release carries the
+blobs.
+
+- **YOLO26s is the default.** `AIModel.YOLO26S` (detection) and
+  `AIModel.POSE_YOLO` (pose, also `POSE_YOLO26S`) are the small models:
+  COCO mAP 48.6 / 63.0 against 40.9 / 57.2 for nano, at about 12 results/s
+  on the camera. `AIModel.YOLO26N` and the new `AIModel.POSE_YOLO26N` are the
+  twice-as-fast nano fallbacks. **`POSE_YOLO` changed model** (nano to
+  small). Old nano names (`"yolov6n"`, `"yolov8n"`, ...) map to `YOLO26N`, the
+  others to `YOLO26S`.
+- **`Keypoint.confidence` is real.** The robot sends `keypoint_score` per
+  keypoint and the simulation passes ultralytics' values on; until now every
+  keypoint read 1.0, so a check like "is the wrist visible?" always passed.
+  A robot whose backend predates the field still reads 1.0.
+- **Withdrawn upstream:** `AIModel.FACE_MESH` and `AIModel.FACE_LANDMARKS`
+  are gone; pib-backend took both models off its camera list (PR-1957).
+- **A crashed script's model is released.** `set_model()` also releases this
+  owner's hold on any other running model, and `stop_model(model)` asks the
+  robot even for a model this run did not start. The robot keeps a hold until
+  its owner releases it.
+- **The default owner names the machine:** `pib3-<user>@<computer>-<hash of
+  the network card>`, so virtual machines cloned from one image no longer
+  share (and stop) each other's models.
+- **A failed restart keeps a held model.** A second `start_model()` of a
+  running model that fails (for example, the connection drops) no longer
+  forgets the model while the robot keeps running it.
+- **Simulation matches the robot's threshold:** detections below 0.5
+  confidence are dropped, as in the robot's YOLO archives (was 0.25).
+- Polling `/list_models` after a slow start no longer logs a warning per poll.
+
 ### Robot AI, camera and IMU follow pib-backend `develop` (breaking)
 
 The camera node of pib-rocks' `pib-backend` `develop` has its own model
@@ -10,7 +44,7 @@ topic per model). pib3 used the interface of an older backend branch
 (`ai_cam_topics`); it now speaks the upstream one. Nothing here is released.
 
 - **`robot.ai` runs models by id.** `AIModel` values are the model ids of the
-  store: `YOLO26N`, `POSE_YOLO`, `HAND`, `FACE`, `FACE_MESH`, `FACE_LANDMARKS`,
+  store: `YOLO26S`, `YOLO26N`, `POSE_YOLO`, `POSE_YOLO26N`, `HAND`, `FACE`,
   `EMOTION`, `HEAD_POSE`, `QR_CODE`; any other id works as a string.
   `set_model()` stops this client's other models and starts the new one;
   `start_model()` / `stop_model()` run several at once; `models`,
@@ -18,8 +52,8 @@ topic per model). pib3 used the interface of an older backend branch
   start or stop rebuilds the camera pipeline (seconds).
 - **Models are shared by owner.** A model runs while any client holds it, so
   scripts, cerebra and the web programs no longer switch each other's models.
-  The owner is `pib3-<user>@<computer>` (`Robot(ai_owner=...)`), stable on
-  purpose so a crashed script's model is released by its next run.
+  The owner is `pib3-<user>@<computer>-<machine>` (`Robot(ai_owner=...)`),
+  stable on purpose so a crashed script's model is released by its next run.
   `disconnect()` releases every model.
 - **A start that outlasts rosbridge's service timeout** (about 5 s, a rebuild
   takes longer) is no longer reported as failed: pib3 asks `/list_models`.

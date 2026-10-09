@@ -39,7 +39,7 @@ from pib3 import Robot, AIModel
 
 with Robot(host="172.26.34.149") as robot:
     # Run a model (returns when the robot reports it running)
-    robot.ai.set_model(AIModel.YOLO26N)
+    robot.ai.set_model(AIModel.YOLO26S)
 
     # Get detections (waits automatically for results)
     for det in robot.ai.get_detections(latest_only=True):
@@ -75,7 +75,7 @@ def set_model(
 from pib3 import AIModel
 
 robot.ai.set_model(AIModel.HAND)
-robot.ai.set_model(AIModel.YOLO26N)       # stops the hand model first
+robot.ai.set_model(AIModel.YOLO26S)       # stops the hand model first
 robot.ai.set_model("yolov6n_coco_640x640")  # any id from get_available_ai_models()
 ```
 
@@ -84,10 +84,10 @@ robot.ai.set_model("yolov6n_coco_640x640")  # any id from get_available_ai_model
 Run several models at once. The camera has 16 processing cores; each model uses a fixed number (`AIModelInfo.shaves`, 4 for the YOLO models, 8 for the hand chain), so two or three models fit together.
 
 ```python
-robot.ai.start_model(AIModel.YOLO26N)
+robot.ai.start_model(AIModel.YOLO26S)
 robot.ai.start_model(AIModel.HAND)      # both run; HAND is now the current model
 
-dets = robot.ai.get_detections(latest_only=True, model=AIModel.YOLO26N)
+dets = robot.ai.get_detections(latest_only=True, model=AIModel.YOLO26S)
 hands = robot.ai.get_hand_landmarks(latest_only=True)   # the current model
 
 robot.ai.stop_model(AIModel.HAND)
@@ -108,7 +108,7 @@ def get_detections(timeout: float = 5.0, latest_only: bool = False, model=None) 
 Waits automatically for results if buffer is empty. Raises `RuntimeError` if no model has been started.
 
 ```python
-robot.ai.set_model(AIModel.YOLO26N)
+robot.ai.set_model(AIModel.YOLO26S)
 for det in robot.ai.get_detections(latest_only=True):
     print(f"Found {det.label} ({det.confidence:.0%})")
     print(f"  BBox: {det.bbox.center}")
@@ -296,26 +296,40 @@ from pib3 import AIModel
 
 | Enum value | Model id | Task | Cores |
 |------------|----------|------|-------|
-| `AIModel.YOLO26N` | `yolo26n_coco_512x288` | Object detection, 80 COCO classes | 4 |
-| `AIModel.POSE_YOLO` | `yolo26n_pose_coco_512x288` | Body pose, 17 COCO keypoints | 4 |
+| `AIModel.YOLO26S` | `yolo26s_coco_512x288` | Object detection, 80 COCO classes (default) | 4 |
+| `AIModel.YOLO26N` | `yolo26n_coco_512x288` | Object detection, faster and less accurate | 4 |
+| `AIModel.POSE_YOLO` (also `POSE_YOLO26S`) | `yolo26s_pose_coco_512x288` | Body pose, 17 COCO keypoints (default) | 4 |
+| `AIModel.POSE_YOLO26N` | `yolo26n_pose_coco_512x288` | Body pose, faster and less accurate | 4 |
 | `AIModel.HAND` | `hand_tracking_mp` | Hand landmarks, 21 points per hand | 8 |
 | `AIModel.FACE` | `face_detection_yunet_160x120` | Face boxes | 4 |
-| `AIModel.FACE_MESH` | `facemesh_crop` | 468-point face mesh | 8 |
-| `AIModel.FACE_LANDMARKS` | `facial_landmarks_68_crop` | 68 facial landmarks | 8 |
 | `AIModel.EMOTION` | `emotion_recognition_crop` | Emotion (one probability per emotion in `det.scalars`) | 8 |
 | `AIModel.HEAD_POSE` | `head_pose_estimation_crop` | Head `yaw`, `pitch`, `roll` in `det.scalars` | 8 |
 | `AIModel.QR_CODE` | `qr_code_detection_384x384` | QR code boxes | 4 |
+
+pib-backend withdrew the face mesh (`facemesh_crop`) and the 68 facial landmarks (`facial_landmarks_68_crop`) from its camera model list (PR-1957), so `AIModel` no longer names them.
 
 !!! warning "Hand tracking speed is unknown"
     `AIModel.HAND` is `hand_tracking_mp`, the newer of the backend's two hand chains. pib-backend measured its older chain, `hand_tracking`, at **1.0 result/s** on a robot. Nobody has published a measurement of `hand_tracking_mp`. A hand-mirroring program needs several results per second: check `robot.ai.fps` on your robot before relying on it. `AIModel` has no member for the older chain; `"hand_tracking"` works as a string.
 
 Any other model id works as a plain string; `robot.ai.available_models()` lists what the robot has. The model ids and core counts come from the backend's manifest and were not all measured by pib3; `available_models()` reports the numbers the robot itself uses.
 
-!!! warning "The YOLO26 models are not in the stock model store yet"
-    `YOLO26N` and `POSE_YOLO` are YOLO26 builds (Ultralytics, AGPL-3.0) at 512×288, the camera's 16:9. They exist in the pib-backend branch that adds them, and a robot only offers them after that branch's model archive is installed (`setup/setup-pib.sh --models`). On a robot without them, `set_model` returns `False` and logs the models the robot does offer, for example `yolov6n_coco_640x640` (the stock detector, 640×640, same COCO classes). There is no body pose or segmentation model in the stock store.
+!!! warning "The YOLO26 models come with pib-backend's b3 fork"
+    The four YOLO26 models are Ultralytics builds (AGPL-3.0) at 512×288, the camera's 16:9. pib-backend's b3 fork (`mamrehn/pib-backend`, branch `b3-develop`) lists them and provisions them from its model release (`setup/setup-pib.sh --models`). On a robot without them, `set_model` returns `False` and logs the models the robot does offer, for example `yolov6n_coco_640x640` (pib-rocks' detector, 640×640, same COCO classes).
 
-!!! note "Speed on the OAK-D Lite"
-    Measured on a laptop over USB 3: YOLO26n 25.7 results/s, YOLO26n-pose 22.5, stock YOLOv6n 21.5. The same stock YOLOv6n runs at 11 results/s on the robot (pib-backend's measurement), about half of the laptop figure; the robot's Raspberry Pi parses the results, which is the likely cause. Expect lower figures there for the YOLO26 models too; they were not measured on a robot.
+!!! note "Speed and accuracy on the OAK-D Lite"
+    Measured with the camera node's own chain on an OAK-D Lite (laptop, USB 3); COCO accuracy (mAP50-95) is Ultralytics' figure at 640×640.
+
+    | Model | Accuracy | Results/s | Age of a result |
+    |-------|----------|-----------|-----------------|
+    | `YOLO26S` | 48.6 | 12.6 | 0.22 s |
+    | `YOLO26N` | 40.9 | 25.2 | 0.15 s |
+    | `POSE_YOLO` | 63.0 | 11.6 | 0.25 s |
+    | `POSE_YOLO26N` | 57.2 | 21.9 | 0.16 s |
+
+    The camera itself parses the results, so the robot's Raspberry Pi only forwards them; these rates are the ceiling there. They were not measured on a robot.
+
+!!! tip "Hidden keypoints"
+    A pose model also places keypoints it cannot see, such as a wrist behind the back, and gives them a low `keypoint.confidence`. Check it before using a point: `if wrist.confidence > 0.5: ...`. Robots on an older backend send no confidences; pib3 then reports 1.0.
 
 ### Retired names
 
@@ -323,8 +337,10 @@ These were exposed by earlier versions of this SDK. `set_model()` remaps them wi
 
 | Old name | Now uses |
 |----------|----------|
-| `"yolo26n"`, `"yolov6n"`, `"yolov10n"`, `"mobilenet-ssd"`, `"yolov8n"`, `"yolo11n"`, `"yolo11s"` | `AIModel.YOLO26N` |
-| `"pose_yolo"`, `"pose_yolov8"`, `"pose_hrnet"`, `"pose"` | `AIModel.POSE_YOLO` |
+| `"yolo26n"`, `"yolov6n"`, `"yolov10n"`, `"yolov8n"`, `"yolo11n"` | `AIModel.YOLO26N` |
+| `"yolo26s"`, `"yolo11s"`, `"mobilenet-ssd"` | `AIModel.YOLO26S` |
+| `"pose_yolo"`, `"pose_hrnet"`, `"pose"` | `AIModel.POSE_YOLO` |
+| `"pose_yolov8"` | `AIModel.POSE_YOLO26N` |
 | `"hand"` | `AIModel.HAND` |
 | `"face"` | `AIModel.FACE` |
 | `"yolov8n-seg"`, `"deeplabv3"`, `"fastsam"` | `"segmentation"` (simulation only) |
@@ -332,7 +348,7 @@ These were exposed by earlier versions of this SDK. `set_model()` remaps them wi
 The robot never had segmentation, gaze, line or person-only models in this store; they were part of an earlier backend branch.
 
 !!! note "Simulation"
-    The Webots backend (`sim.ai`) has the same methods and runs ultralytics or MediaPipe on your laptop instead of the OAK-D: `YOLO26N` → `yolo26n.pt`, `POSE_YOLO` → `yolo26n-pose.pt`, `HAND` → MediaPipe, `"segmentation"` → `yolo26n-seg.pt` (simulation only, with `det.mask_rle`). It also takes a weights file name directly (`"yolo26s.pt"`) and `"recognition"` for Webots ground truth. Faces, emotion, head pose and QR codes have no simulated equivalent. Models run together, each inferring on every rendered frame.
+    The Webots backend (`sim.ai`) has the same methods and runs ultralytics or MediaPipe on your laptop instead of the OAK-D: `YOLO26S` → `yolo26s.pt`, `YOLO26N` → `yolo26n.pt`, `POSE_YOLO` → `yolo26s-pose.pt`, `POSE_YOLO26N` → `yolo26n-pose.pt`, `HAND` → MediaPipe, `"segmentation"` → `yolo26n-seg.pt` (simulation only, with `det.mask_rle`). On a laptop's CPU the nano models are about three times faster. It also takes a weights file name directly (`"yolo26m.pt"`) and `"recognition"` for Webots ground truth. Faces, emotion, head pose and QR codes have no simulated equivalent. Models run together, each inferring on every rendered frame.
 
 ---
 

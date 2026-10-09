@@ -214,7 +214,7 @@ with Robot(host="172.26.34.149") as robot:
 
     # AI object detection — typed results with class names. The robot runs
     # the model while this client holds it; leaving the with-block releases it.
-    robot.ai.set_model(AIModel.YOLO26N)
+    robot.ai.set_model(AIModel.YOLO26S)
     for det in robot.ai.get_detections(latest_only=True):
         print(f"{det.label}: {det.confidence:.0%} at {det.bbox}")
 ```
@@ -226,9 +226,11 @@ with Robot(host="172.26.34.149") as robot:
 > `HandLandmarks` and `PoseKeypoints` with coordinates in [0, 1]; prefer them
 > unless you need the raw message (`parse_detection_message()` converts one).
 
-> **Note — the models must be in the robot's model store.** `AIModel.YOLO26N`
-> and `AIModel.POSE_YOLO` are not in the stock store yet; `set_model` then
-> returns `False` and logs the models the robot does offer. See
+> **Note — the models must be in the robot's model store.** The YOLO26 models
+> (`AIModel.YOLO26S`, `AIModel.POSE_YOLO` and the faster `YOLO26N` /
+> `POSE_YOLO26N`) come with pib-backend's b3 fork (`mamrehn/pib-backend`,
+> branch `b3-develop`); on another backend `set_model` returns `False` and logs
+> the models the robot does offer. See
 > [AI & Camera Subsystems](docs/api/ai-camera-subsystems.md).
 
 #### The same code in simulation
@@ -257,8 +259,8 @@ Differences worth knowing:
   simulator themselves, but a loop that only reads does not — without it the
   camera returns the same frame forever.
 - **`"recognition"`** is Webots ground truth: exact boxes, `confidence` always
-  `1.0`, no model. Pass a model (`AIModel.YOLO26N`, `AIModel.POSE_YOLO`,
-  `AIModel.HAND`) to run a real network on the simulated frames instead — `pip install "pib3[sim] @ git+https://github.com/mamrehn/pib3.git"`.
+  `1.0`, no model. Pass a model (`AIModel.YOLO26N`, `AIModel.POSE_YOLO26N`,
+  `AIModel.HAND`; the nano models suit a laptop's CPU) to run a real network on the simulated frames instead — `pip install "pib3[sim] @ git+https://github.com/mamrehn/pib3.git"`.
   Note a COCO-trained detector sees very little in an untextured world.
 - **Objects must opt in.** A Solid is only recognized if it sets
   `recognitionColors`; its `model` field becomes `det.label`.

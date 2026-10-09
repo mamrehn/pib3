@@ -718,14 +718,17 @@ def test_robot_models_run_yolo26_in_sim():
     from pib3.backends.sim_ai import SIM_MODEL_ALIASES
     from pib3.types import AIModel
 
+    assert SIM_MODEL_ALIASES[AIModel.YOLO26S.value] == "yolo26s.pt"
     assert SIM_MODEL_ALIASES[AIModel.YOLO26N.value] == "yolo26n.pt"
-    assert SIM_MODEL_ALIASES[AIModel.POSE_YOLO.value] == "yolo26n-pose.pt"
+    assert SIM_MODEL_ALIASES[AIModel.POSE_YOLO.value] == "yolo26s-pose.pt"
+    assert SIM_MODEL_ALIASES[AIModel.POSE_YOLO26N.value] == "yolo26n-pose.pt"
     assert SIM_MODEL_ALIASES[AIModel.HAND.value] == "hand"
     assert SIM_MODEL_ALIASES["segmentation"] == "yolo26n-seg.pt"
 
 
 @pytest.mark.parametrize("name", [m for m in
                                   ["face_detection_yunet_160x120", "facemesh_crop",
+                                   "facial_landmarks_68_crop",
                                    "emotion_recognition_crop", "qr_code_detection_384x384",
                                    "person", "gaze"]])
 def test_models_without_a_simulated_equivalent_say_so(name):
@@ -753,7 +756,9 @@ def test_old_yolo_names_resolve_to_yolo26n_with_a_warning(old):
 
 
 @pytest.mark.parametrize("old,new", [
-    ("pose_yolo", "POSE_YOLO"), ("pose", "POSE_YOLO"), ("hand", "HAND"), ("face", "FACE"),
+    ("pose_yolo", "POSE_YOLO"), ("pose", "POSE_YOLO"), ("pose_yolov8", "POSE_YOLO26N"),
+    ("hand", "HAND"), ("face", "FACE"), ("yolo11s", "YOLO26S"), ("yolo26s", "YOLO26S"),
+    ("mobilenet-ssd", "YOLO26S"),
 ])
 def test_old_short_names_resolve_to_model_ids(old, new):
     from pib3.types import AIModel, resolve_model_name
@@ -766,6 +771,8 @@ def test_current_names_resolve_silently(recwarn):
     from pib3.types import AIModel, resolve_model_name
 
     assert resolve_model_name(AIModel.YOLO26N) == "yolo26n_coco_512x288"
+    assert resolve_model_name(AIModel.YOLO26S) == "yolo26s_coco_512x288"
+    assert resolve_model_name(AIModel.POSE_YOLO26S) == "yolo26s_pose_coco_512x288"
     assert resolve_model_name("yolov6n_coco_640x640") == "yolov6n_coco_640x640"
     assert resolve_model_name("recognition") == "recognition"
     assert not recwarn.list
@@ -887,3 +894,66 @@ def test_sim_lists_what_it_can_run():
     assert models[RECOGNITION_MODEL].active
     assert models[AIModel.YOLO26N.value].task == "object_detection" and not models[AIModel.YOLO26N.value].active
     assert AIModel.FACE.value not in models                 # no simulated equivalent
+
+
+def test_the_small_yolo26_models_are_the_defaults():
+    from pib3.types import AIModel
+
+    assert AIModel.YOLO26S.value == "yolo26s_coco_512x288"
+    assert AIModel.POSE_YOLO.value == "yolo26s_pose_coco_512x288"
+    assert AIModel.POSE_YOLO26S is AIModel.POSE_YOLO       # one model, two names
+    assert AIModel.POSE_YOLO26N.value == "yolo26n_pose_coco_512x288"
+    # pib-backend withdrew these from the camera model list (PR-1957)
+    assert "facemesh_crop" not in {m.value for m in AIModel}
+    assert "facial_landmarks_68_crop" not in {m.value for m in AIModel}
+
+
+def test_simulated_pose_keeps_each_keypoints_confidence():
+    """ultralytics reports a confidence per keypoint; a hidden one is low."""
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from pib3.backends.camera import parse_detection_message
+    from pib3.backends.detection_messages import COCO_KEYPOINT_NAMES, make_detection_array
+    from pib3.backends.sim_ai import UltralyticsPose
+
+    class Tensor:
+        def __init__(self, value):
+            self.value = np.asarray(value, dtype=float)
+
+        def cpu(self):
+            return self
+
+        def numpy(self):
+            return self.value
+
+        def tolist(self):
+            return self.value.tolist()
+
+        def __getitem__(self, index):
+            return Tensor(self.value[index])
+
+        def __float__(self):
+            return float(self.value)
+
+        def __int__(self):
+            return int(self.value)
+
+    conf = [0.99] * 15 + [0.02, 0.01]            # both ankles hidden
+    box = SimpleNamespace(xyxy=Tensor([[10, 20, 110, 220]]), cls=Tensor([0]),
+                          conf=Tensor([0.9]))
+    result = SimpleNamespace(
+        names={0: "person"}, boxes=[box],
+        keypoints=SimpleNamespace(xy=Tensor([[[50, 60]] * 17]), conf=Tensor([conf])),
+    )
+    runner = UltralyticsPose.__new__(UltralyticsPose)
+    runner._predict = lambda bgr: [result]
+
+    [detection] = runner.infer(np.zeros((240, 320, 3), np.uint8))
+    [pose] = parse_detection_message(make_detection_array("pose", [detection], 320, 240))
+
+    assert detection["keypoint_names"] == list(COCO_KEYPOINT_NAMES)
+    assert detection["keypoint_score"] == pytest.approx(conf)
+    assert pose.keypoints[16].confidence == pytest.approx(0.01)
+    assert pose.nose.confidence == pytest.approx(0.99)

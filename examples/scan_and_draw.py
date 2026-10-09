@@ -172,7 +172,7 @@ def main():
             # 2. Configure AI Model
             # YOLO26n: general detection, 80 COCO classes (a few seconds to start)
             print("Starting the YOLO26n model...")
-            if not robot.ai.set_model(AIModel.YOLO26N):
+            if not robot.ai.set_model(AIModel.YOLO26S):
                 print("The robot did not start the model; see the warning above.")
                 return
             

@@ -2,12 +2,14 @@
 
 import base64
 import getpass
+import hashlib
 import json
 import logging
 import math
 import socket
 import threading
 import time
+import uuid
 import urllib.request
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -225,12 +227,22 @@ def joint_trajectory_message(
 
 
 def _default_ai_owner() -> str:
-    """``pib3-<user>@<computer>``: who asks the robot to run AI models."""
+    """``pib3-<user>@<computer>-<machine>``: who asks the robot to run AI models.
+
+    ``<machine>`` is a short hash of the network card's address, so virtual
+    machines cloned from one image (same user, same computer name) still get
+    different names. It is left out when Python cannot read the address,
+    because its stand-in is random per run and the name must stay stable.
+    """
     try:
         user = getpass.getuser()
     except Exception:
         user = "user"
-    return f"pib3-{user}@{socket.gethostname() or 'computer'}"
+    owner = f"pib3-{user}@{socket.gethostname() or 'computer'}"
+    node = uuid.getnode()
+    if not node & (1 << 40):   # the multicast bit marks a random stand-in
+        owner += "-" + hashlib.sha1(str(node).encode()).hexdigest()[:6]
+    return owner
 
 
 class RealRobotBackend(RobotBackend):
@@ -334,9 +346,9 @@ class RealRobotBackend(RobotBackend):
             ai_owner: Name this client uses when it starts AI models. A model
                 runs as long as any owner holds it, so two clients with the
                 same name share (and stop) each other's models. Default:
-                ``pib3-<user>@<computer>``, stable across runs so that a
-                script that crashed does not leave a model held under a name
-                nobody releases.
+                ``pib3-<user>@<computer>-<machine>``, stable across runs, so
+                that the next run's ``robot.ai.set_model`` releases a model a
+                crashed script left running.
         """
         if motor_mode not in ("direct", "ros"):
             raise ValueError(f'motor_mode must be "direct" or "ros", got {motor_mode!r}')
@@ -2441,10 +2453,10 @@ class RealRobotBackend(RobotBackend):
         Returns:
             Dict mapping model id to its info::
 
-                {"yolo26n_coco_512x288": {"task": "object_detection",
+                {"yolo26s_coco_512x288": {"task": "object_detection",
                                           "licence": "AGPL-3.0; ...",
                                           "shaves": 4,
-                                          "size_bytes": 5472216,
+                                          "size_bytes": 20170712,
                                           "available": True,
                                           "active": False},
                  ...}
@@ -2454,7 +2466,13 @@ class RealRobotBackend(RobotBackend):
         """
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
+        return self._list_models(timeout)
 
+    def _list_models(self, timeout: float, quiet: bool = False) -> Dict[str, dict]:
+        """``/list_models`` as a dict; empty, with a log line, if it fails.
+
+        ``quiet`` logs the failure at debug level, for callers that poll.
+        """
         service = roslibpy.Service(
             self._client,
             '/list_models',
@@ -2463,7 +2481,9 @@ class RealRobotBackend(RobotBackend):
         try:
             result = service.call(roslibpy.ServiceRequest({}), timeout=timeout)
         except Exception as e:
-            logger.warning(f"list_models service call failed: {e}")
+            (logger.debug if quiet else logger.warning)(
+                "list_models service call failed: %s", e
+            )
             return {}
 
         return {
@@ -2509,7 +2529,7 @@ class RealRobotBackend(RobotBackend):
         """Whether ``/list_models`` reports the model running within ``timeout``."""
         deadline = time.monotonic() + max(0.0, timeout)
         while True:
-            info = self.get_available_ai_models(timeout=3.0).get(model_id, {})
+            info = self._list_models(timeout=3.0, quiet=True).get(model_id, {})
             if info.get('active'):
                 return True
             if time.monotonic() >= deadline:
@@ -2603,7 +2623,7 @@ class RealRobotBackend(RobotBackend):
             >>> from pib3 import Robot, AIModel
             >>> with Robot(host="...") as robot:
             ...     robot.set_ai_model(AIModel.HAND)
-            ...     robot.set_ai_model(AIModel.YOLO26N)
+            ...     robot.set_ai_model(AIModel.YOLO26S)
         """
         return self.ai.set_model(model, timeout)
 
@@ -2620,7 +2640,7 @@ class RealRobotBackend(RobotBackend):
 
             >>> from pib3 import AIDetectionReceiver
             >>> receiver = AIDetectionReceiver()
-            >>> sub = robot.subscribe_ai_detections(AIModel.YOLO26N, receiver.on_detection)
+            >>> sub = robot.subscribe_ai_detections(AIModel.YOLO26S, receiver.on_detection)
             >>> time.sleep(5)
             >>> sub.unsubscribe()
             >>> for det in receiver.get_detections():
@@ -2634,7 +2654,9 @@ class RealRobotBackend(RobotBackend):
                 ``detections``, each with ``label``, ``score``, a pixel box
                 (``x_min`` ... ``y_max``), ``keypoint_names`` with
                 ``keypoint_x``/``keypoint_y``/``keypoint_z`` (pixels; z in
-                mm, 0 = none) and ``scalar_names`` with ``scalar_values``.
+                mm, 0 = none), ``keypoint_score`` (0..1 per keypoint, empty
+                when the model reports none) and ``scalar_names`` with
+                ``scalar_values``.
                 See :mod:`pib3.backends.detection_messages`.
 
         Returns:

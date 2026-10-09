@@ -37,7 +37,7 @@ Usage:
     >>> from pib3.backends.camera import AIDetectionReceiver, Detection
     >>>
     >>> receiver = AIDetectionReceiver()
-    >>> sub = robot.subscribe_ai_detections(AIModel.YOLO26N, receiver.on_detection)
+    >>> sub = robot.subscribe_ai_detections(AIModel.YOLO26S, receiver.on_detection)
     >>> time.sleep(5)
     >>> sub.unsubscribe()
     >>>
@@ -241,15 +241,18 @@ class Detection:
         """
         label = str(data.get("label", ""))
         names = list(data.get("keypoint_names", []))
+        xs = list(data.get("keypoint_x", []))
+        scores = list(data.get("keypoint_score") or [])
+        if len(scores) != len(xs):   # none reported (or an older robot): 1.0
+            scores = [1.0] * len(xs)
         keypoints = [
             Keypoint(
                 x=float(x) / frame_width,
                 y=float(y) / frame_height,
+                confidence=float(scores[i]),
                 name=names[i] if i < len(names) else "",
             )
-            for i, (x, y) in enumerate(
-                zip(data.get("keypoint_x", []), data.get("keypoint_y", []))
-            )
+            for i, (x, y) in enumerate(zip(xs, data.get("keypoint_y", [])))
         ]
         scalars = dict(zip(data.get("scalar_names", []), data.get("scalar_values", [])))
         return cls(
@@ -275,7 +278,13 @@ def _unit(value: float) -> float:
 
 @dataclass
 class Keypoint:
-    """Single keypoint with position and confidence."""
+    """Single keypoint with position and confidence.
+
+    ``confidence`` is the model's 0..1 for this point: a pose model also
+    places keypoints it cannot see (a wrist behind the back), with a low
+    value. It is 1.0 when the model reports none (hand landmarks, or a robot
+    whose backend predates ``keypoint_score``).
+    """
     x: float  # Normalized [0, 1]
     y: float  # Normalized [0, 1]
     confidence: float = 1.0
@@ -615,7 +624,7 @@ class AIModelInfo:
     A model in the robot's model store, as ``/list_models`` reports it.
 
     Attributes:
-        name: Model id (e.g., "yolo26n_coco_512x288"), the value of the
+        name: Model id (e.g., "yolo26s_coco_512x288"), the value of the
             matching :class:`~pib3.types.AIModel`
         task: What the model does ("object_detection", "pose_estimation",
             "hand_tracking", "face_detection", "facial_landmarks", ...)
@@ -1216,6 +1225,9 @@ class AISubsystem:
             reason is logged together with the models it offers).
         """
         model_id = self._robot.resolve_ai_model_name(model)
+        # A model this client already holds stays held on the robot whatever
+        # happens to this call, so its receiver stays too.
+        already_held = model_id in self._receivers
         receiver = self._receivers.get(model_id)
         if receiver is None:
             receiver = self._receivers[model_id] = AIDetectionReceiver()
@@ -1226,7 +1238,8 @@ class AISubsystem:
         try:
             ok, message = self._robot.start_ai_model(model_id, timeout=timeout)
         except BaseException:      # e.g. the connection dropped: leave no half-started model
-            self._release(model_id)
+            if not already_held:
+                self._release(model_id)
             raise
         if not ok:
             logger.warning("%s%s", message, self._offered_models_hint())
@@ -1237,7 +1250,8 @@ class AISubsystem:
                     "robot.available_models() and start them again if needed.",
                     ", ".join(others),
                 )
-            self._release(model_id)
+            if not already_held:
+                self._release(model_id)
             return False
         self._current_model = model_id
         return True
@@ -1248,14 +1262,18 @@ class AISubsystem:
         """
         Release this client's hold on a model (the current one by default).
 
-        The model stops running once no other client holds it either.
+        The model stops running once no other client holds it either. A model
+        named here is released on the robot even if this script did not start
+        it, for example one an earlier, crashed run under the same
+        :attr:`~pib3.backends.robot.RealRobotBackend.ai_owner` left running;
+        the robot ignores a release for a model this owner does not hold.
 
         Returns:
-            True if the robot confirmed. A model that was not started here
-            counts as stopped.
+            True if the robot confirmed. With no model named and none
+            started, there is nothing to stop and the result is True.
         """
         model_id = self._robot.resolve_ai_model_name(model) if model else self._current_model
-        if model_id is None or model_id not in self._receivers:
+        if model_id is None:
             return True
         ok, message = self._robot.stop_ai_model(model_id, timeout=timeout)
         if not ok:
@@ -1268,12 +1286,17 @@ class AISubsystem:
         Run this model and none of the other models started here.
 
         Stops the models this client started earlier, then starts ``model``.
-        Each stop and start rebuilds the camera pipeline (a few seconds
-        each), so a switch is two rebuilds; a model that is already running
-        costs nothing. The call returns once the robot reports the new model
-        running. Stopping first keeps the two models from needing the
-        camera's cores at the same time; use :meth:`start_model` to run
-        several models on purpose.
+        It also releases this owner's hold on any other model the robot runs,
+        so a model left running by an earlier run that crashed (same
+        :attr:`~pib3.backends.robot.RealRobotBackend.ai_owner`) stops too.
+        Models held under other owner names keep running; a second script on
+        this computer shares the owner name, so give it its own ``ai_owner``
+        if both must run models at once. Each stop and start rebuilds
+        the camera pipeline (a few seconds each), so a switch is two
+        rebuilds; a model that is already running costs nothing. The call
+        returns once the robot reports the new model running. Stopping first
+        keeps the two models from needing the camera's cores at the same
+        time; use :meth:`start_model` to run several models on purpose.
 
         Args:
             model: AI model to run (AIModel enum or model id).
@@ -1284,12 +1307,34 @@ class AISubsystem:
 
         Example:
             >>> robot.ai.set_model(AIModel.HAND)
-            >>> robot.ai.set_model(AIModel.YOLO26N)
+            >>> robot.ai.set_model(AIModel.YOLO26S)
         """
         model_id = self._robot.resolve_ai_model_name(model)
         for other in [m for m in self._receivers if m != model_id]:
             self.stop_model(other, timeout=timeout)
+        self._release_stale_holds(keep=model_id, timeout=timeout)
         return self.start_model(model_id, timeout=timeout)
+
+    def _release_stale_holds(self, keep: str, timeout: float) -> None:
+        """Release this owner's hold on every other running model.
+
+        The robot keeps a hold until its owner releases it, and a script that
+        crashed never did. It does not say who holds a model, so this asks it
+        to release each running model under this owner; for a model another
+        client holds, that changes nothing and costs no rebuild.
+        """
+        try:
+            running = [
+                name for name, info in self._robot.get_available_ai_models().items()
+                if info.get("active") and name != keep and name not in self._receivers
+            ]
+        except Exception as exc:
+            logger.debug("Could not list the robot's models: %s", exc)
+            return
+        for name in running:
+            ok, message = self._robot.stop_ai_model(name, timeout=timeout)
+            if not ok:
+                logger.debug("Releasing %s: %s", name, message)
 
     def _subscribe(self, model_id: str) -> None:
         if model_id not in self._subscriptions and self._robot.is_connected:
@@ -1343,7 +1388,7 @@ class AISubsystem:
         model_id = self._robot.resolve_ai_model_name(model) if model else self._current_model
         if model_id is None or model_id not in self._receivers:
             raise RuntimeError(
-                "No AI model started. Call robot.ai.set_model(AIModel.YOLO26N) "
+                "No AI model started. Call robot.ai.set_model(AIModel.YOLO26S) "
                 "(or another model) first."
             )
         return self._receivers[model_id]
@@ -1392,7 +1437,7 @@ class AISubsystem:
             RuntimeError: if no model has been started.
 
         Example:
-            >>> robot.ai.set_model(AIModel.YOLO26N)
+            >>> robot.ai.set_model(AIModel.YOLO26S)
             >>> while True:  # control loop: only ever the current frame
             ...     for det in robot.ai.get_detections(timeout=0, latest_only=True):
             ...         print(f"{det.label}: {det.confidence:.0%}")

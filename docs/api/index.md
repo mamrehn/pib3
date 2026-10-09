@@ -13,7 +13,7 @@ pib3
 │
 ├── Core Types
 │   ├── Joint                    # Enum for joint names (IDE autocomplete)
-│   ├── AIModel                  # Enum for AI models (YOLO26N, HAND, POSE_YOLO, etc.)
+│   ├── AIModel                  # Enum for AI models (YOLO26S, HAND, POSE_YOLO, etc.)
 │   ├── Stroke                   # Single continuous line
 │   ├── Sketch                   # Collection of strokes
 │   └── Trajectory               # Robot joint positions

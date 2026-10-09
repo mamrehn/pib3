@@ -5,13 +5,14 @@ The camera node (pib-backend, ``ros_packages/camera``) publishes one
 nested dicts::
 
     {"header": {"stamp": {"sec": 1, "nanosec": 5}, "frame_id": ""},
-     "model_id": "yolo26n_coco_512x288",
+     "model_id": "yolo26s_coco_512x288",
      "frame_width": 1280, "frame_height": 720,
      "detections": [{
          "label": "person", "score": 0.91,
          "x_min": 412, "y_min": 80, "x_max": 700, "y_max": 710,   # pixels
          "keypoint_names": [], "keypoint_x": [], "keypoint_y": [],
          "keypoint_z": [],                                        # mm, 0 = none
+         "keypoint_score": [],                                    # 0..1, [] = none
          "scalar_names": [], "scalar_values": []}]}
 
 pib3 builds the same dicts for the Webots simulation, so one parser
@@ -61,6 +62,7 @@ def make_detection(
     keypoints: Iterable[Tuple[str, float, float]] = (),
     scalars: Optional[Dict[str, float]] = None,
     mask_rle: Optional[dict] = None,
+    keypoint_scores: Optional[Sequence[float]] = None,
 ) -> dict:
     """One ``datatypes/Detection`` as a dict.
 
@@ -72,6 +74,8 @@ def make_detection(
         scalars: Named values, for example ``{"handedness": 0.9}``.
         mask_rle: Simulation only: an RLE segmentation mask. The robot's
             message has no such field.
+        keypoint_scores: Confidence 0..1 per keypoint, in the order of
+            ``keypoints``; None when the model reports none.
     """
     points = list(keypoints)
     values = dict(scalars or {})
@@ -86,6 +90,7 @@ def make_detection(
         "keypoint_x": [float(x) for _, x, _ in points],
         "keypoint_y": [float(y) for _, _, y in points],
         "keypoint_z": [0.0] * len(points),
+        "keypoint_score": [float(v) for v in keypoint_scores or ()],
         "scalar_names": list(values),
         "scalar_values": [float(v) for v in values.values()],
     }

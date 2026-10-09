@@ -93,12 +93,12 @@ def demo_model(robot, model, read, describe, title, duration):
 def demo_together(robot, duration):
     """Run two models at once; the camera has 16 cores to share."""
     print("\n=== YOLO26n and pose together ===")
-    robot.ai.set_model(AIModel.YOLO26N)
+    robot.ai.set_model(AIModel.YOLO26S)
     if not robot.ai.start_model(AIModel.POSE_YOLO):      # keeps YOLO26n running
         print("  The robot did not start the second model.")
         return
     time.sleep(duration)
-    for model in (AIModel.YOLO26N, AIModel.POSE_YOLO):
+    for model in (AIModel.YOLO26S, AIModel.POSE_YOLO):
         dets = robot.ai.get_detections(timeout=1.0, latest_only=True, model=model)
         print(f"  {model.value}: {len(dets)} detection(s) in the newest frame")
     robot.ai.stop_model(AIModel.POSE_YOLO)
@@ -107,7 +107,7 @@ def demo_together(robot, duration):
 def demo_switch_timing(robot):
     """Time a switch. Each one is a stop and a start of the camera pipeline."""
     print("\n=== Switch timing ===")
-    for model in (AIModel.YOLO26N, AIModel.POSE_YOLO, AIModel.HAND, AIModel.YOLO26N):
+    for model in (AIModel.YOLO26S, AIModel.POSE_YOLO, AIModel.HAND, AIModel.YOLO26S):
         started = time.time()
         ok = robot.ai.set_model(model)
         print(f"  {model.value:30s} {'ok' if ok else 'FAILED':6s} {time.time() - started:5.1f} s")
@@ -147,7 +147,7 @@ Examples:
             if args.demo in ("list", "all"):
                 demo_list_models(robot)
             if args.demo in ("detection", "all"):
-                demo_model(robot, AIModel.YOLO26N, robot.ai.get_detections,
+                demo_model(robot, AIModel.YOLO26S, robot.ai.get_detections,
                            describe_detection, "Object detection", args.duration)
             if args.demo in ("pose", "all"):
                 demo_model(robot, AIModel.POSE_YOLO, robot.ai.get_poses,

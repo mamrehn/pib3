@@ -38,7 +38,7 @@ sub = robot.subscribe_camera_image(callback)
 sub.unsubscribe()
 
 # A model: start -> results arrive, stop -> the robot may free the cores
-robot.ai.set_model(AIModel.YOLO26N)
+robot.ai.set_model(AIModel.YOLO26S)
 robot.ai.stop()
 ```
 
@@ -55,7 +55,7 @@ from pib3 import Robot, AIModel
 
 with Robot(host="192.168.178.71") as robot:
     # Set AI model (waits for confirmation)
-    robot.ai.set_model(AIModel.YOLO26N)
+    robot.ai.set_model(AIModel.YOLO26S)
     
     # Get detections (waits automatically for results)
     for det in robot.ai.get_detections(latest_only=True):
@@ -170,7 +170,7 @@ Four differences from the real robot:
   `confidence` always `1.0`, no model and no inference cost. Ideal for teaching
   the *downstream* logic (debouncing, state machines, control) without
   perception noise in the way.
-- **`AIModel.YOLO26N`, `AIModel.POSE_YOLO`, `AIModel.HAND`** — runs ultralytics or
+- **`AIModel.YOLO26S`, `AIModel.POSE_YOLO`, `AIModel.HAND`** — runs ultralytics or
   mediapipe on the simulated frames and emits the same message the robot
   publishes, so results come back as the same typed `Detection` /
   `PoseKeypoints` / `HandLandmarks`. Models run together, as on the robot.
@@ -306,7 +306,7 @@ with Robot(host="192.168.178.71") as robot:
         print(f"{info.name:36s} {info.task:22s} {info.shaves} cores  {state}")
 ```
 
-The `AIModel` enum names the common ones (`YOLO26N`, `POSE_YOLO`, `HAND`, faces, QR codes); see [AI & Camera Subsystems](../api/ai-camera-subsystems.md#aimodel-enum) for the table. Any listed id also works as a string. The camera has 16 processing cores, and a model uses a fixed number of them, so two or three models fit together.
+The `AIModel` enum names the common ones (`YOLO26S` and the faster `YOLO26N`, `POSE_YOLO` and `POSE_YOLO26N`, `HAND`, faces, QR codes); see [AI & Camera Subsystems](../api/ai-camera-subsystems.md#aimodel-enum) for the table. Any listed id also works as a string. The camera has 16 processing cores, and a model uses a fixed number of them, so two or three models fit together.
 
 ### Running a Model
 
@@ -314,7 +314,7 @@ The `AIModel` enum names the common ones (`YOLO26N`, `POSE_YOLO`, `HAND`, faces,
 from pib3 import AIModel, Robot
 
 with Robot(host="192.168.178.71") as robot:
-    if not robot.ai.set_model(AIModel.YOLO26N):
+    if not robot.ai.set_model(AIModel.YOLO26S):
         print("The robot did not start the model")   # the log says why
     else:
         for det in robot.ai.get_detections(latest_only=True):
@@ -349,10 +349,10 @@ for det in robot.ai.get_detections(latest_only=True):
 ### Several Models at Once
 
 ```python
-robot.ai.start_model(AIModel.YOLO26N)
-robot.ai.start_model(AIModel.POSE_YOLO)       # YOLO26N keeps running
+robot.ai.start_model(AIModel.YOLO26S)
+robot.ai.start_model(AIModel.POSE_YOLO)       # YOLO26S keeps running
 
-objects = robot.ai.get_detections(latest_only=True, model=AIModel.YOLO26N)
+objects = robot.ai.get_detections(latest_only=True, model=AIModel.YOLO26S)
 people  = robot.ai.get_poses(latest_only=True)   # the current model: POSE_YOLO
 
 robot.ai.stop_model(AIModel.POSE_YOLO)
@@ -374,11 +374,11 @@ def on_message(message):
         print(type(obj).__name__, getattr(obj, "label", ""))
 
 with Robot(host="192.168.178.71") as robot:
-    robot.start_ai_model(AIModel.YOLO26N)             # the model must be running
-    sub = robot.subscribe_ai_detections(AIModel.YOLO26N, on_message)
+    robot.start_ai_model(AIModel.YOLO26S)             # the model must be running
+    sub = robot.subscribe_ai_detections(AIModel.YOLO26S, on_message)
     time.sleep(10)
     sub.unsubscribe()
-    robot.stop_ai_model(AIModel.YOLO26N)
+    robot.stop_ai_model(AIModel.YOLO26S)
 ```
 
 The message holds pixels with the frame size, `keypoint_names`/`keypoint_x`/`keypoint_y` and `scalar_names`/`scalar_values`; see [the robot backend reference](../api/backends/robot.md#ai-detection).
@@ -522,19 +522,19 @@ def watch(robot, seconds, read, describe):
 
 with Robot(host="192.168.178.71") as robot:
     print("OBJECT DETECTION")
-    if robot.ai.set_model(AIModel.YOLO26N):
+    if robot.ai.set_model(AIModel.YOLO26S):
         watch(robot, 5, robot.ai.get_detections,
               lambda d: f"{d.label} ({d.confidence:.2f})")
 
     print("POSE ESTIMATION")
-    if robot.ai.set_model(AIModel.POSE_YOLO):          # stops YOLO26N first
+    if robot.ai.set_model(AIModel.POSE_YOLO):          # stops YOLO26S first
         watch(robot, 5, robot.ai.get_poses,
               lambda p: f"nose at ({p.nose.x:.2f}, {p.nose.y:.2f})")
 
     print("BOTH AT ONCE")
-    if robot.ai.start_model(AIModel.YOLO26N):          # POSE_YOLO keeps running
+    if robot.ai.start_model(AIModel.YOLO26S):          # POSE_YOLO keeps running
         time.sleep(3)
-        print("  objects:", len(robot.ai.get_detections(latest_only=True, model=AIModel.YOLO26N)))
+        print("  objects:", len(robot.ai.get_detections(latest_only=True, model=AIModel.YOLO26S)))
         print("  people: ", len(robot.ai.get_poses(latest_only=True, model=AIModel.POSE_YOLO)))
 # leaving the with-block releases every model this script started
 ```
@@ -552,7 +552,7 @@ from pib3 import AIModel, Joint, Robot
 
 def track_person(robot, duration=30):
     """Turn the head toward a person for ``duration`` seconds."""
-    if not robot.ai.set_model(AIModel.YOLO26N):
+    if not robot.ai.set_model(AIModel.YOLO26S):
         print("The robot did not start the model")
         return
 
@@ -642,9 +642,10 @@ with Robot(host="192.168.178.71") as robot:
 
 ### AI Inference Slow
 
-1. The models run on the camera, but the robot's Raspberry Pi receives and parses the results; pib-backend measured about half the rate of a laptop for the same model (11 versus 21.5 results/s for YOLOv6n), most likely because of that host side
-2. Several models at once share the camera's 16 cores and its USB link; `robot.ai.fps` shows the current model
-3. Reduce camera resolution
+1. The models and their parsers run on the camera; the robot's Raspberry Pi converts and forwards each result. `YOLO26S` delivers about 12 results/s on the camera itself; `YOLO26N` about twice that, less accurately
+2. Video to the laptop costs the Pi more than the results do: every frame is JPEG-encoded and sent as text while something subscribes to the camera image
+3. Several models at once share the camera's 16 cores and its USB link; `robot.ai.fps` shows the current model
+4. Reduce camera resolution
 
 ### IMU Data Issues
 

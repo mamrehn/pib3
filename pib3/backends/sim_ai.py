@@ -93,10 +93,12 @@ def rle_encode(mask: np.ndarray) -> Dict[str, Any]:
 #: (``yolov6n``, ``yolo11n``, ``pose`` …) are resolved through
 #: :data:`pib3.types.DEPRECATED_MODEL_ALIASES` first, as on the robot.
 SIM_MODEL_ALIASES: Dict[str, str] = {
-    # Detection — the robot runs YOLO26n as well (its own RVC2 build).
+    # Detection — the robot runs the same YOLO26 sizes (its own RVC2 builds).
+    AIModel.YOLO26S.value: "yolo26s.pt",
     AIModel.YOLO26N.value: "yolo26n.pt",
     # Pose — both sides are YOLO26 with 17 COCO keypoints.
-    AIModel.POSE_YOLO.value: "yolo26n-pose.pt",
+    AIModel.POSE_YOLO.value: "yolo26s-pose.pt",
+    AIModel.POSE_YOLO26N.value: "yolo26n-pose.pt",
     # Hand — handled by MediaPipe, not ultralytics (see MediaPipeHands).
     AIModel.HAND.value: "hand",
     "hand_tracking": "hand",
@@ -108,14 +110,16 @@ SIM_MODEL_ALIASES: Dict[str, str] = {
 #: pose and QR models, and names of models the robot no longer has.
 UNSUPPORTED_IN_SIM = (
     {m.value for m in AIModel} - set(SIM_MODEL_ALIASES)
-) | {"gaze", "lines", "person"}
+) | {"gaze", "lines", "person", "facemesh_crop", "facial_landmarks_68_crop"}
 
 
 def simulated_models() -> Dict[str, str]:
     """Model ids the simulation can run, mapped to their task."""
     return {
+        AIModel.YOLO26S.value: "object_detection",
         AIModel.YOLO26N.value: "object_detection",
         AIModel.POSE_YOLO.value: "pose_estimation",
+        AIModel.POSE_YOLO26N.value: "pose_estimation",
         AIModel.HAND.value: "hand_tracking",
         "segmentation": "instance_segmentation",   # simulation only
     }
@@ -138,7 +142,9 @@ class SimInference:
 class _UltralyticsBase(SimInference):
     """Shared loading and box conversion for ultralytics models."""
 
-    def __init__(self, weights: str, conf: float = 0.25):
+    # conf 0.5 is the threshold of the robot's YOLO archives, so a scene shows
+    # the same boxes in Webots as at a station.
+    def __init__(self, weights: str, conf: float = 0.5):
         try:
             from ultralytics import YOLO
         except ImportError as exc:
@@ -167,7 +173,9 @@ class _UltralyticsBase(SimInference):
         return self._net(bgr, conf=self._conf, verbose=False, **self._extra)
 
     @staticmethod
-    def _detection(box, names: dict, keypoints=(), mask_rle=None) -> dict:
+    def _detection(
+        box, names: dict, keypoints=(), mask_rle=None, keypoint_scores=None
+    ) -> dict:
         """One ultralytics box -> the robot's ``Detection`` dict (pixels)."""
         x1, y1, x2, y2 = (float(v) for v in box.xyxy[0].tolist())
         return make_detection(
@@ -176,6 +184,7 @@ class _UltralyticsBase(SimInference):
             box=(x1, y1, x2, y2),
             keypoints=keypoints,
             mask_rle=mask_rle,
+            keypoint_scores=keypoint_scores,
         )
 
 
@@ -228,12 +237,16 @@ class UltralyticsPose(_UltralyticsBase):
                 continue
 
             xy = kps.xy.cpu().numpy()                      # (n, 17, 2) pixels
+            conf = kps.conf.cpu().numpy() if kps.conf is not None else None
             for i in range(min(len(xy), len(boxes))):
                 keypoints = [
                     (name, float(x), float(y))
                     for name, (x, y) in zip(COCO_KEYPOINT_NAMES, xy[i])
                 ]
-                detections.append(self._detection(boxes[i], names, keypoints))
+                scores = None if conf is None else conf[i].tolist()
+                detections.append(
+                    self._detection(boxes[i], names, keypoints, keypoint_scores=scores)
+                )
         return detections
 
 

@@ -20,34 +20,37 @@ class AIModel(str, Enum):
 
     The values are the model ids the backend lists in ``/list_models`` and
     that cerebra shows, so ``robot.ai.model`` and the web interface name the
-    same thing. Start one with ``robot.ai.set_model(AIModel.YOLO26N)``; the
+    same thing. Start one with ``robot.ai.set_model(AIModel.YOLO26S)``; the
     robot answers with ``/start_model`` and publishes the results on
     ``detections/<model_id>``.
 
     Use the enum rather than a bare string for IDE completion:
         >>> robot.ai.set_model(AIModel.HAND)
-        >>> robot.ai.set_model(AIModel.YOLO26N)
+        >>> robot.ai.set_model(AIModel.YOLO26S)
 
     Any other model id the robot lists (``robot.get_available_ai_models()``)
     works as a plain string, for example ``"yolov6n_coco_640x640"``.
 
-    ``YOLO26N`` and ``POSE_YOLO`` are YOLO26 builds (Ultralytics, AGPL-3.0) at
-    512x288, the camera's 16:9. The robot's model store must contain them;
-    the stock store does not yet (see ``models/README.md`` of the pib-backend
-    branch that adds them). ``set_model`` then reports that the robot does not
+    The YOLO26 models are Ultralytics builds (AGPL-3.0) at 512x288, the
+    camera's 16:9. The small (s) ones are the default: clearly more accurate,
+    at about 12 results per second on the camera. The nano (n) ones are about
+    twice as fast and stay as a fallback. The robot's model store must contain
+    them: pib-backend's b3 fork (branch ``b3-develop``) provisions them from its
+    model release; otherwise ``set_model`` reports that the robot does not
     list the model.
     """
 
-    # Object detection, 80 COCO classes
+    # Object detection, 80 COCO classes: small (default) and nano (faster)
+    YOLO26S = "yolo26s_coco_512x288"
     YOLO26N = "yolo26n_coco_512x288"
-    # Body pose, 17 COCO keypoints
-    POSE_YOLO = "yolo26n_pose_coco_512x288"
+    # Body pose, a person box with 17 COCO keypoints: small (default) and nano
+    POSE_YOLO = "yolo26s_pose_coco_512x288"
+    POSE_YOLO26S = "yolo26s_pose_coco_512x288"  # same model as POSE_YOLO
+    POSE_YOLO26N = "yolo26n_pose_coco_512x288"
     # Hand landmarks, 21 points per hand (MediaPipe landmarker)
     HAND = "hand_tracking_mp"
-    # Faces: boxes, 468-point mesh, 68 landmarks, emotion, head pose
+    # Faces: boxes, emotion, head pose
     FACE = "face_detection_yunet_160x120"
-    FACE_MESH = "facemesh_crop"
-    FACE_LANDMARKS = "facial_landmarks_68_crop"
     EMOTION = "emotion_recognition_crop"
     HEAD_POSE = "head_pose_estimation_crop"
     # QR codes
@@ -59,19 +62,21 @@ class AIModel(str, Enum):
 #: the simulation remaps these and emits a DeprecationWarning, so old scripts
 #: keep working.
 #:
-#: All older YOLO detectors give way to YOLO26n, a drop-in replacement (same
-#: COCO class ids). ``"segmentation"`` stays a simulation-only name: the robot
-#: has no segmentation model, and the simulation runs YOLO26n-seg for it.
+#: Older YOLO detectors give way to YOLO26 of the same size class (same COCO
+#: class ids): nano names to YOLO26n, the rest to the default YOLO26s.
+#: ``"segmentation"`` stays a simulation-only name: the robot has no
+#: segmentation model, and the simulation runs YOLO26n-seg for it.
 DEPRECATED_MODEL_ALIASES = MappingProxyType({
     "yolo26n": AIModel.YOLO26N.value,
+    "yolo26s": AIModel.YOLO26S.value,
     "yolov6n": AIModel.YOLO26N.value,
     "yolov10n": AIModel.YOLO26N.value,
-    "mobilenet-ssd": AIModel.YOLO26N.value,
     "yolov8n": AIModel.YOLO26N.value,
     "yolo11n": AIModel.YOLO26N.value,
-    "yolo11s": AIModel.YOLO26N.value,
+    "yolo11s": AIModel.YOLO26S.value,
+    "mobilenet-ssd": AIModel.YOLO26S.value,
     "pose_yolo": AIModel.POSE_YOLO.value,
-    "pose_yolov8": AIModel.POSE_YOLO.value,
+    "pose_yolov8": AIModel.POSE_YOLO26N.value,
     "pose_hrnet": AIModel.POSE_YOLO.value,
     "pose": AIModel.POSE_YOLO.value,
     "hand": AIModel.HAND.value,
@@ -80,7 +85,6 @@ DEPRECATED_MODEL_ALIASES = MappingProxyType({
     "yolov8n-seg": "segmentation",
     "fastsam": "segmentation",
 })
-
 
 def resolve_model_name(model: Union["AIModel", str], stacklevel: int = 2) -> str:
     """
