@@ -4,8 +4,8 @@
 
 ### pib-backend's b3 fork: YOLO26s by default, keypoint confidence
 
-pib3 now targets `mamrehn/pib-backend`, branch `b3-develop`: pib-rocks'
-`develop` plus the YOLO26 models, keypoint confidences, a latency fix for the
+pib3 now targets `mamrehn/pib-backend`, branch `develop` (the same commit as
+`b3-develop`): pib-rocks' `develop` plus the YOLO26 models, keypoint confidences, a latency fix for the
 YOLO detectors and the `/audio_playback` topic. Its model release carries the
 blobs.
 
@@ -106,9 +106,15 @@ topic per model). pib3 used the interface of an older backend branch
 
 What this needs and what is not verified:
 
-- The robot must run pib-backend `develop`. The YOLO26 models are not in its
-  model store; a branch that adds them is prepared, and a robot without them
-  answers `set_model(AIModel.YOLO26N)` with `False` and a list of what it has.
+- The robot must run `mamrehn/pib-backend` `develop` at e40178af or newer, with
+  its model release installed (`./setup/setup-pib.sh --models`), and update in
+  the develop channel; the release channel installs pib-rocks' releases, which
+  lack the YOLO26 models. Older commits of the fork have a `hand_tracking_fast`
+  that cannot run on the camera. A robot without a model answers
+  `set_model(...)` with `False` and a list of what it has.
+- pib3 does not need cerebra. `mamrehn/cerebra` `develop` draws the YOLO26 pose
+  skeleton, hides the keypoints the model scores as not visible and names the
+  YOLO26 models in its model list.
 - Nothing here was run against a robot's camera node. Tested: the parsers with
   messages built by the backend's own code, the service and topic calls with a
   fake rosbridge, the models on an OAK-D Lite on a laptop. The hand chain
