@@ -100,7 +100,7 @@ AudioInput.ROBOT    # Record from robot's microphone array
 
 - **Real Robot**: Default is `AudioInput.ROBOT`
   - `LOCAL`: Records from your laptop/computer microphone
-  - `ROBOT`: Records from robot via `/audio_input` ROS topic
+  - `ROBOT`: Records from robot via the `/audio_stream` ROS topic
 
 - **Webots Simulation**: Default is `AudioInput.LOCAL`
   - `LOCAL`: Records from your laptop/computer microphone
@@ -321,7 +321,7 @@ robot.record_to_file("robot_audio.wav", duration=5.0, input_source=AudioInput.RO
 
 ### Device Management
 
-> **Note:** Device selection only applies to **LOCAL** audio (laptop speakers/microphones). Robot audio uses fixed ROS topics (`/audio_playback` for output, `/audio_input` for input) with no device selection.
+> **Note:** Device selection only applies to **LOCAL** audio (laptop speakers/microphones). Robot audio uses fixed ROS topics (`/audio_playback` for output, `/audio_stream` for input) with no device selection.
 
 #### `get_audio_output_devices()`
 
@@ -568,27 +568,31 @@ receiver = AudioStreamReceiver(
 
 ---
 
-## ROS Topics
+## ROS Topics and Services
 
-The audio system uses the following ROS topics for communication with the robot:
+The audio system talks to the robot through these topics and services (see
+[Robot ROS Interface](../architecture/robot-interface.md) for the connection).
+All audio is signed 16-bit mono PCM in a `std_msgs/msg/Int16MultiArray`; the
+message has no rate field, so the rate is fixed per topic.
 
-### `/audio_playback`
+| Name | Kind | Direction | Format |
+|------|------|-----------|--------|
+| `/audio_playback` | topic | client → robot | 44.1 kHz; played at once, consecutive messages without gaps |
+| `/audio_stream` | topic | robot → client | 16 kHz (the robot falls back to its microphone's own rate if it lacks 16 kHz), 1024 samples per message |
+| `/play_audio_from_speech` | service | client → robot | text to speech on the robot |
+| `/play_audio_from_file` | service | client → robot | plays a WAV file that is already on the robot |
 
-**Type:** `std_msgs/msg/Int16MultiArray`
-**Direction:** Client → Robot
-**Purpose:** Send audio data to robot for playback through speakers
+pib3 resamples to 44.1 kHz before it publishes to `/audio_playback`
+(`ROBOT_PLAYBACK_SAMPLE_RATE`); audio sent at another rate plays too fast or
+too slow.
 
-### `/audio_input`
-
-**Type:** `std_msgs/msg/Int16MultiArray`
-**Direction:** Robot → Client
-**Purpose:** Stream audio from robot's microphone array to client
-
-### `/audio_stream`
-
-**Type:** `std_msgs/msg/Int16MultiArray`
-**Direction:** Robot → Client
-**Purpose:** Legacy topic for audio streaming (use `/audio_input` for new code)
+`/play_audio_from_speech` (`datatypes/srv/PlayAudioFromSpeech`) takes `speech`
+(the text), `gender`, `language`, `join` (wait until playback has finished)
+and `tts_engine` (empty selects the robot's local voice).
+`/play_audio_from_file` (`datatypes/srv/PlayAudioFromFile`) takes `filepath`,
+an absolute path **on the robot**, and `join`. There is no way to upload a file
+to the robot; to play your own audio, stream it to `/audio_playback`, which is
+what `AudioOutput.ROBOT` does.
 
 ---
 
@@ -808,7 +812,7 @@ Voice models are downloaded automatically on first use (~20-50MB per voice).
 1. Check if input device is available: `robot.get_audio_input_devices()`
 2. Verify microphone permissions (especially on macOS)
 3. Try selecting a specific device: `robot.set_audio_input_device(0)`
-4. For robot recording, ensure `/audio_input` topic is publishing
+4. For robot recording, ensure the `/audio_stream` topic is publishing
 
 ---
 

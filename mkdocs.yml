@@ -130,6 +130,7 @@ nav:
       - Overview: architecture/overview.md
       - Coordinate Systems: architecture/coordinates.md
       - Unit Conventions: architecture/units.md
+      - Robot ROS Interface: architecture/robot-interface.md
   - Contributing:
       - How to Contribute: contributing/index.md
       - Development Setup: contributing/development.md

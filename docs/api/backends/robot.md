@@ -417,8 +417,8 @@ Calls `/list_models`. Only models with `available: True` can be started. Empty i
 ### start_ai_model() / stop_ai_model()
 
 ```python
-def start_ai_model(model, shaves: int = 0, timeout: float = 30.0) -> Tuple[bool, str]
-def stop_ai_model(model, timeout: float = 30.0) -> Tuple[bool, str]
+def start_ai_model(model, shaves: int = 0, timeout: float = 90.0) -> Tuple[bool, str]
+def stop_ai_model(model, timeout: float = 90.0) -> Tuple[bool, str]
 ```
 
 Call `/start_model` and `/stop_model` as `ai_owner` and return `(success, message)`. The message says why a start failed ("Unknown model", "Model is unavailable", ...). `shaves=0` takes the number the model was compiled for.
@@ -431,7 +431,7 @@ robot.stop_ai_model(AIModel.HAND)
 ```
 
 !!! note
-    A start rebuilds the camera pipeline and can take longer than rosbridge waits for a service answer. When the call gets no answer, `start_ai_model` asks `/list_models` whether the model runs and counts it as started if it does. A stop that gets no answer is reported as failed although the robot may still stop the model; `/models_status` shows the truth.
+    A start rebuilds the camera pipeline, which takes longer than the 5 s rosbridge waits by default, so pib3 asks rosbridge to wait `timeout` seconds (90 by default). When the call still gets no answer, `start_ai_model` asks `/list_models` whether the model runs and counts it as started if it does. A stop that gets no answer is reported as failed although the robot may still stop the model; `/models_status` shows the truth.
 
 ### set_ai_model()
 
@@ -674,10 +674,10 @@ See the [Low-Latency Tutorial](../../tutorials/low-latency-mode.md) for complete
 
 | Topic/Service | Purpose |
 |---------------|---------|
-| `/motor_current` | Joint position feedback |
+| `/joint_trajectory` | Joint position feedback |
 | `/apply_joint_trajectory` | Motor commands |
 
-Commands use ROS2 JointTrajectory format with positions in centidegrees.
+Commands use ROS2 JointTrajectory format with positions in centidegrees. Every topic and service pib3 uses, with message layouts, is in [Robot ROS Interface](../../architecture/robot-interface.md).
 
 ---
 
@@ -688,4 +688,4 @@ Commands use ROS2 JointTrajectory format with positions in centidegrees.
 | Connection refused | Rosbridge not running | `ros2 launch rosbridge_server rosbridge_websocket_launch.xml` |
 | Connection timeout | Wrong IP or network issue | `ping <ip>`, increase `timeout` parameter |
 | Joint not moving | Limits not calibrated | [Calibrate](../../getting-started/calibration.md) or use `unit="rad"` |
-| `get_joint` returns None | ROS message timeout | Increase `timeout`, verify `/motor_current` topic |
+| `get_joint` returns None | ROS message timeout | Increase `timeout`, verify the `/joint_trajectory` topic |
