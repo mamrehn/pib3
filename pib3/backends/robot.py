@@ -2509,18 +2509,33 @@ class RealRobotBackend(RobotBackend):
     ) -> Tuple[bool, str, bool]:
         """Call /start_model or /stop_model.
 
+        The camera answers only after it has rebuilt its pipeline and seen a
+        result, which takes longer than the 5 s rosbridge waits by default.
+        roslibpy's ``Service.call`` cannot change that, so the request is sent
+        with rosbridge's ``timeout`` field set to ``timeout``.
+
         Returns:
             ``(success, message, answered)``. ``answered`` is False when the
-            call itself failed: rosbridge gives up on a service after about
-            5 s and a pipeline rebuild takes longer, so the robot may still
-            have done what was asked. Callers then check what it reports.
+            call itself failed, for example after ``timeout`` or on an older
+            rosbridge that ignores the field: the robot may still have done
+            what was asked. Callers then check what it reports.
         """
         if not self.is_connected:
             raise ConnectionError("Not connected to robot")
 
         service = roslibpy.Service(self._client, name, srv_type)
+        message = roslibpy.Message({
+            'op': 'call_service',
+            'id': f'call_service:{name}:{service.ros.id_counter}',
+            'service': name,
+            'args': dict(request),
+            'timeout': float(timeout),
+        })
         try:
-            result = service.call(roslibpy.ServiceRequest(request), timeout=timeout)
+            reply = service.ros.call_sync_service(message, timeout)
+            if 'exception' in reply:
+                raise RuntimeError(reply['exception'])
+            result = reply['result']
         except Exception as e:
             return False, f"{name} service call failed: {e}", False
         return bool(result.get('success', False)), str(result.get('message', '')), True
@@ -2540,7 +2555,7 @@ class RealRobotBackend(RobotBackend):
         self,
         model: Union[AIModel, str],
         shaves: int = 0,
-        timeout: float = 30.0,
+        timeout: float = 90.0,
     ) -> Tuple[bool, str]:
         """
         Ask the robot to run a model (``/start_model``), as :attr:`ai_owner`.
@@ -2587,7 +2602,7 @@ class RealRobotBackend(RobotBackend):
     def stop_ai_model(
         self,
         model: Union[AIModel, str],
-        timeout: float = 30.0,
+        timeout: float = 90.0,
     ) -> Tuple[bool, str]:
         """
         Release :attr:`ai_owner`'s hold on a model (``/stop_model``).
@@ -2611,7 +2626,7 @@ class RealRobotBackend(RobotBackend):
     def set_ai_model(
         self,
         model: Union[AIModel, str],
-        timeout: float = 30.0,
+        timeout: float = 90.0,
     ) -> bool:
         """
         Run this model and none of the others this client started.

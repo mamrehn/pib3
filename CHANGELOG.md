@@ -26,6 +26,13 @@ blobs.
   `detections/hand_tracking_fast` and sends the same hand message. The robot
   no longer lists `hand_tracking_mp`, the old value; it still starts as a
   string, and the simulation still accepts it.
+- **Model starts no longer time out after 5 s.** rosbridge gives up on a
+  service call after 5 s unless the call names a timeout, and roslibpy
+  never does; the camera answers only after its rebuild. `/start_model` and
+  `/stop_model` now carry the caller's timeout, and the default for
+  `set_model`, `start_model` and `stop_model` is 90 s, the value
+  pib-backend asks clients for. A robot that never answers still makes
+  pib3 look at `/list_models`, as before.
 - **Withdrawn upstream:** `AIModel.FACE_MESH` and `AIModel.FACE_LANDMARKS`
   are gone; pib-backend took both models off its camera list (PR-1957).
 - **A crashed script's model is released.** `set_model()` also releases this

@@ -58,14 +58,14 @@ Run one model and none of the others this client started.
 ```python
 def set_model(
     model: Union[AIModel, str],
-    timeout: float = 30.0
+    timeout: float = 90.0
 ) -> bool
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `model` | `AIModel` or `str` | *required* | Model to run (enum, or any model id the robot lists) |
-| `timeout` | `float` | `30.0` | Max seconds for each answer of the robot |
+| `timeout` | `float` | `90.0` | Max seconds for each answer of the robot; rosbridge is asked to wait as long |
 
 **Returns:** `True` if the robot reports the model running; `False` if it refused. The reason is logged together with the models the robot offers.
 
@@ -312,9 +312,9 @@ from pib3 import AIModel
 pib-backend withdrew the face mesh (`facemesh_crop`) and the 68 facial landmarks (`facial_landmarks_68_crop`) from its camera model list (PR-1957), so `AIModel` no longer names them.
 
 !!! warning "Hand tracking speed is unknown"
-    `AIModel.HAND` is `hand_tracking_fast`, which replaced the backend's two older hand chains (pib-backend PR-1961). It computes the hand crops on the camera, so no frame waits for the robot's computer; that wait is what held the oldest chain, `hand_tracking`, to **1.0 result/s** on a robot. Nobody has measured `hand_tracking_fast` on a camera yet, pib-backend included. A hand-mirroring program needs several results per second: check `robot.ai.fps` on your robot before relying on it.
+    `AIModel.HAND` is `hand_tracking_fast`, which replaced the backend's two older hand chains (pib-backend PR-1961). It computes the hand crops on the camera, so no frame waits for the robot's computer; that wait is what held the oldest chain, `hand_tracking`, to **1.0 result/s** on a robot. Nobody has measured `hand_tracking_fast` on a camera yet, pib-backend included; its first version could not have run there at all (PR-1970 fixed the tensor access on the device). A hand-mirroring program needs several results per second: check `robot.ai.fps` on your robot before relying on it.
 
-    The older chains `"hand_tracking_mp"` and `"hand_tracking"` still start as strings and publish on the shared topic `detections/hand_tracking`. The robot no longer lists them, so `available_models()` does not show them, and a start that takes longer than rosbridge's 5 s reports `False` even when the model came up.
+    The older chains `"hand_tracking_mp"` and `"hand_tracking"` still start as strings and publish on the shared topic `detections/hand_tracking`. The robot no longer lists them, so `available_models()` does not show them.
 
 Any other model id works as a plain string; `robot.ai.available_models()` lists what the robot has. The model ids and core counts come from the backend's manifest and were not all measured by pib3; `available_models()` reports the numbers the robot itself uses.
 

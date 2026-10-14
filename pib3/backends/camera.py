@@ -1208,7 +1208,7 @@ class AISubsystem:
 
     # --- model lifecycle ------------------------------------------------
 
-    def start_model(self, model: "Union[AIModel, str]", timeout: float = 30.0) -> bool:
+    def start_model(self, model: "Union[AIModel, str]", timeout: float = 90.0) -> bool:
         """
         Start a model without stopping others, and make it the current one.
 
@@ -1265,7 +1265,7 @@ class AISubsystem:
         return True
 
     def stop_model(
-        self, model: "Union[AIModel, str, None]" = None, timeout: float = 30.0
+        self, model: "Union[AIModel, str, None]" = None, timeout: float = 90.0
     ) -> bool:
         """
         Release this client's hold on a model (the current one by default).
@@ -1289,7 +1289,7 @@ class AISubsystem:
         self._release(model_id)
         return ok
 
-    def set_model(self, model: "Union[AIModel, str]", timeout: float = 30.0) -> bool:
+    def set_model(self, model: "Union[AIModel, str]", timeout: float = 90.0) -> bool:
         """
         Run this model and none of the other models started here.
 

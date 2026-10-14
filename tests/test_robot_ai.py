@@ -283,9 +283,12 @@ class FakeTopic:
 class FakeService:
     handlers = {}
     calls = []
+    messages = []     # call_service messages sent through the connection
 
     def __init__(self, client, name, service_type):
         self.name, self.service_type = name, service_type
+        self.ros = types.SimpleNamespace(id_counter=len(FakeService.calls),
+                                         call_sync_service=self._call_sync_service)
 
     def call(self, request, timeout=None):
         FakeService.calls.append((self.name, self.service_type, dict(request), timeout))
@@ -294,12 +297,18 @@ class FakeService:
             raise RuntimeError("service not available")
         return handler(dict(request))
 
+    def _call_sync_service(self, message, timeout):
+        """roslibpy.Ros.call_sync_service: the reply as roslibpy wraps it."""
+        FakeService.messages.append(dict(message))
+        return {"result": self.call(message["args"], timeout=timeout)}
+
 
 @pytest.fixture
 def robot(monkeypatch):
     FakeTopic.created, FakeService.calls, FakeService.handlers = [], [], {}
+    FakeService.messages = []
     fake_roslibpy = types.SimpleNamespace(
-        Topic=FakeTopic, Service=FakeService, ServiceRequest=dict,
+        Topic=FakeTopic, Service=FakeService, ServiceRequest=dict, Message=dict,
     )
     monkeypatch.setattr(robot_module, "roslibpy", fake_roslibpy)
     backend = RealRobotBackend(host="robot.local", motor_mode="ros")
@@ -351,6 +360,34 @@ def test_start_and_stop_send_the_model_id_and_the_owner(robot):
                      {"model_id": "yolo26s_pose_coco_512x288", "shaves": 0,
                       "owner": robot.ai_owner}, 12)
     assert stop[2] == {"model_id": "yolo26s_pose_coco_512x288", "owner": robot.ai_owner}
+
+
+def test_start_and_stop_ask_rosbridge_to_wait_as_long_as_pib3_does(robot):
+    """rosbridge gives up after 5 s unless the call names a timeout."""
+    FakeService.handlers["/start_model"] = lambda r: {"success": True, "message": ""}
+    FakeService.handlers["/stop_model"] = lambda r: {"success": True, "message": ""}
+
+    robot.start_ai_model(AIModel.HAND, timeout=40)
+    robot.stop_ai_model(AIModel.HAND, timeout=20)
+
+    start, stop = FakeService.messages
+    assert start["op"] == "call_service" and start["service"] == "/start_model"
+    assert start["timeout"] == 40.0 and stop["timeout"] == 20.0
+    assert start["args"]["model_id"] == "hand_tracking_fast"
+
+
+def test_a_failure_rosbridge_reports_is_a_call_that_got_no_answer(robot, monkeypatch):
+    """rosbridge answers result=false on its own timeout; roslibpy turns that into
+    an "exception" entry. The robot may still start the model."""
+    robot._MODEL_POLL_INTERVAL = 0.01
+    FakeService.handlers["/list_models"] = lambda r: {"models": [
+        {"model_id": "yolo26n_coco_512x288", "available": True, "active": True}]}
+    monkeypatch.setattr(FakeService, "_call_sync_service", lambda self, message, timeout: {
+        "exception": "Timeout exceeded while waiting for service response"})
+
+    ok, message = robot.start_ai_model(AIModel.YOLO26N, timeout=1)
+
+    assert ok is True and "no answer" in message
 
 
 def test_start_reports_why_the_robot_refused(robot):
