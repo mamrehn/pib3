@@ -2,8 +2,8 @@
 
 ## Requirements
 
-- **Python**: 3.10-3.13, 64-bit. Not 3.14 — `roboticstoolbox-python` publishes no
-  wheels for it yet, so pip would try to compile it from source.
+- **Python**: 3.11-3.14, 64-bit. Not 3.15 — `roboticstoolbox-python` publishes no
+  compiled wheels for it yet; its pure-Python fallback makes the IK about 25x slower.
 - **pip**: Latest version recommended
 - **Git**: Required, since the package is installed from a Git URL
 
@@ -37,9 +37,9 @@ deactivate
 
 ## Windows
 
-1. Install the latest **3.13.x** *Windows installer (64-bit)* from the
+1. Install the latest **3.14.x** *Windows installer (64-bit)* from the
    [Windows downloads page](https://www.python.org/downloads/windows/) - check
-   **"Add python.exe to PATH"**. Do not take the default 3.14 download from the
+   **"Add python.exe to PATH"**. Do not take the default 3.15 download from the
    python.org front page; see [Windows prerequisites](https://github.com/mamrehn/pib3#windows-prerequisites).
 2. Install [Git for Windows](https://git-scm.com/download/win)
 3. Open a **new** PowerShell window:
@@ -49,8 +49,8 @@ deactivate
 mkdir $env:USERPROFILE\pib_project
 cd $env:USERPROFILE\pib_project
 
-# Create and activate virtual environment (py -3.13 pins the interpreter)
-py -3.13 -m venv venv
+# Create and activate virtual environment (py -3.14 pins the interpreter)
+py -3.14 -m venv venv
 .\venv\Scripts\Activate.ps1
 
 # Install pib3
@@ -102,7 +102,7 @@ pip install "pib3[sim] @ git+https://github.com/mamrehn/pib3.git"
 ```bash
 git clone https://github.com/mamrehn/pib3.git
 cd pib3
-python3 -m venv venv          # Windows: py -3.13 -m venv venv
+python3 -m venv venv          # Windows: py -3.14 -m venv venv
 source venv/bin/activate      # Windows: .\venv\Scripts\Activate.ps1
 pip install -e ".[sim,dev]"
 ```
@@ -116,7 +116,7 @@ pip install -e ".[sim,dev]"
 | `pip: command not found` | Use `pip3` or `python3 -m pip install` |
 | `No module named 'pib3'` | Activate venv: `source venv/bin/activate` |
 | Permission errors (Linux) | Use venv or `pip install --user` |
-| `Package 'pib3' requires a different Python` | You are outside 3.10-3.13; see [Windows prerequisites](https://github.com/mamrehn/pib3#windows-prerequisites) |
+| `Package 'pib3' requires a different Python` | You are outside 3.11-3.14; see [Windows prerequisites](https://github.com/mamrehn/pib3#windows-prerequisites) |
 | `Cannot find command 'git'` | Install Git and reopen the terminal |
 | `Microsoft Visual C++ 14.0 or greater is required` | Wrong Python version, not a missing build tool — see [Windows prerequisites](https://github.com/mamrehn/pib3#windows-prerequisites) |
 | PowerShell script error | `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` |

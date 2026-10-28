@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-28)
+
+### Python 3.11 to 3.14 (breaking for 3.10)
+
+`requires-python` is now `>=3.11,<3.15`. Tested on 3.11 and 3.14.
+
+- **3.10 is no longer supported.** It reaches end of life in October 2026;
+  pip refuses to install pib3 0.3.0 on it.
+- **3.14 is supported.** `roboticstoolbox-python` has compiled wheels for it
+  since 1.4.0, the new floor. The docs now send Windows users to 3.14 instead
+  of 3.13.
+- **3.15 stays out.** There pip installs roboticstoolbox's pure-Python wheel,
+  which works but makes the IK about 25x slower.
 
 ### pib-backend's b3 fork: YOLO26s by default, keypoint confidence
 
@@ -63,7 +75,7 @@ blobs.
 The camera node of pib-rocks' `pib-backend` `develop` has its own model
 interface (a model store, `/start_model` with an owner, one `DetectionArray`
 topic per model). pib3 used the interface of an older backend branch
-(`ai_cam_topics`); it now speaks the upstream one. Nothing here is released.
+(`ai_cam_topics`); it now speaks the upstream one.
 
 - **`robot.ai` runs models by id.** `AIModel` values are the model ids of the
   store: `YOLO26S`, `YOLO26N`, `POSE_YOLO`, `POSE_YOLO26N`, `HAND`, `FACE`,
