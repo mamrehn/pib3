@@ -72,8 +72,7 @@ pib3/
 │   └── resources/       # Bundled assets (URDF, STL)
 ├── tests/               # Test files
 ├── docs/                # Documentation
-├── pyproject.toml       # Package configuration
-└── CLAUDE.md            # AI assistant instructions
+└── pyproject.toml       # Package configuration
 ```
 
 ## Development Workflow
